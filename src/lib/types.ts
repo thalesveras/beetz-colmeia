@@ -69,6 +69,8 @@ export interface Profile {
   created_at: string
 }
 
+export type ContractStatus = 'Rascunho' | 'Aguardando assinatura' | 'Assinado' | 'Recusado'
+
 export interface EventItem {
   id: string
   name: string
@@ -94,6 +96,57 @@ export interface EventItem {
   commission_percentage: number
   credits_bonus: number
   repasses: number
+  // Portal do produtor / contrato via ZapSign
+  producer_id: string | null
+  contract_status: ContractStatus
+  zapsign_doc_token: string | null
+  zapsign_signer_token: string | null
+  zapsign_sign_url: string | null
+  signed_file_url: string | null
+  contract_signed_at: string | null
+}
+
+// ---------- Portal do produtor (conta externa, fora da equipe Beetz) ----------
+export interface Producer {
+  id: string
+  name: string
+  company_name: string | null
+  cpf_cnpj: string | null
+  phone: string | null
+  email: string
+  created_at: string
+}
+
+export interface ServiceModality {
+  id: string
+  name: string
+  description: string | null
+  requires_staffing: boolean
+  requires_products: boolean
+  unit_label: string
+  sort_order: number
+  created_at: string
+}
+
+export interface EventModality {
+  id: string
+  event_id: string
+  modality_id: string
+  quantity: number
+  unit_price: number
+  total: number
+  notes: string | null
+  created_at: string
+}
+
+export interface EventStaffingRequirement {
+  id: string
+  event_id: string
+  role_label: string
+  quantity: number
+  unit_cost: number | null
+  notes: string | null
+  created_at: string
 }
 
 export interface EventMember {

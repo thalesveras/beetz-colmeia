@@ -1,18 +1,19 @@
 import { isDemoMode, supabase } from './supabaseClient'
 import {
   mockAppSettings, mockBadgeDefConfigs, mockBadges, mockCashierSettlements, mockCompliments,
-  mockDepartments, mockEventMembers, mockEventProducts, mockEvents, mockExpenseCategories,
-  mockExpenses, mockHiveLevelConfigs, mockHoneyPoints, mockPaymentMethods,
-  mockProductionConsumption, mockProducts, mockProfiles, mockRolePermissions, mockStockLocations,
-  mockStockMovements, mockSuppliers, mockTransferRequests
+  mockDepartments, mockEventMembers, mockEventModalities, mockEventProducts, mockEvents,
+  mockEventStaffingRequirements, mockExpenseCategories, mockExpenses, mockHiveLevelConfigs,
+  mockHoneyPoints, mockPaymentMethods, mockProducers, mockProductionConsumption, mockProducts,
+  mockProfiles, mockRolePermissions, mockServiceModalities, mockStockLocations, mockStockMovements,
+  mockSuppliers, mockTransferRequests
 } from './mockData'
 import { badgesFromStats, getHiveLevel } from './levels'
 import type {
   AppSettings, Badge, BadgeDefConfig, CashierSettlement, Compliment, Department, EventFinancialSummary,
-  EventItem, EventMember, EventProduct, Expense, ExpenseCategory, HiveLevelConfig, HoneyPoint,
-  MovementType, PaymentMethodOption, Product, ProductionConsumption, Profile, ProfileStats,
-  RolePermissions, StockBalance, StockLocation, StockMovement, Supplier, TransferRequest,
-  TransferRequestStatus
+  EventItem, EventMember, EventModality, EventProduct, EventStaffingRequirement, Expense,
+  ExpenseCategory, HiveLevelConfig, HoneyPoint, MovementType, PaymentMethodOption, Product,
+  ProductionConsumption, Producer, Profile, ProfileStats, RolePermissions, ServiceModality,
+  StockBalance, StockLocation, StockMovement, Supplier, TransferRequest, TransferRequestStatus
 } from './types'
 
 // ---------- Estado em memória para o modo demonstração ----------
@@ -38,7 +39,11 @@ const demoState = {
   suppliers: [...mockSuppliers],
   eventProducts: [...mockEventProducts],
   productionConsumption: [...mockProductionConsumption],
-  transferRequests: [...mockTransferRequests]
+  transferRequests: [...mockTransferRequests],
+  producers: [...mockProducers],
+  serviceModalities: [...mockServiceModalities],
+  eventModalities: [...mockEventModalities],
+  eventStaffingRequirements: [...mockEventStaffingRequirements]
 }
 
 function uid(prefix: string) {
@@ -171,7 +176,9 @@ const eventResumoDefaults = {
   producer_name: null, producer_auth_email: null, producer_auth_email_secondary: null,
   address: null, start_time: null, end_date: null, end_time: null, link: null,
   music_style: null, flyer_url: null, sales_amount: 0, commission_percentage: 0,
-  credits_bonus: 0, repasses: 0
+  credits_bonus: 0, repasses: 0,
+  producer_id: null, contract_status: 'Rascunho' as const, zapsign_doc_token: null,
+  zapsign_signer_token: null, zapsign_sign_url: null, signed_file_url: null, contract_signed_at: null
 }
 
 export async function createEvent(event: NewEventInput): Promise<EventItem> {
@@ -841,4 +848,183 @@ export async function getEventFinancialSummary(eventId: string): Promise<EventFi
     despesas, custoProdutos, consumoProducao, vendas, percentual, aReceber,
     creditosOuBonificacoes, repasses, saldoAReceberDaProdutora, lucroOuPerda
   }
+}
+
+// ---------- Portal do produtor: contas ----------
+export async function getProducerById(id: string): Promise<Producer | null> {
+  if (isDemoMode) return demoState.producers.find((p) => p.id === id) ?? null
+  const { data, error } = await supabase.from('producers').select('*').eq('id', id).maybeSingle()
+  if (error) throw error
+  return data as Producer | null
+}
+
+export async function upsertProducer(producer: Partial<Producer> & { id: string }): Promise<Producer> {
+  if (isDemoMode) {
+    const idx = demoState.producers.findIndex((p) => p.id === producer.id)
+    if (idx >= 0) {
+      demoState.producers[idx] = { ...demoState.producers[idx], ...producer }
+      return demoState.producers[idx]
+    }
+    const blank: Producer = {
+      id: producer.id, name: '', company_name: null, cpf_cnpj: null, phone: null,
+      email: producer.email ?? '', created_at: new Date().toISOString(), ...producer
+    }
+    demoState.producers.push(blank)
+    return blank
+  }
+  const { data, error } = await supabase.from('producers').upsert(producer).select().single()
+  if (error) throw error
+  return data as Producer
+}
+
+// ---------- Eventos vistos/criados pelo produtor ----------
+export async function listEventsForProducer(producerId: string): Promise<EventItem[]> {
+  if (isDemoMode) {
+    return [...demoState.events].filter((e) => e.producer_id === producerId).sort((a, b) => (a.event_date < b.event_date ? 1 : -1))
+  }
+  const { data, error } = await supabase.from('events').select('*').eq('producer_id', producerId).order('event_date', { ascending: false })
+  if (error) throw error
+  return data as EventItem[]
+}
+
+// O produtor monta a proposta sozinho — cria o próprio evento (rascunho) vinculado à sua conta.
+export async function createEventAsProducer(producerId: string, event: NewEventInput): Promise<EventItem> {
+  return createEvent({ ...event, producer_id: producerId, contract_status: 'Rascunho' })
+}
+
+// ---------- Configurações: modalidades de serviço ----------
+export async function listServiceModalities(): Promise<ServiceModality[]> {
+  if (isDemoMode) return [...demoState.serviceModalities].sort((a, b) => a.sort_order - b.sort_order)
+  const { data, error } = await supabase.from('service_modalities').select('*').order('sort_order')
+  if (error) throw error
+  return data as ServiceModality[]
+}
+
+export type NewServiceModalityInput = Omit<ServiceModality, 'id' | 'created_at'>
+
+export async function createServiceModality(input: NewServiceModalityInput): Promise<ServiceModality> {
+  if (isDemoMode) {
+    const modality: ServiceModality = { ...input, id: uid('svc'), created_at: new Date().toISOString() }
+    demoState.serviceModalities.push(modality)
+    return modality
+  }
+  const { data, error } = await supabase.from('service_modalities').insert(input).select().single()
+  if (error) throw error
+  return data as ServiceModality
+}
+
+export async function updateServiceModality(id: string, patch: Partial<NewServiceModalityInput>): Promise<ServiceModality> {
+  if (isDemoMode) {
+    const idx = demoState.serviceModalities.findIndex((m) => m.id === id)
+    if (idx < 0) throw new Error('Modalidade não encontrada')
+    demoState.serviceModalities[idx] = { ...demoState.serviceModalities[idx], ...patch }
+    return demoState.serviceModalities[idx]
+  }
+  const { data, error } = await supabase.from('service_modalities').update(patch).eq('id', id).select().single()
+  if (error) throw error
+  return data as ServiceModality
+}
+
+export async function deleteServiceModality(id: string): Promise<void> {
+  if (isDemoMode) {
+    demoState.serviceModalities = demoState.serviceModalities.filter((m) => m.id !== id)
+    return
+  }
+  const { error } = await supabase.from('service_modalities').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ---------- Modalidades contratadas por evento ----------
+export type NewEventModalityInput = Omit<EventModality, 'id' | 'created_at' | 'total'>
+
+export async function listEventModalities(eventId: string): Promise<EventModality[]> {
+  if (isDemoMode) return demoState.eventModalities.filter((m) => m.event_id === eventId)
+  const { data, error } = await supabase.from('event_modalities').select('*').eq('event_id', eventId).order('created_at')
+  if (error) throw error
+  return data as EventModality[]
+}
+
+export async function createEventModality(input: NewEventModalityInput): Promise<EventModality> {
+  if (isDemoMode) {
+    const total = input.quantity * input.unit_price
+    const record: EventModality = { ...input, id: uid('em'), total, created_at: new Date().toISOString() }
+    demoState.eventModalities.push(record)
+    return record
+  }
+  const { data, error } = await supabase.from('event_modalities').insert(input).select().single()
+  if (error) throw error
+  return data as EventModality
+}
+
+export async function deleteEventModality(id: string): Promise<void> {
+  if (isDemoMode) {
+    demoState.eventModalities = demoState.eventModalities.filter((m) => m.id !== id)
+    return
+  }
+  const { error } = await supabase.from('event_modalities').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ---------- Equipe necessária por evento (definida na proposta) ----------
+export type NewEventStaffingInput = Omit<EventStaffingRequirement, 'id' | 'created_at'>
+
+export async function listEventStaffingRequirements(eventId: string): Promise<EventStaffingRequirement[]> {
+  if (isDemoMode) return demoState.eventStaffingRequirements.filter((s) => s.event_id === eventId)
+  const { data, error } = await supabase.from('event_staffing_requirements').select('*').eq('event_id', eventId).order('created_at')
+  if (error) throw error
+  return data as EventStaffingRequirement[]
+}
+
+export async function createEventStaffingRequirement(input: NewEventStaffingInput): Promise<EventStaffingRequirement> {
+  if (isDemoMode) {
+    const record: EventStaffingRequirement = { ...input, id: uid('esr'), created_at: new Date().toISOString() }
+    demoState.eventStaffingRequirements.push(record)
+    return record
+  }
+  const { data, error } = await supabase.from('event_staffing_requirements').insert(input).select().single()
+  if (error) throw error
+  return data as EventStaffingRequirement
+}
+
+export async function deleteEventStaffingRequirement(id: string): Promise<void> {
+  if (isDemoMode) {
+    demoState.eventStaffingRequirements = demoState.eventStaffingRequirements.filter((s) => s.id !== id)
+    return
+  }
+  const { error } = await supabase.from('event_staffing_requirements').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ---------- Contrato via ZapSign ----------
+// Em modo demo simulamos a criação do documento (não existe ZapSign de verdade
+// pra chamar); em produção isso invoca a Edge Function que fala com a API real.
+export async function requestContractSignature(eventId: string): Promise<{ sign_url: string | null; doc_token: string }> {
+  if (isDemoMode) {
+    const idx = demoState.events.findIndex((e) => e.id === eventId)
+    if (idx < 0) throw new Error('Evento não encontrado')
+    const doc_token = uid('zap')
+    const sign_url = `https://app.zapsign.com.br/verificar/${doc_token}`
+    demoState.events[idx] = {
+      ...demoState.events[idx], contract_status: 'Aguardando assinatura',
+      zapsign_doc_token: doc_token, zapsign_sign_url: sign_url
+    }
+    return { sign_url, doc_token }
+  }
+  const { data, error } = await supabase.functions.invoke('zapsign-create-contract', { body: { event_id: eventId } })
+  if (error) throw error
+  if (data?.error) throw new Error(data.error)
+  return data
+}
+
+// Atalho manual pra Diretoria confirmar a assinatura sem depender do webhook
+// (útil em demo e como plano B enquanto o webhook do ZapSign não está configurado).
+export async function markContractSigned(eventId: string): Promise<void> {
+  const patch = { contract_status: 'Assinado' as const, contract_signed_at: new Date().toISOString() }
+  if (isDemoMode) {
+    const idx = demoState.events.findIndex((e) => e.id === eventId)
+    if (idx >= 0) demoState.events[idx] = { ...demoState.events[idx], ...patch }
+    return
+  }
+  const { error } = await supabase.from('events').update(patch).eq('id', eventId)
+  if (error) throw error
 }

@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react'
-import { Plus, X, Save, Settings as SettingsIcon } from 'lucide-react'
+import { Plus, X, Save, Settings as SettingsIcon, Trash2 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useConfig } from '../contexts/ConfigContext'
 import { ACCESS_ROLE_LABELS, canManageUsers, type AccessRole } from '../lib/permissions'
 import {
-  createExpenseCategory, createPaymentMethod, deleteExpenseCategory, deletePaymentMethod,
-  listBadgeDefsConfig, listExpenseCategories, listHiveLevelsConfig, listPaymentMethods,
-  listRolePermissions, updateAppSettings, updateBadgeDef, updateHiveLevel, updateRolePermission
+  createExpenseCategory, createPaymentMethod, createServiceModality, deleteExpenseCategory,
+  deletePaymentMethod, deleteServiceModality, listBadgeDefsConfig, listExpenseCategories,
+  listHiveLevelsConfig, listPaymentMethods, listRolePermissions, listServiceModalities,
+  updateAppSettings, updateBadgeDef, updateHiveLevel, updateRolePermission, updateServiceModality
 } from '../lib/dataService'
 import type {
-  AppSettings, BadgeDefConfig, ExpenseCategory, HiveLevelConfig, PaymentMethodOption, RolePermissions
+  AppSettings, BadgeDefConfig, ExpenseCategory, HiveLevelConfig, PaymentMethodOption,
+  RolePermissions, ServiceModality
 } from '../lib/types'
 
 const inputClass = 'w-full border border-beetz-dark/15 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
@@ -85,6 +87,7 @@ export default function Settings() {
 
       <RolePermissionsSection onSaved={refreshConfig} />
       <ListsSection />
+      <ModalitiesSection />
       <GamificationSection onSaved={refreshConfig} />
       <BrandSection />
     </div>
@@ -274,6 +277,122 @@ function EditableChipList({
           className="shrink-0 flex items-center gap-1 text-sm font-semibold bg-beetz-dark text-white px-3 py-2 rounded-xl hover:bg-black transition-colors disabled:opacity-50"
         >
           <Plus size={16} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ---------- Modalidades de serviço (usadas no Portal do Produtor) ----------
+function ModalitiesSection() {
+  const [modalities, setModalities] = useState<ServiceModality[]>([])
+  const [loading, setLoading] = useState(true)
+  const [newName, setNewName] = useState('')
+  const [newUnit, setNewUnit] = useState('un')
+  const [saving, setSaving] = useState(false)
+
+  async function load() {
+    setLoading(true)
+    setModalities(await listServiceModalities())
+    setLoading(false)
+  }
+
+  useEffect(() => { load() }, [])
+
+  async function handleAdd() {
+    if (!newName.trim()) return
+    setSaving(true)
+    await createServiceModality({
+      name: newName.trim(), description: null, unit_label: newUnit.trim() || 'un',
+      requires_staffing: false, requires_products: false, sort_order: modalities.length + 1
+    })
+    setNewName(''); setNewUnit('un')
+    await load()
+    setSaving(false)
+  }
+
+  async function handleRemove(id: string) {
+    setSaving(true)
+    await deleteServiceModality(id)
+    await load()
+    setSaving(false)
+  }
+
+  return (
+    <section className={cardClass}>
+      <h2 className="text-lg font-bold mb-1">Modalidades de serviço</h2>
+      <p className="text-sm text-beetz-dark/60 mb-4">
+        O que o produtor pode contratar no Portal do Produtor (ex: serviço completo, máquinas de cartão,
+        aluguel de mesa/grade). Ele pode combinar mais de uma no mesmo evento.
+      </p>
+
+      {loading ? (
+        <p className="text-sm text-beetz-dark/50">Carregando...</p>
+      ) : (
+        <div className="space-y-2 mb-4">
+          {modalities.map((m) => (
+            <ModalityRow key={m.id} modality={m} onSaved={load} onRemove={() => handleRemove(m.id)} disabled={saving} />
+          ))}
+          {modalities.length === 0 && <p className="text-xs text-beetz-dark/40">Nenhuma modalidade cadastrada.</p>}
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <input className={inputClass} placeholder="Nova modalidade (ex: Aluguel de palco)" value={newName} onChange={(e) => setNewName(e.target.value)} />
+        <input className="w-28 border border-beetz-dark/15 rounded-xl px-2 py-2 text-sm" placeholder="unidade" value={newUnit} onChange={(e) => setNewUnit(e.target.value)} />
+        <button
+          onClick={handleAdd} disabled={saving || !newName.trim()}
+          className="shrink-0 flex items-center gap-1 text-sm font-semibold bg-beetz-dark text-white px-3 py-2 rounded-xl hover:bg-black transition-colors disabled:opacity-50"
+        >
+          <Plus size={16} />
+        </button>
+      </div>
+    </section>
+  )
+}
+
+function ModalityRow({ modality, onSaved, onRemove, disabled }: { modality: ServiceModality; onSaved: () => void; onRemove: () => void; disabled: boolean }) {
+  const [description, setDescription] = useState(modality.description ?? '')
+  const [requiresStaffing, setRequiresStaffing] = useState(modality.requires_staffing)
+  const [requiresProducts, setRequiresProducts] = useState(modality.requires_products)
+  const [saving, setSaving] = useState(false)
+  const dirty = description !== (modality.description ?? '') || requiresStaffing !== modality.requires_staffing || requiresProducts !== modality.requires_products
+
+  async function handleSave() {
+    setSaving(true)
+    await updateServiceModality(modality.id, { description: description || null, requires_staffing: requiresStaffing, requires_products: requiresProducts })
+    await onSaved()
+    setSaving(false)
+  }
+
+  return (
+    <div className="bg-beetz-gray rounded-xl p-3 space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-semibold text-sm min-w-[160px]">{modality.name}</span>
+        <span className="text-xs text-beetz-dark/50">unidade: {modality.unit_label}</span>
+        <div className="flex-1" />
+        <button onClick={onRemove} disabled={disabled} className="text-beetz-dark/40 hover:text-red-600 p-1.5 rounded-lg hover:bg-beetz-dark/5">
+          <Trash2 size={14} />
+        </button>
+      </div>
+      <input
+        className="w-full border border-beetz-dark/15 rounded-lg px-2 py-1.5 text-sm"
+        value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Descrição (aparece pro produtor)"
+      />
+      <div className="flex flex-wrap items-center gap-4">
+        <label className="flex items-center gap-1.5 text-xs text-beetz-dark/70">
+          <input type="checkbox" checked={requiresStaffing} onChange={(e) => setRequiresStaffing(e.target.checked)} className="accent-beetz-yellow" />
+          Exige equipe (pergunta quantidade de pessoal)
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-beetz-dark/70">
+          <input type="checkbox" checked={requiresProducts} onChange={(e) => setRequiresProducts(e.target.checked)} className="accent-beetz-yellow" />
+          Envolve produtos de bar/cozinha
+        </label>
+        <button
+          onClick={handleSave} disabled={!dirty || saving}
+          className="ml-auto shrink-0 flex items-center gap-1 text-xs font-semibold bg-beetz-dark text-white px-3 py-1.5 rounded-lg hover:bg-black transition-colors disabled:opacity-40"
+        >
+          <Save size={12} /> Salvar
         </button>
       </div>
     </div>

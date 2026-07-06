@@ -15,6 +15,7 @@ import ProductionConsumptionTab from './ProductionConsumptionTab'
 import TransferRequestsTab from './TransferRequestsTab'
 import EventSummaryCard from './EventSummaryCard'
 import FinancialSummaryCard from './FinancialSummaryCard'
+import ContractCard from './ContractCard'
 import { useAuth } from '../../contexts/AuthContext'
 import {
   canApproveEventRequests, canManageUsers, canViewCashierTab, canViewExpensesTab,
@@ -110,7 +111,10 @@ export default function EventDetail() {
       )}
 
       {canViewFinancialSummary(accessRole) && (
-        <FinancialSummaryCard event={event} onEventUpdated={setEvent} />
+        <>
+          <ContractCard event={event} onEventUpdated={setEvent} />
+          <FinancialSummaryCard event={event} onEventUpdated={setEvent} />
+        </>
       )}
 
       <div className="flex gap-1 flex-wrap bg-white rounded-2xl p-1.5 shadow-soft border border-beetz-dark/5 w-fit">

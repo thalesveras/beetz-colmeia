@@ -16,6 +16,12 @@ import Info from './pages/Info'
 import NotFound from './pages/NotFound'
 import OnboardingWizard from './pages/onboarding/OnboardingWizard'
 import ProtectedRoute from './components/ProtectedRoute'
+import ProducerProtectedRoute from './components/ProducerProtectedRoute'
+import ProducerLogin from './pages/producer/ProducerLogin'
+import ProducerOnboarding from './pages/producer/ProducerOnboarding'
+import ProducerDashboard from './pages/producer/ProducerDashboard'
+import ProducerNewProposal from './pages/producer/ProducerNewProposal'
+import ProducerEventDetail from './pages/producer/ProducerEventDetail'
 
 export default function App() {
   return (
@@ -39,6 +45,14 @@ export default function App() {
       <Route path="/configuracoes" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
       <Route path="/ranking" element={<ProtectedRoute><Ranking /></ProtectedRoute>} />
       <Route path="/informacoes" element={<ProtectedRoute><Info /></ProtectedRoute>} />
+
+      <Route path="/produtor/entrar" element={<ProducerLogin />} />
+      <Route path="/produtor/cadastro" element={
+        <ProducerProtectedRoute requireProfile={false}><ProducerOnboarding /></ProducerProtectedRoute>
+      } />
+      <Route path="/produtor" element={<ProducerProtectedRoute><ProducerDashboard /></ProducerProtectedRoute>} />
+      <Route path="/produtor/nova-proposta" element={<ProducerProtectedRoute><ProducerNewProposal /></ProducerProtectedRoute>} />
+      <Route path="/produtor/eventos/:id" element={<ProducerProtectedRoute><ProducerEventDetail /></ProducerProtectedRoute>} />
 
       <Route path="*" element={<NotFound />} />
     </Routes>

@@ -1,8 +1,8 @@
 import type {
   AppSettings, Badge, BadgeDefConfig, CashierSettlement, Compliment, Department, EventItem,
-  EventMember, EventProduct, Expense, ExpenseCategory, HiveLevelConfig, HoneyPoint,
-  PaymentMethodOption, Product, ProductionConsumption, Profile, RolePermissions, StockLocation,
-  StockMovement, Supplier, TransferRequest
+  EventMember, EventModality, EventProduct, EventStaffingRequirement, Expense, ExpenseCategory,
+  HiveLevelConfig, HoneyPoint, PaymentMethodOption, Product, ProductionConsumption, Producer,
+  Profile, RolePermissions, ServiceModality, StockLocation, StockMovement, Supplier, TransferRequest
 } from './types'
 
 export const mockDepartments: Department[] = [
@@ -182,14 +182,17 @@ const eventResumoDefaults = {
   producer_name: null, producer_auth_email: null, producer_auth_email_secondary: null,
   address: null, start_time: null, end_date: null, end_time: null, link: null,
   music_style: null, flyer_url: null, sales_amount: 0, commission_percentage: 0,
-  credits_bonus: 0, repasses: 0
+  credits_bonus: 0, repasses: 0,
+  producer_id: null, contract_status: 'Rascunho' as const, zapsign_doc_token: null,
+  zapsign_signer_token: null, zapsign_sign_url: null, signed_file_url: null, contract_signed_at: null
 }
 
 export const mockEvents: EventItem[] = [
   {
     id: 'e1', name: 'Festival Colmeia de Verão', event_date: '2026-01-18', location: 'Parque Ibirapuera', city: 'São Paulo', status: 'Concluído', leader_id: 'p1', created_at: '2025-11-01T10:00:00Z',
     ...eventResumoDefaults, producer_name: 'Ibirapuera Produções', address: 'Av. Pedro Álvares Cabral, s/n', start_time: '18:00', end_date: '2026-01-19', end_time: '02:00',
-    music_style: 'Eletrônica', sales_amount: 45000, commission_percentage: 15, credits_bonus: 500, repasses: 3000
+    music_style: 'Eletrônica', sales_amount: 45000, commission_percentage: 15, credits_bonus: 500, repasses: 3000,
+    producer_id: 'prod1', contract_status: 'Assinado', zapsign_doc_token: 'demo-doc-e1', signed_file_url: null, contract_signed_at: '2025-11-05T14:00:00Z'
   },
   {
     id: 'e2', name: 'Beetz Night Rooftop', event_date: '2026-06-20', location: 'Edifício Copan Rooftop', city: 'São Paulo', status: 'Concluído', leader_id: 'p6', created_at: '2026-05-01T10:00:00Z',
@@ -322,6 +325,29 @@ export const mockProductionConsumption: ProductionConsumption[] = [
 export const mockTransferRequests: TransferRequest[] = [
   { id: 'tr1', event_id: 'e1', product_id: 'pr2', quantity: 20, from_location_id: 'sl1', to_location_id: 'sl2', requested_by: 'Rafael Lima (Produção)', status: 'Aprovado', notes: 'Reforço de gelo para o bar', created_at: '2026-01-17T09:00:00Z' },
   { id: 'tr2', event_id: 'e1', product_id: 'pr1', quantity: 200, from_location_id: 'sl1', to_location_id: 'sl2', requested_by: 'Rafael Lima (Produção)', status: 'Pendente', notes: 'Copos extras, previsão de casa cheia', created_at: '2026-01-18T08:00:00Z' }
+]
+
+// ---------- Portal do produtor: contas, modalidades e propostas ----------
+export const mockProducers: Producer[] = [
+  { id: 'prod1', name: 'Rafael Lima', company_name: 'Ibirapuera Produções', cpf_cnpj: '12.345.678/0001-90', phone: '(11) 98888-1234', email: 'rafael@ibirapuerapro.com.br', created_at: '2026-01-05T10:00:00Z' }
+]
+
+export const mockServiceModalities: ServiceModality[] = [
+  { id: 'sm1', name: 'Serviço completo', description: 'Equipe da Beetz (garçons, caixas etc.) + produtos de bar/cozinha para o evento.', requires_staffing: true, requires_products: true, unit_label: 'pessoa', sort_order: 1, created_at: '2025-01-01T10:00:00Z' },
+  { id: 'sm2', name: 'Máquinas de cartão + autoatendimento', description: 'Beetz fornece só as máquinas de cartão; o próprio produtor opera o atendimento.', requires_staffing: false, requires_products: false, unit_label: 'máquina', sort_order: 2, created_at: '2025-01-01T10:00:00Z' },
+  { id: 'sm3', name: 'Aluguel de mesa', description: 'Locação de mesas para o evento.', requires_staffing: false, requires_products: false, unit_label: 'mesa', sort_order: 3, created_at: '2025-01-01T10:00:00Z' },
+  { id: 'sm4', name: 'Aluguel de grade', description: 'Locação de grades/isolamento para o evento.', requires_staffing: false, requires_products: false, unit_label: 'grade', sort_order: 4, created_at: '2025-01-01T10:00:00Z' }
+]
+
+export const mockEventModalities: EventModality[] = [
+  { id: 'em1', event_id: 'e1', modality_id: 'sm1', quantity: 1, unit_price: 4500, total: 4500, notes: null, created_at: '2025-11-02T10:00:00Z' },
+  { id: 'em2', event_id: 'e1', modality_id: 'sm4', quantity: 40, unit_price: 25, total: 1000, notes: 'Isolamento da pista principal', created_at: '2025-11-02T10:00:00Z' }
+]
+
+export const mockEventStaffingRequirements: EventStaffingRequirement[] = [
+  { id: 'esr1', event_id: 'e1', role_label: 'Garçom', quantity: 8, unit_cost: 150, notes: null, created_at: '2025-11-02T10:00:00Z' },
+  { id: 'esr2', event_id: 'e1', role_label: 'Caixa', quantity: 3, unit_cost: 150, notes: null, created_at: '2025-11-02T10:00:00Z' },
+  { id: 'esr3', event_id: 'e1', role_label: 'Segurança', quantity: 4, unit_cost: 180, notes: null, created_at: '2025-11-02T10:00:00Z' }
 ]
 
 // ---------- Configurações (perfis de acesso, listas, gamificação, marca) ----------

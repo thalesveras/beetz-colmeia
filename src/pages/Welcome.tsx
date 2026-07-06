@@ -48,7 +48,12 @@ export default function Welcome() {
         </div>
       </div>
 
-      <p className="relative z-10 text-white/30 text-xs mt-16">{appSettings.company_name} Colmeia · feito por abelhas, para abelhas 🍯</p>
+      <p className="relative z-10 text-white/50 text-sm mt-10">
+        É produtor(a) de evento?{' '}
+        <Link to="/produtor/entrar" className="text-beetz-yellow font-semibold underline">Monte sua proposta aqui</Link>
+      </p>
+
+      <p className="relative z-10 text-white/30 text-xs mt-6">{appSettings.company_name} Colmeia · feito por abelhas, para abelhas 🍯</p>
     </div>
   )
 }
