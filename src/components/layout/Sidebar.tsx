@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { Home, Users, UserCircle, Hexagon, CalendarDays, Trophy, Info, LogOut } from 'lucide-react'
+import { Home, Users, UserCircle, Hexagon, CalendarDays, Trophy, Info, LogOut, Package } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import Avatar from '../ui/Avatar'
 
@@ -9,6 +9,7 @@ const links = [
   { to: '/perfil/me', label: 'Meu perfil', icon: UserCircle },
   { to: '/mapa', label: 'Mapa da colmeia', icon: Hexagon },
   { to: '/eventos', label: 'Eventos', icon: CalendarDays },
+  { to: '/estoque', label: 'Estoque', icon: Package },
   { to: '/ranking', label: 'Ranking', icon: Trophy },
   { to: '/informacoes', label: 'Informações', icon: Info }
 ]

@@ -1,4 +1,7 @@
-import type { Badge, Compliment, Department, EventItem, EventMember, HoneyPoint, Profile } from './types'
+import type {
+  Badge, CashierSettlement, Compliment, Department, EventItem, EventMember, Expense,
+  HoneyPoint, Product, Profile, StockLocation, StockMovement
+} from './types'
 
 export const mockDepartments: Department[] = [
   { id: 'd1', name: 'Diretoria', slug: 'diretoria', icon: '👑', description: 'Visão e direção da Beetz' },
@@ -218,4 +221,56 @@ export const mockBadges: Badge[] = [
   { id: 'b1', profile_id: 'p1', badge_type: 'leader_highlight', awarded_at: '2026-01-20T10:00:00Z' },
   { id: 'b2', profile_id: 'p8', badge_type: 'punctuality', awarded_at: '2026-01-20T10:00:00Z' },
   { id: 'b3', profile_id: 'p3', badge_type: 'most_complimented', awarded_at: '2026-01-20T10:00:00Z' }
+]
+
+// ---------- Despesas ----------
+export const mockExpenses: Expense[] = [
+  {
+    id: 'ex1', event_id: 'e1', status: 'Pago', category: 'Transporte', receipt_data: null,
+    payment_method: 'Pix', description: 'Frete de equipamentos de som', quantity: 1, unit_value: 350,
+    dex_fee: 0, total: 350, signature_data: null, repasse_data: null, created_by: 'p2',
+    created_at: '2026-01-17T10:00:00Z'
+  },
+  {
+    id: 'ex2', event_id: 'e1', status: 'Pendente', category: 'Bar', receipt_data: null,
+    payment_method: 'Crédito', description: 'Compra de gelo e limões', quantity: 20, unit_value: 8.5,
+    dex_fee: 4.9, total: 20 * 8.5 + 4.9, signature_data: null, repasse_data: null, created_by: 'p3',
+    created_at: '2026-01-17T14:00:00Z'
+  }
+]
+
+// ---------- Recebimentos (caixas) ----------
+export const mockCashierSettlements: CashierSettlement[] = [
+  {
+    id: 'cs1', event_id: 'e1', profile_id: 'p5', role_type: 'Caixa',
+    cash_amount: 1200, debit_amount: 800, credit_amount: 1500, pix_amount: 900,
+    total: 1200 + 800 + 1500 + 900, commission_amount: 0, notes: null, created_by: 'p5',
+    created_at: '2026-01-18T23:30:00Z'
+  },
+  {
+    id: 'cs2', event_id: 'e1', profile_id: 'p7', role_type: 'Garçom',
+    cash_amount: 300, debit_amount: 150, credit_amount: 400, pix_amount: 250,
+    total: 300 + 150 + 400 + 250, commission_amount: (300 + 150 + 400 + 250) * 0.1, notes: null, created_by: 'p7',
+    created_at: '2026-01-18T23:30:00Z'
+  }
+]
+
+// ---------- Estoque multi-almoxarifado ----------
+export const mockStockLocations: StockLocation[] = [
+  { id: 'sl1', name: 'Estoque Central', description: 'Almoxarifado principal da Beetz', created_at: '2025-01-01T10:00:00Z' },
+  { id: 'sl2', name: 'Estoque Bar', description: 'Estoque usado pelo setor de bar nos eventos', created_at: '2025-01-01T10:00:00Z' },
+  { id: 'sl3', name: 'Estoque Cozinha', description: 'Estoque de insumos de cozinha/produção', created_at: '2025-01-01T10:00:00Z' }
+]
+
+export const mockProducts: Product[] = [
+  { id: 'pr1', name: 'Copo descartável 300ml', unit: 'un', category: 'Bar', created_at: '2025-01-01T10:00:00Z' },
+  { id: 'pr2', name: 'Gelo (saco 5kg)', unit: 'saco', category: 'Bar', created_at: '2025-01-01T10:00:00Z' },
+  { id: 'pr3', name: 'Guardanapo', unit: 'pacote', category: 'Cozinha', created_at: '2025-01-01T10:00:00Z' }
+]
+
+export const mockStockMovements: StockMovement[] = [
+  { id: 'sm1', product_id: 'pr1', stock_location_id: 'sl2', event_id: null, movement_type: 'Entrada', quantity: 2000, notes: 'Compra inicial', created_by: 'p1', created_at: '2025-12-01T10:00:00Z' },
+  { id: 'sm2', product_id: 'pr1', stock_location_id: 'sl2', event_id: 'e1', movement_type: 'Saída', quantity: 600, notes: 'Usado no Festival de Verão', created_by: 'p3', created_at: '2026-01-18T20:00:00Z' },
+  { id: 'sm3', product_id: 'pr2', stock_location_id: 'sl2', event_id: null, movement_type: 'Entrada', quantity: 100, notes: 'Compra inicial', created_by: 'p1', created_at: '2025-12-01T10:00:00Z' },
+  { id: 'sm4', product_id: 'pr2', stock_location_id: 'sl2', event_id: 'e1', movement_type: 'Saída', quantity: 40, notes: 'Usado no Festival de Verão', created_by: 'p3', created_at: '2026-01-18T20:00:00Z' }
 ]

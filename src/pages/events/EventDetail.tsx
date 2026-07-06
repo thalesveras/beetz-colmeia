@@ -3,10 +3,21 @@ import { useParams, Link } from 'react-router-dom'
 import { addEventMember, getEventById, getProfileById, listEventMembers, listProfiles } from '../../lib/dataService'
 import type { EventItem, EventMember, Profile } from '../../lib/types'
 import Avatar from '../../components/ui/Avatar'
+import ExpensesTab from './ExpensesTab'
+import CashierTab from './CashierTab'
+import StockTab from './StockTab'
 
 function formatDate(d: string) {
   return new Date(d + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })
 }
+
+type TabKey = 'equipe' | 'despesas' | 'recebimentos' | 'estoque'
+const tabs: { key: TabKey; label: string }[] = [
+  { key: 'equipe', label: 'Equipe' },
+  { key: 'despesas', label: 'Despesas' },
+  { key: 'recebimentos', label: 'Recebimentos' },
+  { key: 'estoque', label: 'Estoque' }
+]
 
 export default function EventDetail() {
   const { id } = useParams()
@@ -18,6 +29,7 @@ export default function EventDetail() {
   const [allProfiles, setAllProfiles] = useState<Profile[]>([])
   const [pickedProfile, setPickedProfile] = useState('')
   const [roleInput, setRoleInput] = useState('')
+  const [activeTab, setActiveTab] = useState<TabKey>('equipe')
 
   async function load() {
     if (!id) return
@@ -48,7 +60,7 @@ export default function EventDetail() {
   const availableProfiles = allProfiles.filter((p) => !members.some((m) => m.profile_id === p.id))
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="space-y-6 max-w-4xl">
       <Link to="/eventos" className="text-sm text-beetz-dark/50 hover:text-beetz-dark">← Voltar para eventos</Link>
 
       <div className="bg-white rounded-3xl shadow-soft border border-beetz-dark/5 p-6 md:p-8">
@@ -70,38 +82,72 @@ export default function EventDetail() {
         )}
       </div>
 
-      <div className="bg-white rounded-2xl p-6 shadow-soft border border-beetz-dark/5">
-        <h2 className="font-bold mb-4">Quem vai trabalhar junto</h2>
-        {members.length === 0 ? (
-          <p className="text-sm text-beetz-dark/50">Equipe ainda não escalada.</p>
-        ) : (
-          <div className="grid sm:grid-cols-2 gap-3">
-            {members.map((m) => m.profile && (
-              <Link key={m.id} to={`/perfil/${m.profile.id}`} className="flex items-center gap-3 p-3 rounded-xl hover:bg-beetz-gray transition-colors">
-                <Avatar src={m.profile.avatar_url} name={`${m.profile.first_name} ${m.profile.last_name}`} size="md" />
-                <div>
-                  <p className="font-semibold text-sm">{m.profile.first_name} {m.profile.last_name}</p>
-                  <p className="text-xs text-beetz-dark/50">{m.role_in_event}</p>
-                </div>
-              </Link>
-            ))}
-          </div>
-        )}
-
-        <div className="border-t border-beetz-dark/5 mt-5 pt-5 flex flex-col sm:flex-row gap-2">
-          <select value={pickedProfile} onChange={(e) => setPickedProfile(e.target.value)} className="flex-1 rounded-xl border border-beetz-dark/15 text-sm px-3 py-2">
-            <option value="">Escalar colaborador(a)...</option>
-            {availableProfiles.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
-          </select>
-          <input
-            value={roleInput} onChange={(e) => setRoleInput(e.target.value)} placeholder="Função no evento"
-            className="sm:w-48 rounded-xl border border-beetz-dark/15 text-sm px-3 py-2"
-          />
-          <button onClick={handleAddMember} disabled={!pickedProfile} className="bg-beetz-dark text-white font-semibold text-sm px-4 py-2 rounded-xl disabled:opacity-40">
-            Adicionar
+      <div className="flex gap-1 bg-white rounded-2xl p-1.5 shadow-soft border border-beetz-dark/5 w-fit">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setActiveTab(t.key)}
+            className={`px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
+              activeTab === t.key ? 'bg-beetz-dark text-white' : 'text-beetz-dark/60 hover:bg-beetz-gray'
+            }`}
+          >
+            {t.label}
           </button>
-        </div>
+        ))}
       </div>
+
+      {activeTab === 'equipe' && (
+        <div className="bg-white rounded-2xl p-6 shadow-soft border border-beetz-dark/5">
+          <h2 className="font-bold mb-4">Quem vai trabalhar junto</h2>
+          {members.length === 0 ? (
+            <p className="text-sm text-beetz-dark/50">Equipe ainda não escalada.</p>
+          ) : (
+            <div className="grid sm:grid-cols-2 gap-3">
+              {members.map((m) => m.profile && (
+                <Link key={m.id} to={`/perfil/${m.profile.id}`} className="flex items-center gap-3 p-3 rounded-xl hover:bg-beetz-gray transition-colors">
+                  <Avatar src={m.profile.avatar_url} name={`${m.profile.first_name} ${m.profile.last_name}`} size="md" />
+                  <div>
+                    <p className="font-semibold text-sm">{m.profile.first_name} {m.profile.last_name}</p>
+                    <p className="text-xs text-beetz-dark/50">{m.role_in_event}</p>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+
+          <div className="border-t border-beetz-dark/5 mt-5 pt-5 flex flex-col sm:flex-row gap-2">
+            <select value={pickedProfile} onChange={(e) => setPickedProfile(e.target.value)} className="flex-1 rounded-xl border border-beetz-dark/15 text-sm px-3 py-2">
+              <option value="">Escalar colaborador(a)...</option>
+              {availableProfiles.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
+            </select>
+            <input
+              value={roleInput} onChange={(e) => setRoleInput(e.target.value)} placeholder="Função no evento"
+              className="sm:w-48 rounded-xl border border-beetz-dark/15 text-sm px-3 py-2"
+            />
+            <button onClick={handleAddMember} disabled={!pickedProfile} className="bg-beetz-dark text-white font-semibold text-sm px-4 py-2 rounded-xl disabled:opacity-40">
+              Adicionar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'despesas' && (
+        <div className="bg-white rounded-2xl p-6 shadow-soft border border-beetz-dark/5">
+          <ExpensesTab eventId={id} />
+        </div>
+      )}
+
+      {activeTab === 'recebimentos' && (
+        <div className="bg-white rounded-2xl p-6 shadow-soft border border-beetz-dark/5">
+          <CashierTab eventId={id} />
+        </div>
+      )}
+
+      {activeTab === 'estoque' && (
+        <div className="bg-white rounded-2xl p-6 shadow-soft border border-beetz-dark/5">
+          <StockTab eventId={id} />
+        </div>
+      )}
     </div>
   )
 }

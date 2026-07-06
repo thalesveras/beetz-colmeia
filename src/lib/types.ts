@@ -113,3 +113,80 @@ export interface ProfileStats {
   hiveLevel: HiveLevel
   badges: BadgeType[]
 }
+
+export type ExpenseStatus = 'Pendente' | 'Aprovado' | 'Pago' | 'Rejeitado'
+export type PaymentMethod = 'Dinheiro' | 'Débito' | 'Crédito' | 'Pix' | 'Transferência'
+
+export interface Expense {
+  id: string
+  event_id: string
+  status: ExpenseStatus
+  category: string | null
+  receipt_data: string | null
+  payment_method: PaymentMethod | null
+  description: string | null
+  quantity: number
+  unit_value: number
+  dex_fee: number
+  total: number
+  signature_data: string | null
+  repasse_data: string | null
+  created_by: string | null
+  created_at: string
+}
+
+export type CashierRoleType = 'Caixa' | 'Garçom'
+
+export interface CashierSettlement {
+  id: string
+  event_id: string
+  profile_id: string | null
+  role_type: CashierRoleType
+  cash_amount: number
+  debit_amount: number
+  credit_amount: number
+  pix_amount: number
+  total: number
+  commission_amount: number
+  notes: string | null
+  created_by: string | null
+  created_at: string
+}
+
+export interface StockLocation {
+  id: string
+  name: string
+  description: string | null
+  created_at: string
+}
+
+export interface Product {
+  id: string
+  name: string
+  unit: string
+  category: string | null
+  created_at: string
+}
+
+export type MovementType = 'Entrada' | 'Saída'
+
+export interface StockMovement {
+  id: string
+  product_id: string
+  stock_location_id: string
+  event_id: string | null
+  movement_type: MovementType
+  quantity: number
+  notes: string | null
+  created_by: string | null
+  created_at: string
+}
+
+export interface StockBalance {
+  product_id: string
+  product_name: string
+  product_unit: string
+  stock_location_id: string
+  stock_location_name: string
+  balance: number
+}

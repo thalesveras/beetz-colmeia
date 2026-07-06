@@ -1,11 +1,13 @@
 import { isDemoMode, supabase } from './supabaseClient'
 import {
-  mockBadges, mockCompliments, mockDepartments, mockEventMembers,
-  mockEvents, mockHoneyPoints, mockProfiles
+  mockBadges, mockCashierSettlements, mockCompliments, mockDepartments, mockEventMembers,
+  mockEvents, mockExpenses, mockHoneyPoints, mockProducts, mockProfiles, mockStockLocations,
+  mockStockMovements
 } from './mockData'
 import { badgesFromStats, getHiveLevel } from './levels'
 import type {
-  Badge, Compliment, Department, EventItem, EventMember, HoneyPoint, Profile, ProfileStats
+  Badge, CashierSettlement, Compliment, Department, EventItem, EventMember, Expense,
+  HoneyPoint, MovementType, Product, Profile, ProfileStats, StockBalance, StockLocation, StockMovement
 } from './types'
 
 // ---------- Estado em memória para o modo demonstração ----------
@@ -16,7 +18,12 @@ const demoState = {
   eventMembers: [...mockEventMembers],
   honeyPoints: [...mockHoneyPoints],
   compliments: [...mockCompliments],
-  badges: [...mockBadges]
+  badges: [...mockBadges],
+  expenses: [...mockExpenses],
+  cashierSettlements: [...mockCashierSettlements],
+  stockLocations: [...mockStockLocations],
+  products: [...mockProducts],
+  stockMovements: [...mockStockMovements]
 }
 
 function uid(prefix: string) {
@@ -209,4 +216,151 @@ export async function getRanking(): Promise<RankingEntry[]> {
     })
   }
   return entries.sort((a, b) => b.score - a.score)
+}
+
+// ---------- Despesas ----------
+export type NewExpenseInput = Omit<Expense, 'id' | 'created_at' | 'total'>
+
+export async function listExpensesForEvent(eventId: string): Promise<Expense[]> {
+  if (isDemoMode) {
+    return demoState.expenses.filter((e) => e.event_id === eventId).sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+  }
+  const { data, error } = await supabase.from('expenses').select('*').eq('event_id', eventId).order('created_at', { ascending: false })
+  if (error) throw error
+  return data as Expense[]
+}
+
+export async function createExpense(input: NewExpenseInput): Promise<Expense> {
+  if (isDemoMode) {
+    const total = input.quantity * input.unit_value + input.dex_fee
+    const expense: Expense = { ...input, id: uid('ex'), total, created_at: new Date().toISOString() }
+    demoState.expenses.push(expense)
+    return expense
+  }
+  const { data, error } = await supabase.from('expenses').insert(input).select().single()
+  if (error) throw error
+  return data as Expense
+}
+
+export async function updateExpenseStatus(id: string, status: Expense['status']): Promise<void> {
+  if (isDemoMode) {
+    const idx = demoState.expenses.findIndex((e) => e.id === id)
+    if (idx >= 0) demoState.expenses[idx] = { ...demoState.expenses[idx], status }
+    return
+  }
+  const { error } = await supabase.from('expenses').update({ status }).eq('id', id)
+  if (error) throw error
+}
+
+// ---------- Recebimentos (caixas) ----------
+export type NewCashierSettlementInput = Omit<CashierSettlement, 'id' | 'created_at' | 'total' | 'commission_amount'>
+
+export async function listCashierSettlementsForEvent(eventId: string): Promise<CashierSettlement[]> {
+  if (isDemoMode) return demoState.cashierSettlements.filter((c) => c.event_id === eventId)
+  const { data, error } = await supabase.from('cashier_settlements').select('*').eq('event_id', eventId).order('created_at', { ascending: false })
+  if (error) throw error
+  return data as CashierSettlement[]
+}
+
+export async function createCashierSettlement(input: NewCashierSettlementInput): Promise<CashierSettlement> {
+  if (isDemoMode) {
+    const total = input.cash_amount + input.debit_amount + input.credit_amount + input.pix_amount
+    const commission_amount = input.role_type === 'Garçom' ? total * 0.1 : 0
+    const settlement: CashierSettlement = { ...input, id: uid('cs'), total, commission_amount, created_at: new Date().toISOString() }
+    demoState.cashierSettlements.push(settlement)
+    return settlement
+  }
+  const { data, error } = await supabase.from('cashier_settlements').insert(input).select().single()
+  if (error) throw error
+  return data as CashierSettlement
+}
+
+// ---------- Estoque multi-almoxarifado ----------
+export async function listStockLocations(): Promise<StockLocation[]> {
+  if (isDemoMode) return demoState.stockLocations
+  const { data, error } = await supabase.from('stock_locations').select('*').order('name')
+  if (error) throw error
+  return data as StockLocation[]
+}
+
+export async function createStockLocation(name: string, description: string | null): Promise<StockLocation> {
+  if (isDemoMode) {
+    const loc: StockLocation = { id: uid('sl'), name, description, created_at: new Date().toISOString() }
+    demoState.stockLocations.push(loc)
+    return loc
+  }
+  const { data, error } = await supabase.from('stock_locations').insert({ name, description }).select().single()
+  if (error) throw error
+  return data as StockLocation
+}
+
+export async function listProducts(): Promise<Product[]> {
+  if (isDemoMode) return demoState.products
+  const { data, error } = await supabase.from('products').select('*').order('name')
+  if (error) throw error
+  return data as Product[]
+}
+
+export async function createProduct(name: string, unit: string, category: string | null): Promise<Product> {
+  if (isDemoMode) {
+    const product: Product = { id: uid('pr'), name, unit, category, created_at: new Date().toISOString() }
+    demoState.products.push(product)
+    return product
+  }
+  const { data, error } = await supabase.from('products').insert({ name, unit, category }).select().single()
+  if (error) throw error
+  return data as Product
+}
+
+export async function listStockMovements(eventId?: string): Promise<StockMovement[]> {
+  if (isDemoMode) {
+    const all = [...demoState.stockMovements].sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+    return eventId ? all.filter((m) => m.event_id === eventId) : all
+  }
+  let query = supabase.from('stock_movements').select('*').order('created_at', { ascending: false })
+  if (eventId) query = query.eq('event_id', eventId)
+  const { data, error } = await query
+  if (error) throw error
+  return data as StockMovement[]
+}
+
+export interface NewStockMovementInput {
+  product_id: string
+  stock_location_id: string
+  event_id: string | null
+  movement_type: MovementType
+  quantity: number
+  notes: string | null
+  created_by: string | null
+}
+
+export async function createStockMovement(input: NewStockMovementInput): Promise<StockMovement> {
+  if (isDemoMode) {
+    const movement: StockMovement = { ...input, id: uid('sm'), created_at: new Date().toISOString() }
+    demoState.stockMovements.push(movement)
+    return movement
+  }
+  const { data, error } = await supabase.from('stock_movements').insert(input).select().single()
+  if (error) throw error
+  return data as StockMovement
+}
+
+export async function getStockBalances(): Promise<StockBalance[]> {
+  if (isDemoMode) {
+    const balances: StockBalance[] = []
+    for (const product of demoState.products) {
+      for (const loc of demoState.stockLocations) {
+        const movements = demoState.stockMovements.filter((m) => m.product_id === product.id && m.stock_location_id === loc.id)
+        const balance = movements.reduce((sum, m) => sum + (m.movement_type === 'Entrada' ? m.quantity : -m.quantity), 0)
+        balances.push({
+          product_id: product.id, product_name: product.name, product_unit: product.unit,
+          stock_location_id: loc.id, stock_location_name: loc.name, balance
+        })
+      }
+    }
+    return balances
+  }
+  const { data, error } = await supabase.from('stock_balances').select('*')
+  if (error) throw error
+  return data as StockBalance[]
 }

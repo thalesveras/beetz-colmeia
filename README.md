@@ -30,6 +30,17 @@ Se você não preencher o `.env`, o app entra automaticamente em **modo demonstr
 2. No primeiro login, você é levado direto para o cadastro de perfil em 5 etapas (dados pessoais, informações familiares, profissionais, saúde e perfil social) com barra de progresso.
 3. Depois de concluir, você cai no dashboard da colmeia.
 
+## Financeiro e estoque (dentro de cada evento)
+
+Na página de um evento (`/eventos/:id`) existem 4 abas:
+
+- **Equipe**: escalar colaboradores (já existia).
+- **Despesas**: registro de despesas com status (Pendente/Aprovado/Pago/Rejeitado), comprovante, forma de pagamento, cálculo automático do total (quantidade × valor + taxa Dex), assinatura digital e comprovante de repasse.
+- **Recebimentos**: fechamento de caixa por colaborador, separando Caixa (sem taxa) de Garçom (comissão automática de 10% sobre o total apurado em dinheiro+débito+crédito+pix).
+- **Estoque**: entradas e saídas de produtos vinculadas àquele evento.
+
+Também existe a página global **Estoque** (`/estoque`, no menu lateral) com o saldo atual de cada produto em cada almoxarifado, cadastro de produtos/estoques e histórico geral de movimentações.
+
 ## Estrutura do projeto
 
 ```
