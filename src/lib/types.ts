@@ -115,7 +115,9 @@ export interface ProfileStats {
 }
 
 export type ExpenseStatus = 'Pendente' | 'Aprovado' | 'Pago' | 'Rejeitado'
-export type PaymentMethod = 'Dinheiro' | 'Débito' | 'Crédito' | 'Pix' | 'Transferência'
+// Antes era uma união fixa; agora as formas de pagamento são editáveis em
+// /configuracoes, então qualquer texto cadastrado ali é um valor válido.
+export type PaymentMethod = string
 
 export interface Expense {
   id: string
@@ -189,4 +191,52 @@ export interface StockBalance {
   stock_location_id: string
   stock_location_name: string
   balance: number
+}
+
+export type AccessRoleKey = 'diretoria' | 'garcom' | 'caixa' | 'operacional' | 'colaborador'
+
+export interface RolePermissions {
+  role: AccessRoleKey
+  can_add_expense: boolean
+  can_review_expense: boolean
+  can_add_cashier: boolean
+  can_add_stock: boolean
+  can_manage_users: boolean
+  updated_at: string
+}
+
+export interface ExpenseCategory {
+  id: string
+  name: string
+}
+
+export interface PaymentMethodOption {
+  id: string
+  name: string
+}
+
+export interface HiveLevelConfig {
+  id: string
+  level: string
+  min_events: number
+  icon: string | null
+  color: string | null
+  description: string | null
+  sort_order: number
+}
+
+export interface BadgeDefConfig {
+  id: string
+  type: string
+  label: string
+  icon: string | null
+  description: string | null
+}
+
+export interface AppSettings {
+  id: boolean
+  company_name: string
+  welcome_title: string
+  welcome_subtitle: string
+  updated_at: string
 }

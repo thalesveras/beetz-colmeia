@@ -6,6 +6,8 @@ import TeamDirectory from './pages/TeamDirectory'
 import ProfilePage from './pages/ProfilePage'
 import HiveMap from './pages/HiveMap'
 import Stock from './pages/Stock'
+import Admin from './pages/Admin'
+import Settings from './pages/Settings'
 import EventsList from './pages/events/EventsList'
 import EventDetail from './pages/events/EventDetail'
 import EventForm from './pages/events/EventForm'
@@ -33,6 +35,8 @@ export default function App() {
       <Route path="/eventos/novo" element={<ProtectedRoute><EventForm /></ProtectedRoute>} />
       <Route path="/eventos/:id" element={<ProtectedRoute><EventDetail /></ProtectedRoute>} />
       <Route path="/estoque" element={<ProtectedRoute><Stock /></ProtectedRoute>} />
+      <Route path="/admin" element={<ProtectedRoute><Admin /></ProtectedRoute>} />
+      <Route path="/configuracoes" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
       <Route path="/ranking" element={<ProtectedRoute><Ranking /></ProtectedRoute>} />
       <Route path="/informacoes" element={<ProtectedRoute><Info /></ProtectedRoute>} />
 

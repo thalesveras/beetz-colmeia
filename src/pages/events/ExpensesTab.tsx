@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
-import { createExpense, listExpensesForEvent, updateExpenseStatus } from '../../lib/dataService'
-import type { Expense, ExpenseStatus, PaymentMethod } from '../../lib/types'
+import {
+  createExpense, listExpenseCategories, listExpensesForEvent, listPaymentMethods, updateExpenseStatus
+} from '../../lib/dataService'
+import type { Expense, ExpenseCategory, ExpenseStatus, PaymentMethod, PaymentMethodOption } from '../../lib/types'
 import FileField from '../../components/ui/FileField'
 import SignaturePad from '../../components/ui/SignaturePad'
 import { Plus } from 'lucide-react'
 
 const statuses: ExpenseStatus[] = ['Pendente', 'Aprovado', 'Pago', 'Rejeitado']
-const paymentMethods: PaymentMethod[] = ['Dinheiro', 'Débito', 'Crédito', 'Pix', 'Transferência']
 
 const statusColors: Record<ExpenseStatus, string> = {
   Pendente: 'bg-beetz-yellow/30 text-beetz-dark',
@@ -25,6 +26,8 @@ const inputClass = 'w-full border border-beetz-dark/15 rounded-xl px-4 py-2.5 te
 export default function ExpensesTab({ eventId }: { eventId: string }) {
   const { userId } = useAuth()
   const [expenses, setExpenses] = useState<Expense[]>([])
+  const [categories, setCategories] = useState<ExpenseCategory[]>([])
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethodOption[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -46,6 +49,10 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
   }
 
   useEffect(() => { load() }, [eventId])
+  useEffect(() => {
+    listExpenseCategories().then(setCategories)
+    listPaymentMethods().then(setPaymentMethods)
+  }, [])
 
   const total = expenses.reduce((sum, e) => sum + e.total, 0)
   const formTotal = quantity * unitValue + dexFee
@@ -103,13 +110,16 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
               <label className="text-sm font-medium block mb-1">Categoria</label>
-              <input className={inputClass} value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Ex: Transporte, Bar, Produção..." />
+              <select className={inputClass} value={category} onChange={(e) => setCategory(e.target.value)}>
+                <option value="">Selecionar...</option>
+                {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+              </select>
             </div>
             <div>
               <label className="text-sm font-medium block mb-1">Forma de pagamento</label>
               <select className={inputClass} value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}>
                 <option value="">Selecionar...</option>
-                {paymentMethods.map((p) => <option key={p} value={p}>{p}</option>)}
+                {paymentMethods.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
               </select>
             </div>
           </div>

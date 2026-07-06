@@ -1,12 +1,14 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { isDemoMode, supabase } from '../lib/supabaseClient'
-import { getProfileById, upsertProfile } from '../lib/dataService'
-import type { Profile } from '../lib/types'
+import { getProfileById, listDepartments, upsertProfile } from '../lib/dataService'
+import type { Department, Profile } from '../lib/types'
+import { computeAccessRole, type AccessRole } from '../lib/permissions'
 
 interface AuthContextValue {
   userId: string | null
   email: string | null
   profile: Profile | null
+  accessRole: AccessRole
   loading: boolean
   isDemoMode: boolean
   signIn: (email: string, password: string) => Promise<{ error: string | null }>
@@ -23,7 +25,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [userId, setUserId] = useState<string | null>(null)
   const [email, setEmail] = useState<string | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
+  const [departments, setDepartments] = useState<Department[]>([])
   const [loading, setLoading] = useState(true)
+
+  useEffect(() => { listDepartments().then(setDepartments) }, [])
+
+  const accessRole = useMemo(() => computeAccessRole(profile, departments), [profile, departments])
 
   async function loadProfile(id: string) {
     const p = await getProfileById(id)
@@ -133,7 +140,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ userId, email, profile, loading, isDemoMode, signIn, signUp, signOut, refreshProfile }}>
+    <AuthContext.Provider value={{ userId, email, profile, accessRole, loading, isDemoMode, signIn, signUp, signOut, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   )

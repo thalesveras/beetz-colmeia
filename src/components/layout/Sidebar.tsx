@@ -1,21 +1,32 @@
 import { NavLink } from 'react-router-dom'
-import { Home, Users, UserCircle, Hexagon, CalendarDays, Trophy, Info, LogOut, Package } from 'lucide-react'
+import { Home, Users, UserCircle, Hexagon, CalendarDays, Trophy, Info, LogOut, Package, ShieldCheck, Settings } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
+import { canManageUsers, canViewStockTab } from '../../lib/permissions'
 import Avatar from '../ui/Avatar'
 
-const links = [
+const baseLinks = [
   { to: '/dashboard', label: 'Início', icon: Home },
   { to: '/turma', label: 'Conhecer a turma', icon: Users },
   { to: '/perfil/me', label: 'Meu perfil', icon: UserCircle },
   { to: '/mapa', label: 'Mapa da colmeia', icon: Hexagon },
-  { to: '/eventos', label: 'Eventos', icon: CalendarDays },
-  { to: '/estoque', label: 'Estoque', icon: Package },
+  { to: '/eventos', label: 'Eventos', icon: CalendarDays }
+]
+
+const endLinks = [
   { to: '/ranking', label: 'Ranking', icon: Trophy },
   { to: '/informacoes', label: 'Informações', icon: Info }
 ]
 
 export default function Sidebar() {
-  const { profile, email, signOut } = useAuth()
+  const { profile, email, signOut, accessRole } = useAuth()
+
+  const links = [
+    ...baseLinks,
+    ...(canViewStockTab(accessRole) ? [{ to: '/estoque', label: 'Estoque', icon: Package }] : []),
+    ...endLinks,
+    ...(canManageUsers(accessRole) ? [{ to: '/admin', label: 'Administração', icon: ShieldCheck }] : []),
+    ...(canManageUsers(accessRole) ? [{ to: '/configuracoes', label: 'Configurações', icon: Settings }] : [])
+  ]
 
   return (
     <aside className="hidden md:flex md:flex-col w-64 shrink-0 h-screen sticky top-0 bg-beetz-dark text-white p-5">

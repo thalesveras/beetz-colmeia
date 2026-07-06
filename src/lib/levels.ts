@@ -1,4 +1,4 @@
-import type { BadgeType, HiveLevel } from './types'
+import type { BadgeType, HiveLevel, HiveLevelConfig, BadgeDefConfig } from './types'
 
 export interface LevelDef {
   level: HiveLevel
@@ -8,6 +8,8 @@ export interface LevelDef {
   description: string
 }
 
+// Valores padrão — substituídos em tempo de execução pelo ConfigContext
+// assim que a configuração (editável em /configuracoes) é carregada do banco.
 export const HIVE_LEVELS: LevelDef[] = [
   { level: 'Nova Abelha', minEvents: 0, icon: '🐣', color: '#fef3c7', description: 'Acabou de chegar na colmeia' },
   { level: 'Abelha em Treinamento', minEvents: 1, icon: '🐝', color: '#fde68a', description: 'Já colocou a mão na massa' },
@@ -16,6 +18,19 @@ export const HIVE_LEVELS: LevelDef[] = [
   { level: 'Líder da Colmeia', minEvents: 25, icon: '👑', color: '#d97706', description: 'Guia e inspira outras abelhas' },
   { level: 'Lenda Beetz', minEvents: 50, icon: '🏆', color: '#050505', description: 'História viva da Beetz' }
 ]
+
+export function setHiveLevels(configs: HiveLevelConfig[]) {
+  if (!configs.length) return
+  const sorted = [...configs].sort((a, b) => a.sort_order - b.sort_order)
+  const mapped: LevelDef[] = sorted.map((c) => ({
+    level: c.level as HiveLevel,
+    minEvents: c.min_events,
+    icon: c.icon || '🐝',
+    color: c.color || '#fed417',
+    description: c.description || ''
+  }))
+  HIVE_LEVELS.splice(0, HIVE_LEVELS.length, ...mapped)
+}
 
 export function getHiveLevel(eventsCount: number): LevelDef {
   let current = HIVE_LEVELS[0]
@@ -55,6 +70,17 @@ export const BADGE_DEFS: BadgeDef[] = [
   { type: 'punctuality', label: 'Pontualidade', icon: '⏰', description: 'Sempre no horário, sem desculpas' },
   { type: 'most_complimented', label: 'Mais elogiado', icon: '💛', description: 'Reconhecido pela turma com muitos elogios' }
 ]
+
+export function setBadgeDefs(configs: BadgeDefConfig[]) {
+  if (!configs.length) return
+  const mapped: BadgeDef[] = configs.map((c) => ({
+    type: c.type as BadgeType,
+    label: c.label,
+    icon: c.icon || '🏅',
+    description: c.description || ''
+  }))
+  BADGE_DEFS.splice(0, BADGE_DEFS.length, ...mapped)
+}
 
 export function badgesFromStats(eventsCount: number, complimentsReceived: number): BadgeType[] {
   const badges: BadgeType[] = []

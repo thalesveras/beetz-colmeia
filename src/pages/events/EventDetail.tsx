@@ -6,21 +6,25 @@ import Avatar from '../../components/ui/Avatar'
 import ExpensesTab from './ExpensesTab'
 import CashierTab from './CashierTab'
 import StockTab from './StockTab'
+import { useAuth } from '../../contexts/AuthContext'
+import { canViewCashierTab, canViewExpensesTab, canViewStockTab } from '../../lib/permissions'
 
 function formatDate(d: string) {
   return new Date(d + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })
 }
 
 type TabKey = 'equipe' | 'despesas' | 'recebimentos' | 'estoque'
-const tabs: { key: TabKey; label: string }[] = [
-  { key: 'equipe', label: 'Equipe' },
-  { key: 'despesas', label: 'Despesas' },
-  { key: 'recebimentos', label: 'Recebimentos' },
-  { key: 'estoque', label: 'Estoque' }
-]
 
 export default function EventDetail() {
   const { id } = useParams()
+  const { accessRole } = useAuth()
+
+  const tabs: { key: TabKey; label: string }[] = [
+    { key: 'equipe', label: 'Equipe' },
+    ...(canViewExpensesTab(accessRole) ? [{ key: 'despesas' as TabKey, label: 'Despesas' }] : []),
+    ...(canViewCashierTab(accessRole) ? [{ key: 'recebimentos' as TabKey, label: 'Recebimentos' }] : []),
+    ...(canViewStockTab(accessRole) ? [{ key: 'estoque' as TabKey, label: 'Estoque' }] : [])
+  ]
   const [event, setEvent] = useState<EventItem | null>(null)
   const [members, setMembers] = useState<(EventMember & { profile: Profile | null })[]>([])
   const [leader, setLeader] = useState<Profile | null>(null)
@@ -131,19 +135,19 @@ export default function EventDetail() {
         </div>
       )}
 
-      {activeTab === 'despesas' && (
+      {activeTab === 'despesas' && canViewExpensesTab(accessRole) && (
         <div className="bg-white rounded-2xl p-6 shadow-soft border border-beetz-dark/5">
           <ExpensesTab eventId={id} />
         </div>
       )}
 
-      {activeTab === 'recebimentos' && (
+      {activeTab === 'recebimentos' && canViewCashierTab(accessRole) && (
         <div className="bg-white rounded-2xl p-6 shadow-soft border border-beetz-dark/5">
           <CashierTab eventId={id} />
         </div>
       )}
 
-      {activeTab === 'estoque' && (
+      {activeTab === 'estoque' && canViewStockTab(accessRole) && (
         <div className="bg-white rounded-2xl p-6 shadow-soft border border-beetz-dark/5">
           <StockTab eventId={id} />
         </div>

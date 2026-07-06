@@ -1,6 +1,7 @@
 import type {
-  Badge, CashierSettlement, Compliment, Department, EventItem, EventMember, Expense,
-  HoneyPoint, Product, Profile, StockLocation, StockMovement
+  AppSettings, Badge, BadgeDefConfig, CashierSettlement, Compliment, Department, EventItem,
+  EventMember, Expense, ExpenseCategory, HiveLevelConfig, HoneyPoint, PaymentMethodOption,
+  Product, Profile, RolePermissions, StockLocation, StockMovement
 } from './types'
 
 export const mockDepartments: Department[] = [
@@ -274,3 +275,48 @@ export const mockStockMovements: StockMovement[] = [
   { id: 'sm3', product_id: 'pr2', stock_location_id: 'sl2', event_id: null, movement_type: 'Entrada', quantity: 100, notes: 'Compra inicial', created_by: 'p1', created_at: '2025-12-01T10:00:00Z' },
   { id: 'sm4', product_id: 'pr2', stock_location_id: 'sl2', event_id: 'e1', movement_type: 'Saída', quantity: 40, notes: 'Usado no Festival de Verão', created_by: 'p3', created_at: '2026-01-18T20:00:00Z' }
 ]
+
+// ---------- Configurações (perfis de acesso, listas, gamificação, marca) ----------
+export const mockRolePermissions: RolePermissions[] = [
+  { role: 'diretoria', can_add_expense: true, can_review_expense: true, can_add_cashier: true, can_add_stock: true, can_manage_users: true, updated_at: '2026-01-01T10:00:00Z' },
+  { role: 'garcom', can_add_expense: false, can_review_expense: false, can_add_cashier: true, can_add_stock: false, can_manage_users: false, updated_at: '2026-01-01T10:00:00Z' },
+  { role: 'caixa', can_add_expense: false, can_review_expense: false, can_add_cashier: true, can_add_stock: false, can_manage_users: false, updated_at: '2026-01-01T10:00:00Z' },
+  { role: 'operacional', can_add_expense: false, can_review_expense: false, can_add_cashier: false, can_add_stock: true, can_manage_users: false, updated_at: '2026-01-01T10:00:00Z' },
+  { role: 'colaborador', can_add_expense: false, can_review_expense: false, can_add_cashier: false, can_add_stock: false, can_manage_users: false, updated_at: '2026-01-01T10:00:00Z' }
+]
+
+export const mockExpenseCategories: ExpenseCategory[] = [
+  { id: 'ec1', name: 'Transporte' }, { id: 'ec2', name: 'Bar' }, { id: 'ec3', name: 'Produção' },
+  { id: 'ec4', name: 'Alimentação' }, { id: 'ec5', name: 'Material' }, { id: 'ec6', name: 'Outros' }
+]
+
+export const mockPaymentMethods: PaymentMethodOption[] = [
+  { id: 'pm1', name: 'Dinheiro' }, { id: 'pm2', name: 'Débito' }, { id: 'pm3', name: 'Crédito' },
+  { id: 'pm4', name: 'Pix' }, { id: 'pm5', name: 'Transferência' }
+]
+
+export const mockHiveLevelConfigs: HiveLevelConfig[] = [
+  { id: 'hl1', level: 'Nova Abelha', min_events: 0, icon: '🐣', color: '#fef3c7', description: 'Acabou de chegar na colmeia', sort_order: 1 },
+  { id: 'hl2', level: 'Abelha em Treinamento', min_events: 1, icon: '🐝', color: '#fde68a', description: 'Já colocou a mão na massa', sort_order: 2 },
+  { id: 'hl3', level: 'Coletor de Mel', min_events: 5, icon: '🍯', color: '#fed417', description: 'Presença constante nos eventos', sort_order: 3 },
+  { id: 'hl4', level: 'Abelha Operacional', min_events: 12, icon: '⚡', color: '#f5b700', description: 'Referência de entrega na equipe', sort_order: 4 },
+  { id: 'hl5', level: 'Líder da Colmeia', min_events: 25, icon: '👑', color: '#d97706', description: 'Guia e inspira outras abelhas', sort_order: 5 },
+  { id: 'hl6', level: 'Lenda Beetz', min_events: 50, icon: '🏆', color: '#050505', description: 'História viva da Beetz', sort_order: 6 }
+]
+
+export const mockBadgeDefConfigs: BadgeDefConfig[] = [
+  { id: 'bd1', type: 'first_event', label: 'Primeiro evento', icon: '🎉', description: 'Participou do primeiro evento Beetz' },
+  { id: 'bd2', type: 'ten_events', label: '10 eventos', icon: '🔟', description: 'Já rodou 10 eventos com a colmeia' },
+  { id: 'bd3', type: 'fifty_events', label: '50 eventos', icon: '💯', description: '50 eventos de história com a Beetz' },
+  { id: 'bd4', type: 'leader_highlight', label: 'Líder destaque', icon: '👑', description: 'Referência de liderança na equipe' },
+  { id: 'bd5', type: 'punctuality', label: 'Pontualidade', icon: '⏰', description: 'Sempre no horário, sem desculpas' },
+  { id: 'bd6', type: 'most_complimented', label: 'Mais elogiado', icon: '💛', description: 'Reconhecido pela turma com muitos elogios' }
+]
+
+export const mockAppSettings: AppSettings = {
+  id: true,
+  company_name: 'Beetz',
+  welcome_title: 'Bem-vindo à Colmeia Beetz',
+  welcome_subtitle: 'Conheça quem faz os maiores eventos acontecerem.',
+  updated_at: '2026-01-01T10:00:00Z'
+}

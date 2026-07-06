@@ -1,13 +1,16 @@
 import { isDemoMode, supabase } from './supabaseClient'
 import {
-  mockBadges, mockCashierSettlements, mockCompliments, mockDepartments, mockEventMembers,
-  mockEvents, mockExpenses, mockHoneyPoints, mockProducts, mockProfiles, mockStockLocations,
-  mockStockMovements
+  mockAppSettings, mockBadgeDefConfigs, mockBadges, mockCashierSettlements, mockCompliments,
+  mockDepartments, mockEventMembers, mockEvents, mockExpenseCategories, mockExpenses,
+  mockHiveLevelConfigs, mockHoneyPoints, mockPaymentMethods, mockProducts, mockProfiles,
+  mockRolePermissions, mockStockLocations, mockStockMovements
 } from './mockData'
 import { badgesFromStats, getHiveLevel } from './levels'
 import type {
-  Badge, CashierSettlement, Compliment, Department, EventItem, EventMember, Expense,
-  HoneyPoint, MovementType, Product, Profile, ProfileStats, StockBalance, StockLocation, StockMovement
+  AppSettings, Badge, BadgeDefConfig, CashierSettlement, Compliment, Department, EventItem,
+  EventMember, Expense, ExpenseCategory, HiveLevelConfig, HoneyPoint, MovementType,
+  PaymentMethodOption, Product, Profile, ProfileStats, RolePermissions, StockBalance,
+  StockLocation, StockMovement
 } from './types'
 
 // ---------- Estado em memória para o modo demonstração ----------
@@ -23,7 +26,13 @@ const demoState = {
   cashierSettlements: [...mockCashierSettlements],
   stockLocations: [...mockStockLocations],
   products: [...mockProducts],
-  stockMovements: [...mockStockMovements]
+  stockMovements: [...mockStockMovements],
+  rolePermissions: [...mockRolePermissions],
+  expenseCategories: [...mockExpenseCategories],
+  paymentMethods: [...mockPaymentMethods],
+  hiveLevels: [...mockHiveLevelConfigs],
+  badgeDefs: [...mockBadgeDefConfigs],
+  appSettings: { ...mockAppSettings }
 }
 
 function uid(prefix: string) {
@@ -51,6 +60,16 @@ export async function getProfileById(id: string): Promise<Profile | null> {
   const { data, error } = await supabase.from('profiles').select('*').eq('id', id).maybeSingle()
   if (error) throw error
   return data as Profile | null
+}
+
+export async function updateProfileDepartment(profileId: string, departmentId: string): Promise<void> {
+  if (isDemoMode) {
+    const idx = demoState.profiles.findIndex((p) => p.id === profileId)
+    if (idx >= 0) demoState.profiles[idx] = { ...demoState.profiles[idx], department_id: departmentId }
+    return
+  }
+  const { error } = await supabase.from('profiles').update({ department_id: departmentId }).eq('id', profileId)
+  if (error) throw error
 }
 
 export async function upsertProfile(profile: Partial<Profile> & { id: string }): Promise<Profile> {
@@ -363,4 +382,149 @@ export async function getStockBalances(): Promise<StockBalance[]> {
   const { data, error } = await supabase.from('stock_balances').select('*')
   if (error) throw error
   return data as StockBalance[]
+}
+
+// ---------- Configurações: Perfis de acesso ----------
+export async function listRolePermissions(): Promise<RolePermissions[]> {
+  if (isDemoMode) return demoState.rolePermissions
+  const { data, error } = await supabase.from('role_permissions').select('*')
+  if (error) throw error
+  return data as RolePermissions[]
+}
+
+export async function updateRolePermission(
+  role: RolePermissions['role'],
+  patch: Partial<Omit<RolePermissions, 'role' | 'updated_at'>>
+): Promise<RolePermissions> {
+  if (isDemoMode) {
+    const idx = demoState.rolePermissions.findIndex((r) => r.role === role)
+    if (idx >= 0) {
+      demoState.rolePermissions[idx] = { ...demoState.rolePermissions[idx], ...patch, updated_at: new Date().toISOString() }
+      return demoState.rolePermissions[idx]
+    }
+    throw new Error('Perfil não encontrado')
+  }
+  const { data, error } = await supabase.from('role_permissions')
+    .update({ ...patch, updated_at: new Date().toISOString() }).eq('role', role).select().single()
+  if (error) throw error
+  return data as RolePermissions
+}
+
+// ---------- Configurações: Categorias de despesa ----------
+export async function listExpenseCategories(): Promise<ExpenseCategory[]> {
+  if (isDemoMode) return demoState.expenseCategories
+  const { data, error } = await supabase.from('expense_categories').select('*').order('name')
+  if (error) throw error
+  return data as ExpenseCategory[]
+}
+
+export async function createExpenseCategory(name: string): Promise<ExpenseCategory> {
+  if (isDemoMode) {
+    const category: ExpenseCategory = { id: uid('ec'), name }
+    demoState.expenseCategories.push(category)
+    return category
+  }
+  const { data, error } = await supabase.from('expense_categories').insert({ name }).select().single()
+  if (error) throw error
+  return data as ExpenseCategory
+}
+
+export async function deleteExpenseCategory(id: string): Promise<void> {
+  if (isDemoMode) {
+    demoState.expenseCategories = demoState.expenseCategories.filter((c) => c.id !== id)
+    return
+  }
+  const { error } = await supabase.from('expense_categories').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ---------- Configurações: Formas de pagamento ----------
+export async function listPaymentMethods(): Promise<PaymentMethodOption[]> {
+  if (isDemoMode) return demoState.paymentMethods
+  const { data, error } = await supabase.from('payment_methods').select('*').order('name')
+  if (error) throw error
+  return data as PaymentMethodOption[]
+}
+
+export async function createPaymentMethod(name: string): Promise<PaymentMethodOption> {
+  if (isDemoMode) {
+    const method: PaymentMethodOption = { id: uid('pm'), name }
+    demoState.paymentMethods.push(method)
+    return method
+  }
+  const { data, error } = await supabase.from('payment_methods').insert({ name }).select().single()
+  if (error) throw error
+  return data as PaymentMethodOption
+}
+
+export async function deletePaymentMethod(id: string): Promise<void> {
+  if (isDemoMode) {
+    demoState.paymentMethods = demoState.paymentMethods.filter((m) => m.id !== id)
+    return
+  }
+  const { error } = await supabase.from('payment_methods').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ---------- Configurações: Níveis da colmeia ----------
+export async function listHiveLevelsConfig(): Promise<HiveLevelConfig[]> {
+  if (isDemoMode) return [...demoState.hiveLevels].sort((a, b) => a.sort_order - b.sort_order)
+  const { data, error } = await supabase.from('hive_levels').select('*').order('sort_order')
+  if (error) throw error
+  return data as HiveLevelConfig[]
+}
+
+export async function updateHiveLevel(id: string, patch: Partial<HiveLevelConfig>): Promise<HiveLevelConfig> {
+  if (isDemoMode) {
+    const idx = demoState.hiveLevels.findIndex((l) => l.id === id)
+    if (idx >= 0) {
+      demoState.hiveLevels[idx] = { ...demoState.hiveLevels[idx], ...patch }
+      return demoState.hiveLevels[idx]
+    }
+    throw new Error('Nível não encontrado')
+  }
+  const { data, error } = await supabase.from('hive_levels').update(patch).eq('id', id).select().single()
+  if (error) throw error
+  return data as HiveLevelConfig
+}
+
+// ---------- Configurações: Medalhas ----------
+export async function listBadgeDefsConfig(): Promise<BadgeDefConfig[]> {
+  if (isDemoMode) return demoState.badgeDefs
+  const { data, error } = await supabase.from('badge_defs').select('*')
+  if (error) throw error
+  return data as BadgeDefConfig[]
+}
+
+export async function updateBadgeDef(id: string, patch: Partial<BadgeDefConfig>): Promise<BadgeDefConfig> {
+  if (isDemoMode) {
+    const idx = demoState.badgeDefs.findIndex((b) => b.id === id)
+    if (idx >= 0) {
+      demoState.badgeDefs[idx] = { ...demoState.badgeDefs[idx], ...patch }
+      return demoState.badgeDefs[idx]
+    }
+    throw new Error('Medalha não encontrada')
+  }
+  const { data, error } = await supabase.from('badge_defs').update(patch).eq('id', id).select().single()
+  if (error) throw error
+  return data as BadgeDefConfig
+}
+
+// ---------- Configurações: Dados gerais da Beetz ----------
+export async function getAppSettings(): Promise<AppSettings> {
+  if (isDemoMode) return demoState.appSettings
+  const { data, error } = await supabase.from('app_settings').select('*').eq('id', true).maybeSingle()
+  if (error) throw error
+  return (data as AppSettings) ?? mockAppSettings
+}
+
+export async function updateAppSettings(patch: Partial<Omit<AppSettings, 'id' | 'updated_at'>>): Promise<AppSettings> {
+  if (isDemoMode) {
+    demoState.appSettings = { ...demoState.appSettings, ...patch, updated_at: new Date().toISOString() }
+    return demoState.appSettings
+  }
+  const { data, error } = await supabase.from('app_settings')
+    .update({ ...patch, updated_at: new Date().toISOString() }).eq('id', true).select().single()
+  if (error) throw error
+  return data as AppSettings
 }

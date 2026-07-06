@@ -1,9 +1,11 @@
 import { Link } from 'react-router-dom'
 import { Users, UserCircle, CalendarDays } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { useConfig } from '../contexts/ConfigContext'
 
 export default function Welcome() {
   const { userId } = useAuth()
+  const { appSettings } = useConfig()
   const loginTarget = userId ? '/turma' : '/entrar?next=/turma'
   const profileTarget = userId ? '/cadastro' : '/entrar?next=/cadastro'
   const eventsTarget = userId ? '/eventos' : '/entrar?next=/eventos'
@@ -16,12 +18,12 @@ export default function Welcome() {
         <div className="mx-auto mb-6 w-20 h-20 rounded-2xl honey-gradient flex items-center justify-center text-4xl shadow-glow">
           🐝
         </div>
-        <p className="uppercase tracking-[0.3em] text-beetz-yellow text-xs font-semibold mb-4">Comunidade interna Beetz</p>
-        <h1 className="text-4xl md:text-6xl font-extrabold leading-tight mb-4">
-          Bem-vindo à <span className="text-beetz-yellow">Colmeia Beetz</span>
+        <p className="uppercase tracking-[0.3em] text-beetz-yellow text-xs font-semibold mb-4">Comunidade interna {appSettings.company_name}</p>
+        <h1 className="text-4xl md:text-6xl font-extrabold leading-tight mb-4 text-beetz-yellow">
+          {appSettings.welcome_title}
         </h1>
         <p className="text-white/70 text-lg md:text-xl mb-10">
-          Conheça quem faz os maiores eventos acontecerem.
+          {appSettings.welcome_subtitle}
         </p>
 
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
@@ -46,7 +48,7 @@ export default function Welcome() {
         </div>
       </div>
 
-      <p className="relative z-10 text-white/30 text-xs mt-16">Beetz Colmeia · feito por abelhas, para abelhas 🍯</p>
+      <p className="relative z-10 text-white/30 text-xs mt-16">{appSettings.company_name} Colmeia · feito por abelhas, para abelhas 🍯</p>
     </div>
   )
 }

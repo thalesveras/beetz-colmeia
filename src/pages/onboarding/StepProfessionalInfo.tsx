@@ -18,6 +18,11 @@ export default function StepProfessionalInfo({ data, update }: Props) {
 
   useEffect(() => { listDepartments().then(setDepartments) }, [])
 
+  // Ninguém pode se auto-cadastrar como Diretoria — esse papel só é atribuído
+  // por quem já é Diretoria, na tela de Administração. Se a pessoa já for
+  // Diretoria (editando o próprio perfil), mantemos a opção pra não sumir o valor atual.
+  const selectableDepartments = departments.filter((d) => d.slug !== 'diretoria' || d.id === data.department_id)
+
   function addSkill() {
     const value = skillInput.trim()
     if (!value) return
@@ -36,7 +41,7 @@ export default function StepProfessionalInfo({ data, update }: Props) {
         <Field label="Departamento">
           <select className={inputClass} value={data.department_id || ''} onChange={(e) => update({ department_id: e.target.value })}>
             <option value="">Selecionar...</option>
-            {departments.map((d) => <option key={d.id} value={d.id}>{d.icon} {d.name}</option>)}
+            {selectableDepartments.map((d) => <option key={d.id} value={d.id}>{d.icon} {d.name}</option>)}
           </select>
         </Field>
         <Field label="Função"><input className={inputClass} placeholder="Ex: Bartender, Segurança..." value={data.role || ''} onChange={(e) => update({ role: e.target.value })} /></Field>
