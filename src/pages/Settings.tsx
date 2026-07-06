@@ -15,13 +15,45 @@ import type {
 const inputClass = 'w-full border border-beetz-dark/15 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
 const cardClass = 'bg-white rounded-2xl p-5 md:p-6 shadow-soft border border-beetz-dark/5'
 
-const PERMISSION_FIELDS: { key: keyof Omit<RolePermissions, 'role' | 'updated_at'>; label: string }[] = [
-  { key: 'can_add_expense', label: 'Adicionar despesa' },
-  { key: 'can_review_expense', label: 'Revisar despesa' },
-  { key: 'can_add_cashier', label: 'Fechar caixa' },
-  { key: 'can_add_stock', label: 'Movimentar estoque' },
-  { key: 'can_manage_users', label: 'Gerenciar usuários' },
-  { key: 'can_view_financial_summary', label: 'Ver fechamento (diretoria)' }
+type PermissionKey = keyof Omit<RolePermissions, 'role' | 'updated_at'>
+
+const PERMISSION_GROUPS: { title: string; fields: { key: PermissionKey; label: string; description: string }[] }[] = [
+  {
+    title: 'Despesas',
+    fields: [
+      { key: 'can_add_expense', label: 'Adicionar despesa', description: 'Cadastrar novas despesas em um evento.' },
+      { key: 'can_edit_expense', label: 'Editar ou cancelar despesa', description: 'Alterar dados de uma despesa já lançada ou cancelá-la (mantendo o histórico).' },
+      { key: 'can_review_expense', label: 'Revisar status da despesa', description: 'Mudar o status entre Pendente, Aprovado, Pago e Rejeitado.' }
+    ]
+  },
+  {
+    title: 'Estoque',
+    fields: [
+      { key: 'can_add_stock', label: 'Movimentar estoque', description: 'Lançar entradas e saídas de produtos.' },
+      { key: 'can_edit_stock', label: 'Editar ou cancelar movimentação', description: 'Corrigir a quantidade de uma movimentação ou cancelá-la.' }
+    ]
+  },
+  {
+    title: 'Recebimentos (fechamento de caixa)',
+    fields: [
+      { key: 'can_add_cashier', label: 'Lançar fechamento de caixa', description: 'Registrar dinheiro, débito, crédito e Pix apurados em um evento.' },
+      { key: 'can_review_cashier', label: 'Aprovar fechamento de caixa', description: 'Mudar o status entre Pendente, Aprovado e Rejeitado.' }
+    ]
+  },
+  {
+    title: 'Eventos',
+    fields: [
+      { key: 'can_approve_event_requests', label: 'Aprovar pedidos de participação', description: 'Aceitar ou recusar pedidos de colaboradores pra entrar num evento.' }
+    ]
+  },
+  {
+    title: 'Usuários e visão financeira',
+    fields: [
+      { key: 'can_approve_users', label: 'Aprovar novos cadastros', description: 'Liberar (ou recusar) quem acabou de se cadastrar no app.' },
+      { key: 'can_manage_users', label: 'Gerenciar departamentos e perfis', description: 'Trocar o departamento de qualquer colaborador (e, com isso, seu papel de acesso).' },
+      { key: 'can_view_financial_summary', label: 'Ver fechamento — visão diretoria', description: 'Ver vendas, percentual, custos e lucro/perda de um evento.' }
+    ]
+  }
 ]
 
 const ROLE_ORDER: AccessRole[] = ['diretoria', 'garcom', 'caixa', 'operacional', 'colaborador']
@@ -58,10 +90,14 @@ export default function Settings() {
 }
 
 // ---------- Perfis de acesso ----------
+// Em vez de uma tabela larga (uma coluna por permissão), usamos um seletor de
+// perfil + uma lista vertical de permissões agrupadas — os perfis quase nunca
+// mudam, mas o número de permissões deve crescer, e listas escalam melhor que colunas.
 function RolePermissionsSection({ onSaved }: { onSaved: () => void }) {
   const [permissions, setPermissions] = useState<RolePermissions[]>([])
+  const [selectedRole, setSelectedRole] = useState<AccessRole>('diretoria')
   const [loading, setLoading] = useState(true)
-  const [savingRole, setSavingRole] = useState<string | null>(null)
+  const [savingKey, setSavingKey] = useState<string | null>(null)
 
   async function load() {
     setLoading(true)
@@ -71,17 +107,15 @@ function RolePermissionsSection({ onSaved }: { onSaved: () => void }) {
 
   useEffect(() => { load() }, [])
 
-  async function toggle(role: AccessRole, field: keyof Omit<RolePermissions, 'role' | 'updated_at'>, current: boolean) {
-    setSavingRole(role)
-    await updateRolePermission(role, { [field]: !current })
+  const current = permissions.find((p) => p.role === selectedRole)
+
+  async function toggle(field: PermissionKey, currentValue: boolean) {
+    setSavingKey(field)
+    await updateRolePermission(selectedRole, { [field]: !currentValue })
     await load()
     await onSaved()
-    setSavingRole(null)
+    setSavingKey(null)
   }
-
-  const sorted = ROLE_ORDER
-    .map((role) => permissions.find((p) => p.role === role))
-    .filter((p): p is RolePermissions => !!p)
 
   return (
     <section className={cardClass}>
@@ -90,38 +124,51 @@ function RolePermissionsSection({ onSaved }: { onSaved: () => void }) {
         Defina o que cada papel pode fazer. A Diretoria continua sendo o único perfil que não pode se autocadastrar.
       </p>
 
-      {loading ? (
+      <div className="flex flex-wrap gap-2 mb-5">
+        {ROLE_ORDER.map((role) => (
+          <button
+            key={role}
+            onClick={() => setSelectedRole(role)}
+            className={`text-sm font-semibold px-3.5 py-2 rounded-xl transition-colors ${
+              selectedRole === role ? 'bg-beetz-dark text-white' : 'bg-beetz-gray text-beetz-dark/70 hover:bg-beetz-dark/10'
+            }`}
+          >
+            {ACCESS_ROLE_LABELS[role]}
+          </button>
+        ))}
+      </div>
+
+      {loading || !current ? (
         <p className="text-sm text-beetz-dark/50">Carregando...</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[560px]">
-            <thead>
-              <tr className="text-left text-beetz-dark/50">
-                <th className="py-2 pr-3 font-medium">Perfil</th>
-                {PERMISSION_FIELDS.map((f) => (
-                  <th key={f.key} className="py-2 px-2 font-medium text-center">{f.label}</th>
+        <div className="space-y-5">
+          {PERMISSION_GROUPS.map((group) => (
+            <div key={group.title}>
+              <h3 className="text-xs font-bold uppercase tracking-wide text-beetz-dark/40 mb-2">{group.title}</h3>
+              <div className="divide-y divide-beetz-dark/5 border border-beetz-dark/5 rounded-xl overflow-hidden">
+                {group.fields.map((f) => (
+                  <label
+                    key={f.key}
+                    className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-beetz-gray/60 transition-colors ${
+                      savingKey === f.key ? 'opacity-50' : ''
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={current[f.key]}
+                      disabled={savingKey === f.key}
+                      onChange={() => toggle(f.key, current[f.key])}
+                      className="w-4 h-4 accent-beetz-yellow cursor-pointer shrink-0"
+                    />
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold">{f.label}</p>
+                      <p className="text-xs text-beetz-dark/50">{f.description}</p>
+                    </div>
+                  </label>
                 ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-beetz-dark/5">
-              {sorted.map((perm) => (
-                <tr key={perm.role} className={savingRole === perm.role ? 'opacity-50' : ''}>
-                  <td className="py-3 pr-3 font-semibold">{ACCESS_ROLE_LABELS[perm.role]}</td>
-                  {PERMISSION_FIELDS.map((f) => (
-                    <td key={f.key} className="py-3 px-2 text-center">
-                      <input
-                        type="checkbox"
-                        checked={perm[f.key]}
-                        disabled={savingRole === perm.role}
-                        onChange={() => toggle(perm.role, f.key, perm[f.key])}
-                        className="w-4 h-4 accent-beetz-yellow cursor-pointer"
-                      />
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </section>

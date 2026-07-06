@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Users, Sparkles, Crown, CalendarDays, Trophy } from 'lucide-react'
+import { Users, Sparkles, Crown, CalendarDays, Trophy, Clock } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { listProfiles, listEvents, getRanking, type RankingEntry } from '../lib/dataService'
 import type { EventItem, Profile } from '../lib/types'
@@ -40,6 +40,19 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-10">
+      {profile?.approval_status === 'Pendente' && (
+        <div className="flex items-start gap-3 bg-beetz-yellow/20 border border-beetz-yellow/40 rounded-2xl p-4">
+          <Clock size={20} className="text-beetz-dark/70 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold text-sm">Seu cadastro está aguardando aprovação da Diretoria</p>
+            <p className="text-sm text-beetz-dark/60 mt-0.5">
+              Você já pode navegar e completar seu perfil, mas ainda não aparece na Turma nem pode ser
+              escalado(a) para eventos até a aprovação sair.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div>
         <h1 className="text-2xl md:text-3xl font-extrabold">
           Oi, {profile?.first_name || 'abelha'}! 👋

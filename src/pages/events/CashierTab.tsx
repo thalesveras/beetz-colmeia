@@ -1,24 +1,39 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
-import { createCashierSettlement, listCashierSettlementsForEvent, listProfiles } from '../../lib/dataService'
-import type { CashierRoleType, CashierSettlement, Profile } from '../../lib/types'
+import { createCashierSettlement, listCashierSettlementsForEvent, listProfiles, updateCashierSettlementStatus } from '../../lib/dataService'
+import type { CashierRoleType, CashierSettlement, CashierStatus, Profile } from '../../lib/types'
 import Avatar from '../../components/ui/Avatar'
 import { Plus } from 'lucide-react'
+import { canReviewCashier } from '../../lib/permissions'
 
 const roleTypes: CashierRoleType[] = ['Caixa', 'Garçom']
+const statuses: CashierStatus[] = ['Pendente', 'Aprovado', 'Rejeitado']
 const inputClass = 'w-full border border-beetz-dark/15 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
+
+const statusColors: Record<CashierStatus, string> = {
+  Pendente: 'bg-beetz-yellow/30 text-beetz-dark',
+  Aprovado: 'bg-green-100 text-green-700',
+  Rejeitado: 'bg-red-100 text-red-700'
+}
 
 function currency(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
-export default function CashierTab({ eventId }: { eventId: string }) {
-  const { userId } = useAuth()
+interface Props {
+  eventId: string
+  canViewAll: boolean
+  isApprovedMember: boolean
+}
+
+export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Props) {
+  const { userId, profile, accessRole } = useAuth()
   const [settlements, setSettlements] = useState<CashierSettlement[]>([])
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
+  const canAdd = canViewAll || isApprovedMember
 
   const [profileId, setProfileId] = useState('')
   const [roleType, setRoleType] = useState<CashierRoleType>('Caixa')
@@ -38,6 +53,12 @@ export default function CashierTab({ eventId }: { eventId: string }) {
 
   useEffect(() => { load() }, [eventId])
 
+  // Quem não é Diretoria só pode fechar caixa em nome de si mesmo(a) — o campo
+  // fica travado no próprio usuário em vez de um seletor de colaborador(a).
+  useEffect(() => {
+    if (!canViewAll && userId) setProfileId(userId)
+  }, [canViewAll, userId])
+
   const profileName = (id: string | null) => {
     const p = profiles.find((pr) => pr.id === id)
     return p ? `${p.first_name} ${p.last_name}` : 'Colaborador(a)'
@@ -46,11 +67,14 @@ export default function CashierTab({ eventId }: { eventId: string }) {
   const formTotal = cash + debit + credit + pix
   const formCommission = roleType === 'Garçom' ? formTotal * 0.1 : 0
 
-  const grandTotal = settlements.reduce((sum, s) => sum + s.total, 0)
-  const grandCommission = settlements.reduce((sum, s) => sum + s.commission_amount, 0)
+  // Quem não é Diretoria só enxerga os próprios fechamentos, não os da equipe toda.
+  const visibleSettlements = canViewAll ? settlements : settlements.filter((s) => s.profile_id === userId)
+
+  const grandTotal = visibleSettlements.reduce((sum, s) => sum + s.total, 0)
+  const grandCommission = visibleSettlements.reduce((sum, s) => sum + s.commission_amount, 0)
 
   function resetForm() {
-    setProfileId(''); setRoleType('Caixa'); setCash(0); setDebit(0); setCredit(0); setPix(0); setNotes('')
+    setProfileId(canViewAll ? '' : (userId ?? '')); setRoleType('Caixa'); setCash(0); setDebit(0); setCredit(0); setPix(0); setNotes('')
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -74,29 +98,51 @@ export default function CashierTab({ eventId }: { eventId: string }) {
     load()
   }
 
+  async function handleStatusChange(id: string, status: CashierStatus) {
+    await updateCashierSettlementStatus(id, status)
+    load()
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-sm text-beetz-dark/60">
-          {loading ? 'Carregando...' : `Apurado: ${currency(grandTotal)} · Comissões de garçom: ${currency(grandCommission)}`}
+          {loading
+            ? 'Carregando...'
+            : `${canViewAll ? 'Apurado' : 'Seu apurado'}: ${currency(grandTotal)} · Comissões de garçom: ${currency(grandCommission)}`}
         </p>
-        <button
-          onClick={() => setShowForm((v) => !v)}
-          className="flex items-center gap-1.5 text-sm font-semibold bg-beetz-dark text-white px-3 py-2 rounded-xl hover:bg-black transition-colors"
-        >
-          <Plus size={16} /> Novo recebimento
-        </button>
+        {canAdd && (
+          <button
+            onClick={() => setShowForm((v) => !v)}
+            className="flex items-center gap-1.5 text-sm font-semibold bg-beetz-dark text-white px-3 py-2 rounded-xl hover:bg-black transition-colors"
+          >
+            <Plus size={16} /> Novo recebimento
+          </button>
+        )}
       </div>
 
-      {showForm && (
+      {!canAdd && (
+        <p className="text-sm text-beetz-dark/50 bg-beetz-gray rounded-xl p-4">
+          Para lançar um fechamento você precisa ter sua participação neste evento aprovada pela Diretoria
+          primeiro — veja a aba Equipe.
+        </p>
+      )}
+
+      {showForm && canAdd && (
         <form onSubmit={handleSubmit} className="bg-beetz-gray rounded-2xl p-5 space-y-4">
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
               <label className="text-sm font-medium block mb-1">Colaborador(a)</label>
-              <select required className={inputClass} value={profileId} onChange={(e) => setProfileId(e.target.value)}>
-                <option value="">Selecionar...</option>
-                {profiles.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
-              </select>
+              {canViewAll ? (
+                <select required className={inputClass} value={profileId} onChange={(e) => setProfileId(e.target.value)}>
+                  <option value="">Selecionar...</option>
+                  {profiles.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
+                </select>
+              ) : (
+                <div className={`${inputClass} bg-white text-beetz-dark/70`}>
+                  {profile ? `${profile.first_name} ${profile.last_name} (você)` : 'Você'}
+                </div>
+              )}
             </div>
             <div>
               <label className="text-sm font-medium block mb-1">Tipo</label>
@@ -149,8 +195,19 @@ export default function CashierTab({ eventId }: { eventId: string }) {
 
       {!loading && (
         <div className="space-y-2">
-          {settlements.map((s) => (
+          {visibleSettlements.map((s) => (
             <div key={s.id} className="flex flex-wrap items-center gap-3 bg-white border border-beetz-dark/5 rounded-xl p-4">
+              {canReviewCashier(accessRole) ? (
+                <select
+                  value={s.status}
+                  onChange={(e) => handleStatusChange(s.id, e.target.value as CashierStatus)}
+                  className={`text-xs font-semibold px-2.5 py-1 rounded-full border-0 ${statusColors[s.status]}`}
+                >
+                  {statuses.map((st) => <option key={st} value={st}>{st}</option>)}
+                </select>
+              ) : (
+                <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${statusColors[s.status]}`}>{s.status}</span>
+              )}
               <Avatar name={profileName(s.profile_id)} size="sm" />
               <div className="flex-1 min-w-[160px]">
                 <p className="font-semibold text-sm">{profileName(s.profile_id)}</p>
@@ -164,7 +221,11 @@ export default function CashierTab({ eventId }: { eventId: string }) {
               </div>
             </div>
           ))}
-          {settlements.length === 0 && <p className="text-sm text-beetz-dark/50">Nenhum recebimento registrado ainda.</p>}
+          {visibleSettlements.length === 0 && (
+            <p className="text-sm text-beetz-dark/50">
+              {canViewAll ? 'Nenhum recebimento registrado ainda.' : 'Você ainda não registrou nenhum recebimento neste evento.'}
+            </p>
+          )}
         </div>
       )}
     </div>

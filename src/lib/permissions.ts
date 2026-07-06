@@ -27,25 +27,39 @@ export const ACCESS_ROLE_LABELS: Record<AccessRole, string> = {
 // Valores padrão — substituídos em tempo de execução pelo ConfigContext assim que
 // as permissões (editáveis em /configuracoes) são carregadas do banco.
 const ROLE_PERMISSIONS: Record<AccessRole, Omit<RolePermissions, 'role' | 'updated_at'>> = {
-  diretoria: { can_add_expense: true, can_review_expense: true, can_add_cashier: true, can_add_stock: true, can_manage_users: true, can_view_financial_summary: true },
-  garcom: { can_add_expense: false, can_review_expense: false, can_add_cashier: true, can_add_stock: false, can_manage_users: false, can_view_financial_summary: false },
-  caixa: { can_add_expense: false, can_review_expense: false, can_add_cashier: true, can_add_stock: false, can_manage_users: false, can_view_financial_summary: false },
-  operacional: { can_add_expense: false, can_review_expense: false, can_add_cashier: false, can_add_stock: true, can_manage_users: false, can_view_financial_summary: false },
-  colaborador: { can_add_expense: false, can_review_expense: false, can_add_cashier: false, can_add_stock: false, can_manage_users: false, can_view_financial_summary: false }
+  diretoria: {
+    can_add_expense: true, can_review_expense: true, can_add_cashier: true, can_add_stock: true,
+    can_manage_users: true, can_view_financial_summary: true, can_approve_users: true,
+    can_review_cashier: true, can_edit_expense: true, can_edit_stock: true, can_approve_event_requests: true
+  },
+  garcom: {
+    can_add_expense: false, can_review_expense: false, can_add_cashier: true, can_add_stock: false,
+    can_manage_users: false, can_view_financial_summary: false, can_approve_users: false,
+    can_review_cashier: false, can_edit_expense: false, can_edit_stock: false, can_approve_event_requests: false
+  },
+  caixa: {
+    can_add_expense: false, can_review_expense: false, can_add_cashier: true, can_add_stock: false,
+    can_manage_users: false, can_view_financial_summary: false, can_approve_users: false,
+    can_review_cashier: false, can_edit_expense: false, can_edit_stock: false, can_approve_event_requests: false
+  },
+  operacional: {
+    can_add_expense: false, can_review_expense: false, can_add_cashier: false, can_add_stock: true,
+    can_manage_users: false, can_view_financial_summary: false, can_approve_users: false,
+    can_review_cashier: false, can_edit_expense: false, can_edit_stock: false, can_approve_event_requests: false
+  },
+  colaborador: {
+    can_add_expense: false, can_review_expense: false, can_add_cashier: false, can_add_stock: false,
+    can_manage_users: false, can_view_financial_summary: false, can_approve_users: false,
+    can_review_cashier: false, can_edit_expense: false, can_edit_stock: false, can_approve_event_requests: false
+  }
 }
 
 export function setRolePermissions(configs: RolePermissions[]) {
   if (!configs.length) return
   for (const config of configs) {
     if (!(config.role in ROLE_PERMISSIONS)) continue
-    ROLE_PERMISSIONS[config.role] = {
-      can_add_expense: config.can_add_expense,
-      can_review_expense: config.can_review_expense,
-      can_add_cashier: config.can_add_cashier,
-      can_add_stock: config.can_add_stock,
-      can_manage_users: config.can_manage_users,
-      can_view_financial_summary: config.can_view_financial_summary
-    }
+    const { role, updated_at, ...rest } = config
+    ROLE_PERMISSIONS[role] = rest
   }
 }
 
@@ -87,4 +101,24 @@ export function canViewStockTab(role: AccessRole) {
 
 export function canViewFinancialSummary(role: AccessRole) {
   return ROLE_PERMISSIONS[role].can_view_financial_summary
+}
+
+export function canApproveUsers(role: AccessRole) {
+  return ROLE_PERMISSIONS[role].can_approve_users
+}
+
+export function canReviewCashier(role: AccessRole) {
+  return ROLE_PERMISSIONS[role].can_review_cashier
+}
+
+export function canEditExpense(role: AccessRole) {
+  return ROLE_PERMISSIONS[role].can_edit_expense
+}
+
+export function canEditStock(role: AccessRole) {
+  return ROLE_PERMISSIONS[role].can_edit_stock
+}
+
+export function canApproveEventRequests(role: AccessRole) {
+  return ROLE_PERMISSIONS[role].can_approve_event_requests
 }

@@ -2,22 +2,24 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import {
   createExpense, createSupplier, listEventMembers, listExpenseCategories, listExpensesForEvent,
-  listPaymentMethods, listProfiles, listSuppliers, updateExpenseStatus
+  listPaymentMethods, listProfiles, listSuppliers, updateExpense, updateExpenseStatus
 } from '../../lib/dataService'
 import type {
   Expense, ExpenseCategory, ExpenseStatus, PaymentMethod, PaymentMethodOption, Profile, Supplier
 } from '../../lib/types'
+import { canEditExpense } from '../../lib/permissions'
 import FileField from '../../components/ui/FileField'
 import SignaturePad from '../../components/ui/SignaturePad'
-import { Plus } from 'lucide-react'
+import { Plus, Pencil } from 'lucide-react'
 
-const statuses: ExpenseStatus[] = ['Pendente', 'Aprovado', 'Pago', 'Rejeitado']
+const statuses: ExpenseStatus[] = ['Pendente', 'Aprovado', 'Pago', 'Rejeitado', 'Cancelado']
 
 const statusColors: Record<ExpenseStatus, string> = {
   Pendente: 'bg-beetz-yellow/30 text-beetz-dark',
   Aprovado: 'bg-blue-100 text-blue-700',
   Pago: 'bg-green-100 text-green-700',
-  Rejeitado: 'bg-red-100 text-red-700'
+  Rejeitado: 'bg-red-100 text-red-700',
+  Cancelado: 'bg-beetz-dark/10 text-beetz-dark/50'
 }
 
 function currency(v: number) {
@@ -27,7 +29,7 @@ function currency(v: number) {
 const inputClass = 'w-full border border-beetz-dark/15 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
 
 export default function ExpensesTab({ eventId }: { eventId: string }) {
-  const { userId } = useAuth()
+  const { userId, accessRole } = useAuth()
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [categories, setCategories] = useState<ExpenseCategory[]>([])
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodOption[]>([])
@@ -36,6 +38,7 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   const [category, setCategory] = useState('')
   const [receiptData, setReceiptData] = useState<string | null>(null)
@@ -84,22 +87,36 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
     setAddingSupplier(false)
   }
 
-  const total = expenses.reduce((sum, e) => sum + e.total, 0)
+  const total = expenses.filter((e) => e.status !== 'Cancelado').reduce((sum, e) => sum + e.total, 0)
   const formTotal = quantity * unitValue + dexFee
 
   function resetForm() {
     setCategory(''); setReceiptData(null); setPaymentMethod(''); setDescription('')
     setQuantity(1); setUnitValue(0); setDexFee(0); setSignatureData(null); setRepasseData(null)
-    setTeamMemberId(''); setSupplierId('')
+    setTeamMemberId(''); setSupplierId(''); setEditingId(null)
+  }
+
+  function handleEdit(exp: Expense) {
+    setEditingId(exp.id)
+    setCategory(exp.category ?? '')
+    setReceiptData(exp.receipt_data)
+    setPaymentMethod(exp.payment_method ?? '')
+    setDescription(exp.description ?? '')
+    setQuantity(exp.quantity)
+    setUnitValue(exp.unit_value)
+    setDexFee(exp.dex_fee)
+    setSignatureData(exp.signature_data)
+    setRepasseData(exp.repasse_data)
+    setTeamMemberId(exp.team_member_id ?? '')
+    setSupplierId(exp.supplier_id ?? '')
+    setShowForm(true)
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!userId) return
     setSaving(true)
-    await createExpense({
-      event_id: eventId,
-      status: 'Pendente',
+    const payload = {
       category: category || null,
       receipt_data: receiptData,
       payment_method: paymentMethod || null,
@@ -109,10 +126,14 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
       dex_fee: dexFee,
       signature_data: signatureData,
       repasse_data: repasseData,
-      created_by: userId,
       team_member_id: teamMemberId || null,
       supplier_id: supplierId || null
-    })
+    }
+    if (editingId) {
+      await updateExpense(editingId, payload)
+    } else {
+      await createExpense({ event_id: eventId, status: 'Pendente', created_by: userId, ...payload })
+    }
     setSaving(false)
     resetForm()
     setShowForm(false)
@@ -131,7 +152,7 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
           {loading ? 'Carregando...' : `${expenses.length} despesa(s) · Total: ${currency(total)}`}
         </p>
         <button
-          onClick={() => setShowForm((v) => !v)}
+          onClick={() => { if (showForm) resetForm(); setShowForm((v) => !v) }}
           className="flex items-center gap-1.5 text-sm font-semibold bg-beetz-dark text-white px-3 py-2 rounded-xl hover:bg-black transition-colors"
         >
           <Plus size={16} /> Nova despesa
@@ -219,9 +240,9 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
           <FileField label="Repasse (comprovante de devolução, se houver)" value={repasseData} onChange={setRepasseData} />
 
           <div className="flex justify-end gap-2 pt-1">
-            <button type="button" onClick={() => setShowForm(false)} className="text-sm font-semibold text-beetz-dark/50 px-4 py-2">Cancelar</button>
+            <button type="button" onClick={() => { resetForm(); setShowForm(false) }} className="text-sm font-semibold text-beetz-dark/50 px-4 py-2">Cancelar</button>
             <button type="submit" disabled={saving} className="honey-gradient text-beetz-dark font-bold px-5 py-2 rounded-xl text-sm disabled:opacity-60">
-              {saving ? 'Salvando...' : 'Salvar despesa'}
+              {saving ? 'Salvando...' : editingId ? 'Salvar alterações' : 'Salvar despesa'}
             </button>
           </div>
         </form>
@@ -230,7 +251,7 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
       {!loading && (
         <div className="space-y-2">
           {expenses.map((exp) => (
-            <div key={exp.id} className="flex flex-wrap items-center gap-3 bg-white border border-beetz-dark/5 rounded-xl p-4">
+            <div key={exp.id} className={`flex flex-wrap items-center gap-3 bg-white border border-beetz-dark/5 rounded-xl p-4 ${exp.status === 'Cancelado' ? 'opacity-50' : ''}`}>
               <select
                 value={exp.status}
                 onChange={(e) => handleStatusChange(exp.id, e.target.value as ExpenseStatus)}
@@ -247,6 +268,11 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
                 </p>
               </div>
               <span className="font-bold text-sm">{currency(exp.total)}</span>
+              {canEditExpense(accessRole) && (
+                <button onClick={() => handleEdit(exp)} className="text-beetz-dark/40 hover:text-beetz-dark p-1.5 rounded-lg hover:bg-beetz-gray">
+                  <Pencil size={14} />
+                </button>
+              )}
             </div>
           ))}
           {expenses.length === 0 && <p className="text-sm text-beetz-dark/50">Nenhuma despesa registrada ainda.</p>}

@@ -31,7 +31,7 @@ export const mockProfiles: Profile[] = [
     health_conditions: null, allergies: null, important_notes: null,
     about_me: 'Apaixonada por criar experiências inesquecíveis.', fun_fact: 'Já produziu mais de 200 eventos.',
     favorite_events: 'Festivais de música', instagram: '@marinasouza', personal_quote: 'Quem faz mel não tem tempo de ser abelha triste.',
-    avatar_url: avatar(1), onboarding_completed: true, created_at: '2019-02-01T10:00:00Z'
+    avatar_url: avatar(1), onboarding_completed: true, approval_status: 'Aprovado', created_at: '2019-02-01T10:00:00Z'
   },
   {
     id: 'p2', first_name: 'Rafael', last_name: 'Lima', birth_date: '1990-07-22', cpf: '111.111.111-12',
@@ -42,7 +42,7 @@ export const mockProfiles: Profile[] = [
     health_conditions: null, allergies: 'Poeira', important_notes: null,
     about_me: 'Resolve qualquer imprevisto 20 minutos antes do show.', fun_fact: 'Já dormiu num palco montado.',
     favorite_events: 'Shows de rock', instagram: '@rafaellima', personal_quote: 'Produção boa é aquela que ninguém percebe.',
-    avatar_url: avatar(12), onboarding_completed: true, created_at: '2020-05-10T10:00:00Z'
+    avatar_url: avatar(12), onboarding_completed: true, approval_status: 'Aprovado', created_at: '2020-05-10T10:00:00Z'
   },
   {
     id: 'p3', first_name: 'Bianca', last_name: 'Alves', birth_date: '1998-11-02', cpf: '111.111.111-13',
@@ -53,7 +53,7 @@ export const mockProfiles: Profile[] = [
     health_conditions: null, allergies: null, important_notes: null,
     about_me: 'Transformo pedido de drink em experiência.', fun_fact: 'Sabe fazer 40 drinks diferentes de cabeça.',
     favorite_events: 'Festas open bar', instagram: '@biancaalves', personal_quote: 'Um bom drink resolve metade dos problemas.',
-    avatar_url: avatar(5), onboarding_completed: true, created_at: '2021-01-15T10:00:00Z'
+    avatar_url: avatar(5), onboarding_completed: true, approval_status: 'Aprovado', created_at: '2021-01-15T10:00:00Z'
   },
   {
     id: 'p4', first_name: 'Diego', last_name: 'Ferreira', birth_date: '1996-04-18', cpf: '111.111.111-14',
@@ -64,7 +64,7 @@ export const mockProfiles: Profile[] = [
     health_conditions: null, allergies: null, important_notes: null,
     about_me: 'Bar cheio é o meu habitat natural.', fun_fact: 'Já fez 500 caipirinhas em uma noite.',
     favorite_events: 'Carnaval', instagram: '@diegoferreira', personal_quote: 'Sorriso no rosto, gelo no copo.',
-    avatar_url: avatar(13), onboarding_completed: true, created_at: '2022-03-01T10:00:00Z'
+    avatar_url: avatar(13), onboarding_completed: true, approval_status: 'Aprovado', created_at: '2022-03-01T10:00:00Z'
   },
   {
     id: 'p5', first_name: 'Camila', last_name: 'Rocha', birth_date: '2000-09-09', cpf: '111.111.111-15',
@@ -75,7 +75,7 @@ export const mockProfiles: Profile[] = [
     health_conditions: null, allergies: null, important_notes: null,
     about_me: 'Detalhista com números, gentil com pessoas.', fun_fact: 'Nunca fechou o caixa com diferença.',
     favorite_events: 'Feiras', instagram: '@camilarocha', personal_quote: 'Confiança se constrói centavo a centavo.',
-    avatar_url: avatar(9), onboarding_completed: true, created_at: '2024-06-01T10:00:00Z'
+    avatar_url: avatar(9), onboarding_completed: true, approval_status: 'Aprovado', created_at: '2024-06-01T10:00:00Z'
   },
   {
     id: 'p6', first_name: 'Lucas', last_name: 'Martins', birth_date: '1995-01-30', cpf: '111.111.111-16',
@@ -86,7 +86,7 @@ export const mockProfiles: Profile[] = [
     health_conditions: null, allergies: null, important_notes: null,
     about_me: 'Cada mesa bem servida é uma vitória.', fun_fact: 'Já atendeu uma banda internacional inteira.',
     favorite_events: 'Eventos corporativos', instagram: '@lucasmartins', personal_quote: 'Atenção aos detalhes muda tudo.',
-    avatar_url: avatar(14), onboarding_completed: true, created_at: '2020-08-20T10:00:00Z'
+    avatar_url: avatar(14), onboarding_completed: true, approval_status: 'Aprovado', created_at: '2020-08-20T10:00:00Z'
   },
   {
     id: 'p7', first_name: 'Juliana', last_name: 'Costa', birth_date: '1999-06-14', cpf: '111.111.111-17',
@@ -97,7 +97,7 @@ export const mockProfiles: Profile[] = [
     health_conditions: null, allergies: 'Amendoim', important_notes: null,
     about_me: 'Gosto de deixar o convidado à vontade.', fun_fact: 'Decorou o cardápio inteiro em um dia.',
     favorite_events: 'Casamentos', instagram: '@julianacosta', personal_quote: 'Sorrir também é servir.',
-    avatar_url: avatar(20), onboarding_completed: true, created_at: '2022-10-05T10:00:00Z'
+    avatar_url: avatar(20), onboarding_completed: true, approval_status: 'Aprovado', created_at: '2022-10-05T10:00:00Z'
   },
   {
     id: 'p8', first_name: 'Thiago', last_name: 'Pereira', birth_date: '1988-12-25', cpf: '111.111.111-18',
@@ -108,7 +108,7 @@ export const mockProfiles: Profile[] = [
     health_conditions: null, allergies: null, important_notes: null,
     about_me: 'Prefiro prevenir do que remediar.', fun_fact: 'Trabalhou em mais de 300 eventos.',
     favorite_events: 'Shows de grande público', instagram: '@thiagopereira', personal_quote: 'Segurança é cuidado, não é medo.',
-    avatar_url: avatar(15), onboarding_completed: true, created_at: '2018-11-01T10:00:00Z'
+    avatar_url: avatar(15), onboarding_completed: true, approval_status: 'Aprovado', created_at: '2018-11-01T10:00:00Z'
   },
   {
     id: 'p9', first_name: 'Fernanda', last_name: 'Dias', birth_date: '2001-02-08', cpf: '111.111.111-19',
@@ -119,7 +119,7 @@ export const mockProfiles: Profile[] = [
     health_conditions: null, allergies: null, important_notes: null,
     about_me: 'Sou a primeira pessoa que você vê na entrada!', fun_fact: 'Memoriza rostos com facilidade.',
     favorite_events: 'Festivais', instagram: '@fernandadias', personal_quote: 'Primeira impressão é a que fica.',
-    avatar_url: avatar(23), onboarding_completed: true, created_at: '2025-11-01T10:00:00Z'
+    avatar_url: avatar(23), onboarding_completed: true, approval_status: 'Aprovado', created_at: '2025-11-01T10:00:00Z'
   },
   {
     id: 'p10', first_name: 'Bruno', last_name: 'Cardoso', birth_date: '1993-05-17', cpf: '111.111.111-20',
@@ -130,7 +130,7 @@ export const mockProfiles: Profile[] = [
     health_conditions: null, allergies: null, important_notes: null,
     about_me: 'Evento limpo é evento de respeito com o público.', fun_fact: 'Já organizou limpeza de um festival de 3 dias.',
     favorite_events: 'Festivais de grande porte', instagram: '@brunocardoso', personal_quote: 'Nos detalhes mora a excelência.',
-    avatar_url: avatar(33), onboarding_completed: true, created_at: '2021-07-19T10:00:00Z'
+    avatar_url: avatar(33), onboarding_completed: true, approval_status: 'Aprovado', created_at: '2021-07-19T10:00:00Z'
   },
   {
     id: 'p11', first_name: 'Larissa', last_name: 'Nogueira', birth_date: '1997-10-03', cpf: '111.111.111-21',
@@ -141,7 +141,7 @@ export const mockProfiles: Profile[] = [
     health_conditions: null, allergies: null, important_notes: null,
     about_me: 'Conecto quem faz acontecer com quem faz o evento.', fun_fact: 'Conhece mais de 100 fornecedores pelo nome.',
     favorite_events: 'Feiras corporativas', instagram: '@larissanogueira', personal_quote: 'Boas parcerias fazem grandes eventos.',
-    avatar_url: avatar(29), onboarding_completed: true, created_at: '2021-09-12T10:00:00Z'
+    avatar_url: avatar(29), onboarding_completed: true, approval_status: 'Aprovado', created_at: '2021-09-12T10:00:00Z'
   },
   {
     id: 'p12', first_name: 'Pedro', last_name: 'Araújo', birth_date: '1992-08-27', cpf: '111.111.111-22',
@@ -152,7 +152,7 @@ export const mockProfiles: Profile[] = [
     health_conditions: null, allergies: null, important_notes: null,
     about_me: 'Cuido para o som chegar redondinho na plateia.', fun_fact: 'Já operou som para mais de 15 mil pessoas.',
     favorite_events: 'Shows ao vivo', instagram: '@pedroaraujo', personal_quote: 'Sem som bom, não tem show.',
-    avatar_url: avatar(52), onboarding_completed: true, created_at: '2019-10-10T10:00:00Z'
+    avatar_url: avatar(52), onboarding_completed: true, approval_status: 'Aprovado', created_at: '2019-10-10T10:00:00Z'
   },
   {
     id: 'p13', first_name: 'Aline', last_name: 'Barros', birth_date: '2003-01-19', cpf: '111.111.111-23',
@@ -163,7 +163,7 @@ export const mockProfiles: Profile[] = [
     health_conditions: null, allergies: null, important_notes: 'Prefere eventos diurnos.',
     about_me: 'Ainda aprendendo tudo, mas com muita vontade!', fun_fact: 'Este é meu primeiro emprego formal.',
     favorite_events: 'Feiras', instagram: '@alinebarros', personal_quote: 'Toda lenda um dia foi iniciante.',
-    avatar_url: avatar(45), onboarding_completed: true, created_at: '2026-04-01T10:00:00Z'
+    avatar_url: avatar(45), onboarding_completed: true, approval_status: 'Aprovado', created_at: '2026-04-01T10:00:00Z'
   },
   {
     id: 'p14', first_name: 'Gustavo', last_name: 'Ramos', birth_date: '1991-03-03', cpf: '111.111.111-24',
@@ -174,7 +174,7 @@ export const mockProfiles: Profile[] = [
     health_conditions: null, allergies: null, important_notes: null,
     about_me: 'Construindo a colmeia desde o primeiro tijolo.', fun_fact: 'Fundou a Beetz na garagem de casa.',
     favorite_events: 'Todos, sem exceção', instagram: '@gustavoramos', personal_quote: 'Sozinho vamos rápido, juntos vamos longe.',
-    avatar_url: avatar(60), onboarding_completed: true, created_at: '2017-01-01T10:00:00Z'
+    avatar_url: avatar(60), onboarding_completed: true, approval_status: 'Aprovado', created_at: '2017-01-01T10:00:00Z'
   }
 ]
 
@@ -212,7 +212,7 @@ export const mockEvents: EventItem[] = [
 ]
 
 function member(id: string, event_id: string, profile_id: string, role_in_event: string): EventMember {
-  return { id, event_id, profile_id, role_in_event, created_at: '2026-01-01T10:00:00Z' }
+  return { id, event_id, profile_id, role_in_event, status: 'Aprovado', created_at: '2026-01-01T10:00:00Z' }
 }
 
 export const mockEventMembers: EventMember[] = [
@@ -278,13 +278,13 @@ export const mockCashierSettlements: CashierSettlement[] = [
   {
     id: 'cs1', event_id: 'e1', profile_id: 'p5', role_type: 'Caixa',
     cash_amount: 1200, debit_amount: 800, credit_amount: 1500, pix_amount: 900,
-    total: 1200 + 800 + 1500 + 900, commission_amount: 0, notes: null, created_by: 'p5',
+    total: 1200 + 800 + 1500 + 900, commission_amount: 0, status: 'Aprovado', notes: null, created_by: 'p5',
     created_at: '2026-01-18T23:30:00Z'
   },
   {
     id: 'cs2', event_id: 'e1', profile_id: 'p7', role_type: 'Garçom',
     cash_amount: 300, debit_amount: 150, credit_amount: 400, pix_amount: 250,
-    total: 300 + 150 + 400 + 250, commission_amount: (300 + 150 + 400 + 250) * 0.1, notes: null, created_by: 'p7',
+    total: 300 + 150 + 400 + 250, commission_amount: (300 + 150 + 400 + 250) * 0.1, status: 'Aprovado', notes: null, created_by: 'p7',
     created_at: '2026-01-18T23:30:00Z'
   }
 ]
@@ -303,10 +303,10 @@ export const mockProducts: Product[] = [
 ]
 
 export const mockStockMovements: StockMovement[] = [
-  { id: 'sm1', product_id: 'pr1', stock_location_id: 'sl2', event_id: null, movement_type: 'Entrada', quantity: 2000, notes: 'Compra inicial', created_by: 'p1', created_at: '2025-12-01T10:00:00Z' },
-  { id: 'sm2', product_id: 'pr1', stock_location_id: 'sl2', event_id: 'e1', movement_type: 'Saída', quantity: 600, notes: 'Usado no Festival de Verão', created_by: 'p3', created_at: '2026-01-18T20:00:00Z' },
-  { id: 'sm3', product_id: 'pr2', stock_location_id: 'sl2', event_id: null, movement_type: 'Entrada', quantity: 100, notes: 'Compra inicial', created_by: 'p1', created_at: '2025-12-01T10:00:00Z' },
-  { id: 'sm4', product_id: 'pr2', stock_location_id: 'sl2', event_id: 'e1', movement_type: 'Saída', quantity: 40, notes: 'Usado no Festival de Verão', created_by: 'p3', created_at: '2026-01-18T20:00:00Z' }
+  { id: 'sm1', product_id: 'pr1', stock_location_id: 'sl2', event_id: null, movement_type: 'Entrada', quantity: 2000, notes: 'Compra inicial', created_by: 'p1', status: 'Ativo', created_at: '2025-12-01T10:00:00Z' },
+  { id: 'sm2', product_id: 'pr1', stock_location_id: 'sl2', event_id: 'e1', movement_type: 'Saída', quantity: 600, notes: 'Usado no Festival de Verão', created_by: 'p3', status: 'Ativo', created_at: '2026-01-18T20:00:00Z' },
+  { id: 'sm3', product_id: 'pr2', stock_location_id: 'sl2', event_id: null, movement_type: 'Entrada', quantity: 100, notes: 'Compra inicial', created_by: 'p1', status: 'Ativo', created_at: '2025-12-01T10:00:00Z' },
+  { id: 'sm4', product_id: 'pr2', stock_location_id: 'sl2', event_id: 'e1', movement_type: 'Saída', quantity: 40, notes: 'Usado no Festival de Verão', created_by: 'p3', status: 'Ativo', created_at: '2026-01-18T20:00:00Z' }
 ]
 
 // ---------- Produtos do evento, consumo da produção e transferências ----------
@@ -326,11 +326,11 @@ export const mockTransferRequests: TransferRequest[] = [
 
 // ---------- Configurações (perfis de acesso, listas, gamificação, marca) ----------
 export const mockRolePermissions: RolePermissions[] = [
-  { role: 'diretoria', can_add_expense: true, can_review_expense: true, can_add_cashier: true, can_add_stock: true, can_manage_users: true, can_view_financial_summary: true, updated_at: '2026-01-01T10:00:00Z' },
-  { role: 'garcom', can_add_expense: false, can_review_expense: false, can_add_cashier: true, can_add_stock: false, can_manage_users: false, can_view_financial_summary: false, updated_at: '2026-01-01T10:00:00Z' },
-  { role: 'caixa', can_add_expense: false, can_review_expense: false, can_add_cashier: true, can_add_stock: false, can_manage_users: false, can_view_financial_summary: false, updated_at: '2026-01-01T10:00:00Z' },
-  { role: 'operacional', can_add_expense: false, can_review_expense: false, can_add_cashier: false, can_add_stock: true, can_manage_users: false, can_view_financial_summary: false, updated_at: '2026-01-01T10:00:00Z' },
-  { role: 'colaborador', can_add_expense: false, can_review_expense: false, can_add_cashier: false, can_add_stock: false, can_manage_users: false, can_view_financial_summary: false, updated_at: '2026-01-01T10:00:00Z' }
+  { role: 'diretoria', can_add_expense: true, can_review_expense: true, can_add_cashier: true, can_add_stock: true, can_manage_users: true, can_view_financial_summary: true, can_approve_users: true, can_review_cashier: true, can_edit_expense: true, can_edit_stock: true, can_approve_event_requests: true, updated_at: '2026-01-01T10:00:00Z' },
+  { role: 'garcom', can_add_expense: false, can_review_expense: false, can_add_cashier: true, can_add_stock: false, can_manage_users: false, can_view_financial_summary: false, can_approve_users: false, can_review_cashier: false, can_edit_expense: false, can_edit_stock: false, can_approve_event_requests: false, updated_at: '2026-01-01T10:00:00Z' },
+  { role: 'caixa', can_add_expense: false, can_review_expense: false, can_add_cashier: true, can_add_stock: false, can_manage_users: false, can_view_financial_summary: false, can_approve_users: false, can_review_cashier: false, can_edit_expense: false, can_edit_stock: false, can_approve_event_requests: false, updated_at: '2026-01-01T10:00:00Z' },
+  { role: 'operacional', can_add_expense: false, can_review_expense: false, can_add_cashier: false, can_add_stock: true, can_manage_users: false, can_view_financial_summary: false, can_approve_users: false, can_review_cashier: false, can_edit_expense: false, can_edit_stock: false, can_approve_event_requests: false, updated_at: '2026-01-01T10:00:00Z' },
+  { role: 'colaborador', can_add_expense: false, can_review_expense: false, can_add_cashier: false, can_add_stock: false, can_manage_users: false, can_view_financial_summary: false, can_approve_users: false, can_review_cashier: false, can_edit_expense: false, can_edit_stock: false, can_approve_event_requests: false, updated_at: '2026-01-01T10:00:00Z' }
 ]
 
 export const mockExpenseCategories: ExpenseCategory[] = [

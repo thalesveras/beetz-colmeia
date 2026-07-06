@@ -54,11 +54,32 @@ export async function listDepartments(): Promise<Department[]> {
 }
 
 // ---------- Perfis ----------
+// A Turma e os seletores de escalação só mostram gente com o perfil completo
+// E já aprovada pela Diretoria — quem está pendente ainda não aparece pra equipe.
 export async function listProfiles(): Promise<Profile[]> {
-  if (isDemoMode) return demoState.profiles.filter((p) => p.onboarding_completed)
-  const { data, error } = await supabase.from('profiles').select('*').eq('onboarding_completed', true)
+  if (isDemoMode) return demoState.profiles.filter((p) => p.onboarding_completed && p.approval_status === 'Aprovado')
+  const { data, error } = await supabase.from('profiles').select('*')
+    .eq('onboarding_completed', true).eq('approval_status', 'Aprovado')
   if (error) throw error
   return data as Profile[]
+}
+
+export async function listPendingProfiles(): Promise<Profile[]> {
+  if (isDemoMode) return demoState.profiles.filter((p) => p.onboarding_completed && p.approval_status === 'Pendente')
+  const { data, error } = await supabase.from('profiles').select('*')
+    .eq('onboarding_completed', true).eq('approval_status', 'Pendente')
+  if (error) throw error
+  return data as Profile[]
+}
+
+export async function setProfileApproval(profileId: string, status: 'Aprovado' | 'Rejeitado'): Promise<void> {
+  if (isDemoMode) {
+    const idx = demoState.profiles.findIndex((p) => p.id === profileId)
+    if (idx >= 0) demoState.profiles[idx] = { ...demoState.profiles[idx], approval_status: status }
+    return
+  }
+  const { error } = await supabase.from('profiles').update({ approval_status: status }).eq('id', profileId)
+  if (error) throw error
 }
 
 export async function getProfileById(id: string): Promise<Profile | null> {
@@ -71,10 +92,21 @@ export async function getProfileById(id: string): Promise<Profile | null> {
 export async function updateProfileDepartment(profileId: string, departmentId: string): Promise<void> {
   if (isDemoMode) {
     const idx = demoState.profiles.findIndex((p) => p.id === profileId)
-    if (idx >= 0) demoState.profiles[idx] = { ...demoState.profiles[idx], department_id: departmentId }
+    const dept = demoState.departments.find((d) => d.id === departmentId)
+    if (idx >= 0) {
+      demoState.profiles[idx] = {
+        ...demoState.profiles[idx],
+        department_id: departmentId,
+        // Promover alguém pra Diretoria já aprova a pessoa automaticamente.
+        approval_status: dept?.slug === 'diretoria' ? 'Aprovado' : demoState.profiles[idx].approval_status
+      }
+    }
     return
   }
-  const { error } = await supabase.from('profiles').update({ department_id: departmentId }).eq('id', profileId)
+  const { data: dept } = await supabase.from('departments').select('slug').eq('id', departmentId).maybeSingle()
+  const patch: Partial<Profile> = { department_id: departmentId }
+  if (dept?.slug === 'diretoria') patch.approval_status = 'Aprovado'
+  const { error } = await supabase.from('profiles').update(patch).eq('id', profileId)
   if (error) throw error
 }
 
@@ -92,7 +124,7 @@ export async function upsertProfile(profile: Partial<Profile> & { id: string }):
       experience_level: null, entry_date: null, work_location: null, skills: [], health_conditions: null,
       allergies: null, important_notes: null, about_me: null, fun_fact: null, favorite_events: null,
       instagram: null, personal_quote: null, avatar_url: null, onboarding_completed: false,
-      created_at: new Date().toISOString(), ...profile
+      approval_status: 'Pendente', created_at: new Date().toISOString(), ...profile
     }
     demoState.profiles.push(blank)
     return blank
@@ -160,22 +192,55 @@ export async function listEventMembers(eventId: string): Promise<EventMember[]> 
   return data as EventMember[]
 }
 
+// Escalação direta (feita por Diretoria/líder) — o vínculo já nasce Aprovado.
 export async function addEventMember(eventId: string, profileId: string, roleInEvent: string): Promise<EventMember> {
   if (isDemoMode) {
-    const newMember: EventMember = { id: uid('m'), event_id: eventId, profile_id: profileId, role_in_event: roleInEvent, created_at: new Date().toISOString() }
+    const newMember: EventMember = {
+      id: uid('m'), event_id: eventId, profile_id: profileId, role_in_event: roleInEvent,
+      status: 'Aprovado', created_at: new Date().toISOString()
+    }
     demoState.eventMembers.push(newMember)
     return newMember
   }
   const { data, error } = await supabase.from('event_members')
-    .insert({ event_id: eventId, profile_id: profileId, role_in_event: roleInEvent }).select().single()
+    .insert({ event_id: eventId, profile_id: profileId, role_in_event: roleInEvent, status: 'Aprovado' }).select().single()
   if (error) throw error
   return data as EventMember
 }
 
+// Pedido de participação feito pelo próprio colaborador — nasce Pendente até
+// a Diretoria aprovar.
+export async function requestEventParticipation(eventId: string, profileId: string, roleInEvent: string): Promise<EventMember> {
+  if (isDemoMode) {
+    const newMember: EventMember = {
+      id: uid('m'), event_id: eventId, profile_id: profileId, role_in_event: roleInEvent,
+      status: 'Pendente', created_at: new Date().toISOString()
+    }
+    demoState.eventMembers.push(newMember)
+    return newMember
+  }
+  const { data, error } = await supabase.from('event_members')
+    .insert({ event_id: eventId, profile_id: profileId, role_in_event: roleInEvent, status: 'Pendente' }).select().single()
+  if (error) throw error
+  return data as EventMember
+}
+
+export async function updateEventMemberStatus(id: string, status: EventMember['status']): Promise<void> {
+  if (isDemoMode) {
+    const idx = demoState.eventMembers.findIndex((m) => m.id === id)
+    if (idx >= 0) demoState.eventMembers[idx] = { ...demoState.eventMembers[idx], status }
+    return
+  }
+  const { error } = await supabase.from('event_members').update({ status }).eq('id', id)
+  if (error) throw error
+}
+
+// Conta como "evento da pessoa" (pra gamificação e listagens) só quem já
+// teve a participação Aprovada — pedido pendente ainda não conta.
 export async function listEventsForProfile(profileId: string): Promise<EventItem[]> {
   const allMembers = isDemoMode
-    ? demoState.eventMembers.filter((m) => m.profile_id === profileId)
-    : (await supabase.from('event_members').select('*').eq('profile_id', profileId)).data ?? []
+    ? demoState.eventMembers.filter((m) => m.profile_id === profileId && m.status === 'Aprovado')
+    : (await supabase.from('event_members').select('*').eq('profile_id', profileId).eq('status', 'Aprovado')).data ?? []
   const eventIds = new Set(allMembers.map((m: EventMember) => m.event_id))
   const all = await listEvents()
   return all.filter((e) => eventIds.has(e.id))
@@ -302,8 +367,24 @@ export async function updateExpenseStatus(id: string, status: Expense['status'])
   if (error) throw error
 }
 
+// Edição de conteúdo da despesa (categoria, valores, fornecedor etc.) — "excluir"
+// uma despesa na prática é trocar o status pra Cancelado (mantém o histórico).
+export async function updateExpense(id: string, patch: Partial<Omit<Expense, 'id' | 'created_at' | 'event_id' | 'total'>>): Promise<Expense> {
+  if (isDemoMode) {
+    const idx = demoState.expenses.findIndex((e) => e.id === id)
+    if (idx < 0) throw new Error('Despesa não encontrada')
+    const updated = { ...demoState.expenses[idx], ...patch }
+    updated.total = updated.quantity * updated.unit_value + updated.dex_fee
+    demoState.expenses[idx] = updated
+    return updated
+  }
+  const { data, error } = await supabase.from('expenses').update(patch).eq('id', id).select().single()
+  if (error) throw error
+  return data as Expense
+}
+
 // ---------- Recebimentos (caixas) ----------
-export type NewCashierSettlementInput = Omit<CashierSettlement, 'id' | 'created_at' | 'total' | 'commission_amount'>
+export type NewCashierSettlementInput = Omit<CashierSettlement, 'id' | 'created_at' | 'total' | 'commission_amount' | 'status'>
 
 export async function listCashierSettlementsForEvent(eventId: string): Promise<CashierSettlement[]> {
   if (isDemoMode) return demoState.cashierSettlements.filter((c) => c.event_id === eventId)
@@ -316,13 +397,23 @@ export async function createCashierSettlement(input: NewCashierSettlementInput):
   if (isDemoMode) {
     const total = input.cash_amount + input.debit_amount + input.credit_amount + input.pix_amount
     const commission_amount = input.role_type === 'Garçom' ? total * 0.1 : 0
-    const settlement: CashierSettlement = { ...input, id: uid('cs'), total, commission_amount, created_at: new Date().toISOString() }
+    const settlement: CashierSettlement = { ...input, id: uid('cs'), total, commission_amount, status: 'Pendente', created_at: new Date().toISOString() }
     demoState.cashierSettlements.push(settlement)
     return settlement
   }
-  const { data, error } = await supabase.from('cashier_settlements').insert(input).select().single()
+  const { data, error } = await supabase.from('cashier_settlements').insert({ ...input, status: 'Pendente' }).select().single()
   if (error) throw error
   return data as CashierSettlement
+}
+
+export async function updateCashierSettlementStatus(id: string, status: CashierSettlement['status']): Promise<void> {
+  if (isDemoMode) {
+    const idx = demoState.cashierSettlements.findIndex((c) => c.id === id)
+    if (idx >= 0) demoState.cashierSettlements[idx] = { ...demoState.cashierSettlements[idx], status }
+    return
+  }
+  const { error } = await supabase.from('cashier_settlements').update({ status }).eq('id', id)
+  if (error) throw error
 }
 
 // ---------- Estoque multi-almoxarifado ----------
@@ -386,11 +477,25 @@ export interface NewStockMovementInput {
 
 export async function createStockMovement(input: NewStockMovementInput): Promise<StockMovement> {
   if (isDemoMode) {
-    const movement: StockMovement = { ...input, id: uid('sm'), created_at: new Date().toISOString() }
+    const movement: StockMovement = { ...input, id: uid('sm'), status: 'Ativo', created_at: new Date().toISOString() }
     demoState.stockMovements.push(movement)
     return movement
   }
-  const { data, error } = await supabase.from('stock_movements').insert(input).select().single()
+  const { data, error } = await supabase.from('stock_movements').insert({ ...input, status: 'Ativo' }).select().single()
+  if (error) throw error
+  return data as StockMovement
+}
+
+// Edição de uma movimentação (quantidade, tipo etc.) — "excluir" na prática é
+// trocar o status pra Cancelado, que fica fora do saldo mas continua no histórico.
+export async function updateStockMovement(id: string, patch: Partial<Omit<StockMovement, 'id' | 'created_at'>>): Promise<StockMovement> {
+  if (isDemoMode) {
+    const idx = demoState.stockMovements.findIndex((m) => m.id === id)
+    if (idx < 0) throw new Error('Movimentação não encontrada')
+    demoState.stockMovements[idx] = { ...demoState.stockMovements[idx], ...patch }
+    return demoState.stockMovements[idx]
+  }
+  const { data, error } = await supabase.from('stock_movements').update(patch).eq('id', id).select().single()
   if (error) throw error
   return data as StockMovement
 }
@@ -400,7 +505,9 @@ export async function getStockBalances(): Promise<StockBalance[]> {
     const balances: StockBalance[] = []
     for (const product of demoState.products) {
       for (const loc of demoState.stockLocations) {
-        const movements = demoState.stockMovements.filter((m) => m.product_id === product.id && m.stock_location_id === loc.id)
+        const movements = demoState.stockMovements.filter(
+          (m) => m.product_id === product.id && m.stock_location_id === loc.id && m.status !== 'Cancelado'
+        )
         const balance = movements.reduce((sum, m) => sum + (m.movement_type === 'Entrada' ? m.quantity : -m.quantity), 0)
         balances.push({
           product_id: product.id, product_name: product.name, product_unit: product.unit,
@@ -663,7 +770,7 @@ export async function getEventFinancialSummary(eventId: string): Promise<EventFi
     getEventById(eventId)
   ])
 
-  const despesas = expenses.reduce((sum, e) => sum + e.total, 0)
+  const despesas = expenses.filter((e) => e.status !== 'Cancelado').reduce((sum, e) => sum + e.total, 0)
   const custoProdutos = eventProducts.reduce((sum, p) => sum + p.total, 0)
   const consumoProducao = consumption.reduce((sum, c) => sum + c.total_cost, 0)
 

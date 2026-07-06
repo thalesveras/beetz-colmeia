@@ -1,20 +1,26 @@
 import { useEffect, useState } from 'react'
-import { Plus } from 'lucide-react'
+import { Plus, Pencil, Ban, RotateCcw, Check } from 'lucide-react'
 import {
-  createProduct, createStockLocation, getStockBalances, listProducts, listStockLocations, listStockMovements
+  createProduct, createStockLocation, getStockBalances, listProducts, listStockLocations, listStockMovements,
+  updateStockMovement
 } from '../lib/dataService'
 import type { Product, StockBalance, StockLocation, StockMovement } from '../lib/types'
 import StockMovementForm from '../components/stock/StockMovementForm'
+import { useAuth } from '../contexts/AuthContext'
+import { canEditStock } from '../lib/permissions'
 
 const inputClass = 'flex-1 border border-beetz-dark/15 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
 
 export default function Stock() {
+  const { accessRole } = useAuth()
   const [balances, setBalances] = useState<StockBalance[]>([])
   const [locations, setLocations] = useState<StockLocation[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [movements, setMovements] = useState<StockMovement[]>([])
   const [loading, setLoading] = useState(true)
   const [showMovementForm, setShowMovementForm] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editQuantity, setEditQuantity] = useState(0)
 
   const [newProductName, setNewProductName] = useState('')
   const [newProductUnit, setNewProductUnit] = useState('un')
@@ -55,6 +61,22 @@ export default function Stock() {
     location: loc,
     items: balances.filter((b) => b.stock_location_id === loc.id && b.balance !== 0)
   }))
+
+  function startEdit(m: StockMovement) {
+    setEditingId(m.id)
+    setEditQuantity(m.quantity)
+  }
+
+  async function saveEdit(id: string) {
+    await updateStockMovement(id, { quantity: editQuantity })
+    setEditingId(null)
+    load()
+  }
+
+  async function toggleStatus(m: StockMovement) {
+    await updateStockMovement(m.id, { status: m.status === 'Cancelado' ? 'Ativo' : 'Cancelado' })
+    load()
+  }
 
   return (
     <div className="space-y-8">
@@ -129,15 +151,41 @@ export default function Stock() {
             <h2 className="text-lg font-bold mb-4">Movimentações recentes</h2>
             <div className="bg-white rounded-2xl shadow-soft border border-beetz-dark/5 divide-y divide-beetz-dark/5">
               {movements.slice(0, 20).map((m) => (
-                <div key={m.id} className="flex items-center gap-3 p-4">
+                <div key={m.id} className={`flex items-center gap-3 p-4 ${m.status === 'Cancelado' ? 'opacity-50' : ''}`}>
                   <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${m.movement_type === 'Entrada' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                     {m.movement_type}
                   </span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold">{productName(m.product_id)}</p>
-                    <p className="text-xs text-beetz-dark/50">{locationName(m.stock_location_id)} {m.notes ? `· ${m.notes}` : ''}</p>
+                    <p className="text-xs text-beetz-dark/50">
+                      {locationName(m.stock_location_id)} {m.notes ? `· ${m.notes}` : ''} {m.status === 'Cancelado' ? '· Cancelado' : ''}
+                    </p>
                   </div>
-                  <span className="font-bold text-sm">{m.quantity}</span>
+                  {editingId === m.id ? (
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number" min={0} value={editQuantity} onChange={(e) => setEditQuantity(Number(e.target.value))}
+                        className="w-20 border border-beetz-dark/15 rounded-lg px-2 py-1 text-sm"
+                      />
+                      <button onClick={() => saveEdit(m.id)} className="text-green-600 p-1.5 rounded-lg hover:bg-green-50"><Check size={14} /></button>
+                    </div>
+                  ) : (
+                    <span className="font-bold text-sm">{m.quantity}</span>
+                  )}
+                  {canEditStock(accessRole) && editingId !== m.id && (
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => startEdit(m)} className="text-beetz-dark/40 hover:text-beetz-dark p-1.5 rounded-lg hover:bg-beetz-gray">
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        onClick={() => toggleStatus(m)}
+                        className="text-beetz-dark/40 hover:text-beetz-dark p-1.5 rounded-lg hover:bg-beetz-gray"
+                        title={m.status === 'Cancelado' ? 'Reativar' : 'Cancelar'}
+                      >
+                        {m.status === 'Cancelado' ? <RotateCcw size={14} /> : <Ban size={14} />}
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))}
               {movements.length === 0 && <p className="text-sm text-beetz-dark/50 p-4">Nenhuma movimentação ainda.</p>}

@@ -22,6 +22,11 @@ export type BadgeType =
   | 'punctuality'
   | 'most_complimented'
 
+export type ApprovalStatus = 'Pendente' | 'Aprovado' | 'Rejeitado'
+export type MembershipStatus = 'Pendente' | 'Aprovado' | 'Recusado'
+export type CashierStatus = 'Pendente' | 'Aprovado' | 'Rejeitado'
+export type MovementStatus = 'Ativo' | 'Cancelado'
+
 export interface Department {
   id: string
   name: string
@@ -60,6 +65,7 @@ export interface Profile {
   personal_quote: string | null
   avatar_url: string | null
   onboarding_completed: boolean
+  approval_status: ApprovalStatus
   created_at: string
 }
 
@@ -95,6 +101,7 @@ export interface EventMember {
   event_id: string
   profile_id: string
   role_in_event: string | null
+  status: MembershipStatus
   created_at: string
 }
 
@@ -130,7 +137,7 @@ export interface ProfileStats {
   badges: BadgeType[]
 }
 
-export type ExpenseStatus = 'Pendente' | 'Aprovado' | 'Pago' | 'Rejeitado'
+export type ExpenseStatus = 'Pendente' | 'Aprovado' | 'Pago' | 'Rejeitado' | 'Cancelado'
 // Antes era uma união fixa; agora as formas de pagamento são editáveis em
 // /configuracoes, então qualquer texto cadastrado ali é um valor válido.
 export type PaymentMethod = string
@@ -226,6 +233,7 @@ export interface CashierSettlement {
   pix_amount: number
   total: number
   commission_amount: number
+  status: CashierStatus
   notes: string | null
   created_by: string | null
   created_at: string
@@ -257,6 +265,7 @@ export interface StockMovement {
   quantity: number
   notes: string | null
   created_by: string | null
+  status: MovementStatus
   created_at: string
 }
 
@@ -279,6 +288,11 @@ export interface RolePermissions {
   can_add_stock: boolean
   can_manage_users: boolean
   can_view_financial_summary: boolean
+  can_approve_users: boolean
+  can_review_cashier: boolean
+  can_edit_expense: boolean
+  can_edit_stock: boolean
+  can_approve_event_requests: boolean
   updated_at: string
 }
 

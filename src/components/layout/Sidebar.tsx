@@ -5,7 +5,7 @@ import {
   ShieldCheck, Settings, ChevronDown
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
-import { canManageUsers, canViewStockTab } from '../../lib/permissions'
+import { canApproveUsers, canManageUsers, canViewStockTab } from '../../lib/permissions'
 import Avatar from '../ui/Avatar'
 
 interface NavItem {
@@ -49,14 +49,14 @@ export default function Sidebar() {
         ...(canViewStockTab(accessRole) ? [{ to: '/estoque', label: 'Estoque', icon: Package }] : [])
       ]
     },
-    ...(canManageUsers(accessRole)
+    ...(canManageUsers(accessRole) || canApproveUsers(accessRole)
       ? [{
           key: 'gestao',
           label: 'Gestão',
           icon: ShieldCheck,
           items: [
             { to: '/admin', label: 'Administração', icon: ShieldCheck },
-            { to: '/configuracoes', label: 'Configurações', icon: Settings }
+            ...(canManageUsers(accessRole) ? [{ to: '/configuracoes', label: 'Configurações', icon: Settings }] : [])
           ]
         }]
       : [])
