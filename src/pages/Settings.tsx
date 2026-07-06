@@ -1,17 +1,19 @@
 import { useEffect, useState } from 'react'
-import { Plus, X, Save, Settings as SettingsIcon, Trash2 } from 'lucide-react'
+import Papa from 'papaparse'
+import { AlertTriangle, Plus, Upload, X, Save, Settings as SettingsIcon, Trash2 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useConfig } from '../contexts/ConfigContext'
 import { ACCESS_ROLE_LABELS, canManageUsers, type AccessRole } from '../lib/permissions'
 import {
   createExpenseCategory, createPaymentMethod, createServiceModality, deleteExpenseCategory,
-  deletePaymentMethod, deleteServiceModality, listBadgeDefsConfig, listExpenseCategories,
-  listHiveLevelsConfig, listPaymentMethods, listRolePermissions, listServiceModalities,
-  updateAppSettings, updateBadgeDef, updateHiveLevel, updateRolePermission, updateServiceModality
+  deletePaymentMethod, deleteServiceModality, importZohoPendingProfiles, listBadgeDefsConfig,
+  listExpenseCategories, listHiveLevelsConfig, listPaymentMethods, listRolePermissions,
+  listServiceModalities, updateAppSettings, updateBadgeDef, updateHiveLevel, updateRolePermission,
+  updateServiceModality
 } from '../lib/dataService'
 import type {
-  AppSettings, BadgeDefConfig, ExpenseCategory, HiveLevelConfig, PaymentMethodOption,
-  RolePermissions, ServiceModality
+  AppSettings, BadgeDefConfig, ExperienceLevel, ExpenseCategory, HiveLevelConfig, PaymentMethodOption,
+  RolePermissions, ServiceModality, ZohoPendingProfile
 } from '../lib/types'
 
 const inputClass = 'w-full border border-beetz-dark/15 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
@@ -90,6 +92,7 @@ export default function Settings() {
       <ModalitiesSection />
       <GamificationSection onSaved={refreshConfig} />
       <BrandSection />
+      <ProfileImporterSection />
     </div>
   )
 }
@@ -579,6 +582,323 @@ function BrandSection() {
           {saved && <span className="text-sm text-green-600 font-medium">Salvo!</span>}
         </div>
       </div>
+    </section>
+  )
+}
+
+// ---------- Importador de perfis (CSV) ----------
+// Sobe um .csv, mapeia colunas pros campos de pré-cadastro e grava em
+// zoho_pending_profiles (nunca em profiles direto). Quem tiver o e-mail nessa
+// lista pré-preenche o cadastro sozinho ao entrar pela primeira vez — ver
+// claim_pending_profile / AuthContext.
+type CsvRow = Record<string, string>
+
+const EXPERIENCE_LEVELS: ExperienceLevel[] = ['Nova abelha', 'Em treinamento', 'Colaborador frequente', 'Líder de bar']
+
+const IMPORT_FIELDS: { key: keyof ZohoPendingProfile; label: string; synonyms: string[] }[] = [
+  { key: 'email', label: 'E-mail (obrigatório)', synonyms: ['email', 'e-mail', 'mail'] },
+  { key: 'first_name', label: 'Nome', synonyms: ['nome', 'first_name', 'primeiro_nome'] },
+  { key: 'last_name', label: 'Sobrenome', synonyms: ['sobrenome', 'last_name', 'ultimo_nome'] },
+  { key: 'cpf', label: 'CPF', synonyms: ['cpf'] },
+  { key: 'phone', label: 'Telefone', synonyms: ['telefone', 'phone', 'celular', 'telefone_trabalho'] },
+  { key: 'mother_name', label: 'Nome da mãe', synonyms: ['nome_da_mae', 'mother_name'] },
+  { key: 'father_name', label: 'Nome do pai', synonyms: ['nome_do_pai', 'father_name'] },
+  { key: 'city', label: 'Cidade', synonyms: ['cidade', 'city'] },
+  { key: 'state', label: 'Estado', synonyms: ['estado', 'state', 'uf'] },
+  { key: 'role_hint', label: 'Função/cargo', synonyms: ['funcao', 'função', 'role_hint', 'cargo'] },
+  { key: 'avatar_url', label: 'Foto (URL)', synonyms: ['foto_url', 'avatar_url', 'photo_url'] },
+  { key: 'about_me', label: 'Sobre mim', synonyms: ['sobre_mim', 'about_me'] },
+  { key: 'fun_fact', label: 'Curiosidade', synonyms: ['curiosidade', 'fun_fact'] },
+  { key: 'favorite_events', label: 'Eventos favoritos', synonyms: ['eventos_favoritos', 'favorite_events'] },
+  { key: 'instagram', label: 'Instagram', synonyms: ['instagram'] },
+  { key: 'personal_quote', label: 'Frase pessoal', synonyms: ['frase', 'personal_quote'] },
+  { key: 'skills', label: 'Habilidades', synonyms: ['habilidades', 'skills'] },
+  { key: 'work_location', label: 'Local de trabalho', synonyms: ['local_trabalho', 'work_location'] },
+  { key: 'experience_level', label: 'Nível de experiência', synonyms: ['experiencia', 'experience_level'] },
+  { key: 'entry_date', label: 'Data de entrada', synonyms: ['data_entrada', 'entry_date'] },
+  { key: 'zoho_record_id', label: 'ID no sistema de origem', synonyms: ['zoho_record_id', 'id_funcionario', 'id'] }
+]
+
+function normalizeHeader(h: string): string {
+  return h.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+}
+
+function normalizeCpf(v: any): string | null {
+  if (!v) return null
+  const digits = String(v).replace(/\D/g, '')
+  return digits.length >= 9 && digits.length <= 11 ? digits.padStart(11, '0') : null
+}
+
+function normalizeExperience(v: any): ExperienceLevel | null {
+  const s = String(v || '').trim()
+  return (EXPERIENCE_LEVELS as string[]).includes(s) ? (s as ExperienceLevel) : null
+}
+
+function normalizeSkills(v: any): string[] {
+  const s = String(v || '').trim()
+  if (!s) return []
+  try {
+    const parsed = JSON.parse(s)
+    if (Array.isArray(parsed)) return parsed.map(String).map((x) => x.trim()).filter(Boolean)
+  } catch { /* não era JSON, tenta o formato de array do Postgres abaixo */ }
+  return s.replace(/^\{|\}$/g, '').split(',').map((x) => x.trim().replace(/^"|"$/g, '')).filter(Boolean)
+}
+
+function normalizeDate(v: any): string | null {
+  const s = String(v || '').trim()
+  return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : null
+}
+
+// Extrai dados de uma coluna JSON solta na planilha (ex: raw_zoho) — usado
+// como reforço/fallback quando a coluna direta correspondente vier vazia.
+// Só pega o que é realmente necessário: propositalmente NÃO extrai idade,
+// data de nascimento, conta bancária nem endereço completo (minimização de dado).
+function extractFromJsonColumn(raw: string): Partial<ZohoPendingProfile> {
+  try {
+    const obj = JSON.parse(raw)
+    const nome = obj.Nome || {}
+    const enderec = obj.Enderec || {}
+    return {
+      email: obj.Email ? String(obj.Email).trim().toLowerCase() : undefined,
+      cpf: normalizeCpf(obj.CPF) ?? undefined,
+      phone: obj.Telefone ? String(obj.Telefone).trim() : undefined,
+      mother_name: obj.Nome_da_mae ? String(obj.Nome_da_mae).trim() : undefined,
+      father_name: obj.Nome_do_pai ? String(obj.Nome_do_pai).trim() : undefined,
+      role_hint: obj.Funcao ? String(obj.Funcao).trim() : undefined,
+      city: enderec.district_city ? String(enderec.district_city).trim() : undefined,
+      state: enderec.state_province ? String(enderec.state_province).trim() : undefined,
+      first_name: nome.first_name ? String(nome.first_name).trim() : undefined,
+      last_name: nome.last_name ? String(nome.last_name).trim() : undefined,
+      experience_level: normalizeExperience(obj.Experiencia) ?? undefined
+    }
+  } catch {
+    return {}
+  }
+}
+
+function looksLikeJsonObjectColumn(rows: CsvRow[], header: string): boolean {
+  const sample = rows.find((r) => r[header] && r[header].trim().startsWith('{'))
+  if (!sample) return false
+  try {
+    const parsed = JSON.parse(sample[header])
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+  } catch {
+    return false
+  }
+}
+
+function buildRow(csvRow: CsvRow, mapping: Record<string, string>, jsonColumn: string): Partial<ZohoPendingProfile> {
+  const fromFlat: Partial<ZohoPendingProfile> = {}
+  for (const field of IMPORT_FIELDS) {
+    const header = mapping[field.key]
+    if (!header) continue
+    const raw = csvRow[header]
+    if (raw === undefined || raw === null || raw === '') continue
+    switch (field.key) {
+      case 'cpf': fromFlat.cpf = normalizeCpf(raw); break
+      case 'skills': fromFlat.skills = normalizeSkills(raw); break
+      case 'experience_level': fromFlat.experience_level = normalizeExperience(raw); break
+      case 'entry_date': fromFlat.entry_date = normalizeDate(raw); break
+      case 'email': fromFlat.email = raw.trim().toLowerCase(); break
+      default: (fromFlat as any)[field.key] = raw.trim()
+    }
+  }
+
+  const fromJson = jsonColumn && csvRow[jsonColumn] ? extractFromJsonColumn(csvRow[jsonColumn]) : {}
+
+  // A coluna direta manda; o JSON só preenche o que ficou faltando.
+  const merged: Partial<ZohoPendingProfile> = { ...fromJson, ...fromFlat }
+  if (!merged.email && fromJson.email) merged.email = fromJson.email
+  if (!merged.skills) merged.skills = []
+  return merged
+}
+
+function ProfileImporterSection() {
+  const [step, setStep] = useState<'upload' | 'map' | 'preview' | 'done'>('upload')
+  const [fileName, setFileName] = useState('')
+  const [headers, setHeaders] = useState<string[]>([])
+  const [rows, setRows] = useState<CsvRow[]>([])
+  const [mapping, setMapping] = useState<Record<string, string>>({})
+  const [jsonColumn, setJsonColumn] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [result, setResult] = useState<{ totalRows: number; imported: number; skippedNoEmail: number; skippedAlreadyClaimed: number } | null>(null)
+
+  function reset() {
+    setStep('upload'); setFileName(''); setHeaders([]); setRows([]); setMapping({}); setJsonColumn(''); setError(null); setResult(null)
+  }
+
+  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setError(null)
+    setFileName(file.name)
+    Papa.parse<CsvRow>(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (res: any) => {
+        const fields: string[] = res.meta.fields ?? []
+        if (fields.length === 0) {
+          setError('Não consegui ler colunas nesse arquivo. Confirma que é um .csv com cabeçalho na primeira linha.')
+          return
+        }
+        const data: CsvRow[] = res.data
+        const autoMapping: Record<string, string> = {}
+        for (const field of IMPORT_FIELDS) {
+          const match = fields.find((h) => field.synonyms.includes(normalizeHeader(h)))
+          if (match) autoMapping[field.key] = match
+        }
+        const jsonCandidate = fields.find((h) => looksLikeJsonObjectColumn(data, h))
+        setHeaders(fields)
+        setRows(data)
+        setMapping(autoMapping)
+        setJsonColumn(jsonCandidate ?? '')
+        setStep('map')
+      },
+      error: (err: any) => setError(err?.message ?? 'Erro ao ler o arquivo.')
+    })
+  }
+
+  const previewRows = rows.slice(0, 6).map((r) => buildRow(r, mapping, jsonColumn))
+  const allMapped = rows.map((r) => buildRow(r, mapping, jsonColumn))
+  const withEmailCount = allMapped.filter((r) => !!r.email).length
+
+  async function handleConfirm() {
+    setImporting(true)
+    setError(null)
+    try {
+      const res = await importZohoPendingProfiles(allMapped)
+      setResult(res)
+      setStep('done')
+    } catch (err: any) {
+      setError(err?.message ?? 'Erro ao importar. Tente novamente.')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  return (
+    <section className={cardClass}>
+      <h2 className="text-lg font-bold mb-1 flex items-center gap-2"><Upload size={18} /> Importador de perfis</h2>
+      <p className="text-sm text-beetz-dark/60 mb-4">
+        Sobe uma planilha (.csv) de um sistema antigo pra pré-cadastrar quem ainda não criou conta aqui.
+        Ninguém vira usuário automaticamente — os dados só entram no perfil da pessoa quando ela mesma se
+        cadastra com o e-mail correspondente, e ela revisa tudo antes de confirmar.
+      </p>
+
+      {error && (
+        <div className="flex items-start gap-2 bg-red-50 text-red-700 text-sm rounded-xl p-3 mb-4">
+          <AlertTriangle size={16} className="shrink-0 mt-0.5" /> {error}
+        </div>
+      )}
+
+      {step === 'upload' && (
+        <label className="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-beetz-dark/15 rounded-xl p-8 cursor-pointer hover:bg-beetz-gray transition-colors">
+          <Upload size={22} className="text-beetz-dark/40" />
+          <span className="text-sm font-medium">Clique pra escolher um arquivo .csv</span>
+          <input type="file" accept=".csv" className="hidden" onChange={handleFile} />
+        </label>
+      )}
+
+      {step === 'map' && (
+        <div className="space-y-4">
+          <p className="text-sm text-beetz-dark/70">
+            <strong>{fileName}</strong> — {rows.length} linha(s), {headers.length} coluna(s) encontrada(s).
+            Confira o mapeamento (já tentei adivinhar sozinho) e ajuste o que precisar.
+          </p>
+          <div className="grid sm:grid-cols-2 gap-3">
+            {IMPORT_FIELDS.map((field) => (
+              <div key={field.key}>
+                <label className="text-xs font-medium text-beetz-dark/60 block mb-1">{field.label}</label>
+                <select
+                  className={inputClass}
+                  value={mapping[field.key] ?? ''}
+                  onChange={(e) => setMapping((m) => ({ ...m, [field.key]: e.target.value }))}
+                >
+                  <option value="">Nenhuma coluna</option>
+                  {headers.map((h) => <option key={h} value={h}>{h}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+          <div className="border-t border-beetz-dark/10 pt-4">
+            <label className="text-xs font-medium text-beetz-dark/60 block mb-1">
+              Coluna extra em JSON (opcional — usada só pra completar o que faltar nas colunas acima, ex: e-mail escondido dentro de um campo bruto)
+            </label>
+            <select className={inputClass} value={jsonColumn} onChange={(e) => setJsonColumn(e.target.value)}>
+              <option value="">Nenhuma</option>
+              {headers.map((h) => <option key={h} value={h}>{h}</option>)}
+            </select>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={reset} className="text-sm font-semibold px-4 py-2.5 rounded-xl border border-beetz-dark/15 hover:bg-beetz-gray transition-colors">Cancelar</button>
+            <button onClick={() => setStep('preview')} className="flex items-center gap-2 honey-gradient text-beetz-dark font-bold px-5 py-2.5 rounded-xl text-sm">
+              Pré-visualizar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === 'preview' && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap gap-3 text-sm">
+            <span className="bg-beetz-gray px-3 py-1.5 rounded-full font-medium">{rows.length} linha(s) no arquivo</span>
+            <span className="bg-green-50 text-green-700 px-3 py-1.5 rounded-full font-medium">{withEmailCount} com e-mail válido</span>
+            {rows.length - withEmailCount > 0 && (
+              <span className="bg-amber-50 text-amber-700 px-3 py-1.5 rounded-full font-medium">{rows.length - withEmailCount} sem e-mail (não serão importadas)</span>
+            )}
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-beetz-dark/10">
+            <table className="w-full text-xs">
+              <thead className="bg-beetz-gray text-left">
+                <tr>
+                  <th className="p-2">E-mail</th>
+                  <th className="p-2">Nome</th>
+                  <th className="p-2">CPF</th>
+                  <th className="p-2">Cargo</th>
+                  <th className="p-2">Cidade/UF</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-beetz-dark/5">
+                {previewRows.map((r, i) => (
+                  <tr key={i}>
+                    <td className="p-2">{r.email || <span className="text-red-500">sem e-mail</span>}</td>
+                    <td className="p-2">{[r.first_name, r.last_name].filter(Boolean).join(' ') || '—'}</td>
+                    <td className="p-2">{r.cpf || '—'}</td>
+                    <td className="p-2">{r.role_hint || '—'}</td>
+                    <td className="p-2">{[r.city, r.state].filter(Boolean).join('/') || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-beetz-dark/50">Mostrando as primeiras {previewRows.length} de {rows.length} linhas.</p>
+          <div className="flex gap-2">
+            <button onClick={() => setStep('map')} className="text-sm font-semibold px-4 py-2.5 rounded-xl border border-beetz-dark/15 hover:bg-beetz-gray transition-colors">Voltar</button>
+            <button
+              onClick={handleConfirm}
+              disabled={importing || withEmailCount === 0}
+              className="flex items-center gap-2 honey-gradient text-beetz-dark font-bold px-5 py-2.5 rounded-xl text-sm disabled:opacity-60"
+            >
+              {importing ? 'Importando...' : `Confirmar importação de ${withEmailCount} perfil(is)`}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === 'done' && result && (
+        <div className="space-y-4">
+          <div className="bg-green-50 text-green-700 rounded-xl p-4 text-sm space-y-1">
+            <p className="font-semibold">Importação concluída.</p>
+            <p>{result.imported} perfil(is) pré-cadastrado(s) ou atualizado(s).</p>
+            {result.skippedNoEmail > 0 && <p>{result.skippedNoEmail} linha(s) ignorada(s) por não ter e-mail.</p>}
+            {result.skippedAlreadyClaimed > 0 && <p>{result.skippedAlreadyClaimed} e-mail(s) já pertenciam a alguém que já se cadastrou — não foram sobrescritos.</p>}
+          </div>
+          <button onClick={reset} className="text-sm font-semibold px-4 py-2.5 rounded-xl border border-beetz-dark/15 hover:bg-beetz-gray transition-colors">
+            Importar outro arquivo
+          </button>
+        </div>
+      )}
     </section>
   )
 }

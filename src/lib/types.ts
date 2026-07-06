@@ -27,6 +27,33 @@ export type MembershipStatus = 'Pendente' | 'Aprovado' | 'Recusado'
 export type CashierStatus = 'Pendente' | 'Aprovado' | 'Rejeitado'
 export type MovementStatus = 'Ativo' | 'Cancelado'
 
+// Registro "pré-cadastrado" — vem de uma importação (ex: exportação de um
+// sistema antigo) e vira perfil de verdade só quando alguém com esse e-mail
+// se cadastra no app. Ver claim_pending_profile no banco.
+export interface ZohoPendingProfile {
+  email: string
+  first_name: string | null
+  last_name: string | null
+  cpf: string | null
+  phone: string | null
+  mother_name: string | null
+  father_name: string | null
+  city: string | null
+  state: string | null
+  role_hint: string | null
+  avatar_url: string | null
+  about_me: string | null
+  fun_fact: string | null
+  favorite_events: string | null
+  instagram: string | null
+  personal_quote: string | null
+  skills: string[]
+  work_location: string | null
+  experience_level: ExperienceLevel | null
+  entry_date: string | null
+  zoho_record_id: string | null
+}
+
 export interface Department {
   id: string
   name: string

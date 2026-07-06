@@ -6,7 +6,7 @@ import {
 import type { Department, Profile } from '../lib/types'
 import { ACCESS_ROLE_LABELS, canApproveUsers, canManageUsers, computeAccessRole } from '../lib/permissions'
 import Avatar from '../components/ui/Avatar'
-import { Check, X } from 'lucide-react'
+import { Check, Lock, X } from 'lucide-react'
 
 export default function Admin() {
   const { accessRole } = useAuth()
@@ -39,6 +39,12 @@ export default function Admin() {
 
   async function handleChangeDepartment(profileId: string, departmentId: string) {
     if (!departmentId) return
+    // Trava de segurança: mesmo que algo tente disparar essa função pra um
+    // perfil da Diretoria (ex: um bug de UI), a troca é bloqueada aqui também.
+    // A edição de departamento da Diretoria só pode ser feita direto no banco,
+    // pra evitar que alguém perca o próprio acesso (ou o de outro diretor) por engano.
+    const target = profiles.find((p) => p.id === profileId)
+    if (target && computeAccessRole(target, departments) === 'diretoria') return
     setSavingId(profileId)
     await updateProfileDepartment(profileId, departmentId)
     await load()
@@ -100,13 +106,17 @@ export default function Admin() {
 
       {canManageUsers(accessRole) && (
         <div>
-          <h2 className="font-bold mb-3">Departamentos e perfis de acesso</h2>
+          <h2 className="font-bold mb-1">Departamentos e perfis de acesso</h2>
+          <p className="text-xs text-beetz-dark/50 mb-3 flex items-center gap-1.5">
+            <Lock size={12} /> Contas da Diretoria aparecem travadas — o departamento delas só pode ser alterado direto no banco, pra ninguém perder acesso por engano.
+          </p>
           {loading ? (
             <p className="text-beetz-dark/50">Carregando...</p>
           ) : (
             <div className="bg-white rounded-2xl shadow-soft border border-beetz-dark/5 divide-y divide-beetz-dark/5">
               {profiles.map((p) => {
                 const role = computeAccessRole(p, departments)
+                const isDiretoria = role === 'diretoria'
                 return (
                   <div key={p.id} className="flex flex-wrap items-center gap-3 p-4">
                     <Avatar src={p.avatar_url} name={`${p.first_name} ${p.last_name}`} size="sm" />
@@ -115,15 +125,22 @@ export default function Admin() {
                       <p className="text-xs text-beetz-dark/50">{p.email}</p>
                     </div>
                     <span className="text-xs font-semibold bg-beetz-gray px-2.5 py-1 rounded-full">{ACCESS_ROLE_LABELS[role]}</span>
-                    <select
-                      value={p.department_id || ''}
-                      disabled={savingId === p.id}
-                      onChange={(e) => handleChangeDepartment(p.id, e.target.value)}
-                      className="text-sm border border-beetz-dark/15 rounded-xl px-3 py-2 disabled:opacity-50"
-                    >
-                      <option value="" disabled>Selecionar departamento...</option>
-                      {departments.map((d) => <option key={d.id} value={d.id}>{d.icon} {d.name}</option>)}
-                    </select>
+                    {isDiretoria ? (
+                      <div className="flex items-center gap-1.5 text-sm text-beetz-dark/50 border border-beetz-dark/10 bg-beetz-gray/50 rounded-xl px-3 py-2" title="Por segurança, o departamento de quem é Diretoria não pode ser trocado por aqui — evita perda acidental de acesso.">
+                        <Lock size={13} />
+                        <span>{departments.find((d) => d.id === p.department_id)?.icon} {departments.find((d) => d.id === p.department_id)?.name}</span>
+                      </div>
+                    ) : (
+                      <select
+                        value={p.department_id || ''}
+                        disabled={savingId === p.id}
+                        onChange={(e) => handleChangeDepartment(p.id, e.target.value)}
+                        className="text-sm border border-beetz-dark/15 rounded-xl px-3 py-2 disabled:opacity-50"
+                      >
+                        <option value="" disabled>Selecionar departamento...</option>
+                        {departments.map((d) => <option key={d.id} value={d.id}>{d.icon} {d.name}</option>)}
+                      </select>
+                    )}
                   </div>
                 )
               })}

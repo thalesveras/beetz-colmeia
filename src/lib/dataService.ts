@@ -13,7 +13,8 @@ import type {
   EventItem, EventMember, EventModality, EventProduct, EventStaffingRequirement, Expense,
   ExpenseCategory, HiveLevelConfig, HoneyPoint, MovementType, PaymentMethodOption, Product,
   ProductionConsumption, Producer, Profile, ProfileStats, RolePermissions, ServiceModality,
-  StockBalance, StockLocation, StockMovement, Supplier, TransferRequest, TransferRequestStatus
+  StockBalance, StockLocation, StockMovement, Supplier, TransferRequest, TransferRequestStatus,
+  ZohoPendingProfile
 } from './types'
 
 // ---------- Estado em memória para o modo demonstração ----------
@@ -123,6 +124,51 @@ export async function claimPendingProfile(userId: string, email: string): Promis
   if (isDemoMode || !email) return
   const { error } = await supabase.rpc('claim_pending_profile', { p_user_id: userId, p_email: email })
   if (error) console.error('Falha ao casar perfil pendente:', error)
+}
+
+export interface ImportZohoPendingResult {
+  totalRows: number
+  imported: number
+  skippedNoEmail: number
+  skippedAlreadyClaimed: number
+}
+
+// Usado pelo Importador de perfis (Configurações). Recebe linhas já mapeadas
+// e limpas (ver ProfileImporterSection) e grava em zoho_pending_profiles —
+// nunca mexe direto em `profiles`. Uma pessoa cujo e-mail já foi reivindicado
+// (ela já se cadastrou e o cadastro dela já puxou esses dados uma vez) é
+// pulada, pra não sobrescrever nada que a pessoa já tenha revisado/editado.
+export async function importZohoPendingProfiles(rows: Partial<ZohoPendingProfile>[]): Promise<ImportZohoPendingResult> {
+  const withEmail = rows.filter((r) => !!r.email)
+  const skippedNoEmail = rows.length - withEmail.length
+
+  if (isDemoMode) {
+    return { totalRows: rows.length, imported: withEmail.length, skippedNoEmail, skippedAlreadyClaimed: 0 }
+  }
+
+  const emails = withEmail.map((r) => (r.email as string).toLowerCase())
+  const { data: claimed, error: claimedError } = await supabase
+    .from('zoho_pending_profiles')
+    .select('email')
+    .in('email', emails)
+    .not('claimed_at', 'is', null)
+  if (claimedError) throw claimedError
+
+  const claimedSet = new Set((claimed ?? []).map((r: any) => r.email))
+  const toUpsert = withEmail.filter((r) => !claimedSet.has((r.email as string).toLowerCase()))
+    .map((r) => ({ ...r, email: (r.email as string).toLowerCase() }))
+
+  if (toUpsert.length > 0) {
+    const { error } = await supabase.from('zoho_pending_profiles').upsert(toUpsert, { onConflict: 'email' })
+    if (error) throw error
+  }
+
+  return {
+    totalRows: rows.length,
+    imported: toUpsert.length,
+    skippedNoEmail,
+    skippedAlreadyClaimed: claimedSet.size
+  }
 }
 
 export async function upsertProfile(profile: Partial<Profile> & { id: string }): Promise<Profile> {
