@@ -115,6 +115,16 @@ export async function updateProfileDepartment(profileId: string, departmentId: s
   if (error) throw error
 }
 
+// Tenta casar o e-mail de quem está se cadastrando com um perfil pré-importado
+// (hoje, do histórico do Zoho) e, se achar, pré-preenche o perfil recém-criado
+// com esses dados — a pessoa só revisa e confirma no /cadastro, em vez de
+// digitar tudo do zero. Não existe staging em modo demo, então isso é um no-op.
+export async function claimPendingProfile(userId: string, email: string): Promise<void> {
+  if (isDemoMode || !email) return
+  const { error } = await supabase.rpc('claim_pending_profile', { p_user_id: userId, p_email: email })
+  if (error) console.error('Falha ao casar perfil pendente:', error)
+}
+
 export async function upsertProfile(profile: Partial<Profile> & { id: string }): Promise<Profile> {
   if (isDemoMode) {
     const idx = demoState.profiles.findIndex((p) => p.id === profile.id)

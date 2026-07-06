@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { isDemoMode, supabase } from '../lib/supabaseClient'
-import { getProfileById, listDepartments, upsertProfile } from '../lib/dataService'
+import { claimPendingProfile, getProfileById, listDepartments, upsertProfile } from '../lib/dataService'
 import type { Department, Profile } from '../lib/types'
 import { computeAccessRole, type AccessRole } from '../lib/permissions'
 
@@ -13,6 +13,7 @@ interface AuthContextValue {
   isDemoMode: boolean
   signIn: (email: string, password: string) => Promise<{ error: string | null }>
   signUp: (email: string, password: string) => Promise<{ error: string | null }>
+  signInWithGoogle: () => Promise<{ error: string | null }>
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
 }
@@ -32,8 +33,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const accessRole = useMemo(() => computeAccessRole(profile, departments), [profile, departments])
 
-  async function loadProfile(id: string) {
-    const p = await getProfileById(id)
+  // Se a pessoa ainda não terminou o cadastro, tentamos casar o e-mail dela com
+  // um perfil pré-importado (ex: histórico do Zoho) antes de exibir o formulário —
+  // assim o cadastro nasce pré-preenchido em vez de em branco. É seguro chamar
+  // isso repetidas vezes: a função no banco só age uma vez por e-mail.
+  async function loadProfile(id: string, emailHint?: string | null) {
+    let p = await getProfileById(id)
+    const hint = emailHint ?? p?.email
+    if (p && !p.onboarding_completed && hint) {
+      try {
+        await claimPendingProfile(id, hint)
+        p = await getProfileById(id)
+      } catch (err) {
+        console.error('Falha ao buscar dados pré-cadastrados:', err)
+      }
+    }
     setProfile(p)
   }
 
@@ -44,7 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const parsed = JSON.parse(saved)
         setUserId(parsed.id)
         setEmail(parsed.email)
-        loadProfile(parsed.id).finally(() => setLoading(false))
+        loadProfile(parsed.id, parsed.email).finally(() => setLoading(false))
       } else {
         setLoading(false)
       }
@@ -56,7 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (session) {
         setUserId(session.user.id)
         setEmail(session.user.email)
-        loadProfile(session.user.id).finally(() => setLoading(false))
+        loadProfile(session.user.id, session.user.email).finally(() => setLoading(false))
       } else {
         setLoading(false)
       }
@@ -66,7 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (session) {
         setUserId(session.user.id)
         setEmail(session.user.email)
-        loadProfile(session.user.id)
+        loadProfile(session.user.id, session.user.email)
       } else {
         setUserId(null)
         setEmail(null)
@@ -117,10 +131,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // pode ser criado depois pelo trigger do banco ou no próximo passo.
           console.error('Falha ao criar perfil inicial:', profileError)
         }
+        await loadProfile(data.user.id, emailInput)
       }
       return { error: null }
     } catch (err: any) {
       return { error: err?.message ?? 'Não foi possível criar a conta. Tente novamente.' }
+    }
+  }
+
+  // Login social — mesma base de usuários da equipe, só sem senha. Quem entra
+  // pela primeira vez pelo Google também passa pelo /cadastro (o trigger do
+  // banco ou o próximo carregamento de perfil cria o registro em profiles).
+  async function signInWithGoogle() {
+    if (isDemoMode) {
+      return signIn('demo.google@beetz.com', 'demo')
+    }
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: `${window.location.origin}/dashboard` }
+      })
+      return { error: error?.message ?? null }
+    } catch (err: any) {
+      return { error: err?.message ?? 'Não foi possível entrar com Google.' }
     }
   }
 
@@ -136,11 +169,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function refreshProfile() {
-    if (userId) await loadProfile(userId)
+    if (userId) await loadProfile(userId, email)
   }
 
   return (
-    <AuthContext.Provider value={{ userId, email, profile, accessRole, loading, isDemoMode, signIn, signUp, signOut, refreshProfile }}>
+    <AuthContext.Provider value={{ userId, email, profile, accessRole, loading, isDemoMode, signIn, signUp, signInWithGoogle, signOut, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   )
