@@ -435,6 +435,33 @@ export async function createStockLocation(name: string, description: string | nu
   return data as StockLocation
 }
 
+export async function updateStockLocation(id: string, patch: Partial<Pick<StockLocation, 'name' | 'description'>>): Promise<StockLocation> {
+  if (isDemoMode) {
+    const idx = demoState.stockLocations.findIndex((l) => l.id === id)
+    if (idx < 0) throw new Error('Estoque não encontrado')
+    demoState.stockLocations[idx] = { ...demoState.stockLocations[idx], ...patch }
+    return demoState.stockLocations[idx]
+  }
+  const { data, error } = await supabase.from('stock_locations').update(patch).eq('id', id).select().single()
+  if (error) throw error
+  return data as StockLocation
+}
+
+// Só deixa excluir um estoque/almoxarifado se não houver nenhuma movimentação
+// (ativa ou cancelada) vinculada a ele — evita órfãos no histórico.
+export async function deleteStockLocation(id: string): Promise<void> {
+  const movements = await listStockMovements()
+  if (movements.some((m) => m.stock_location_id === id)) {
+    throw new Error('Não é possível excluir: este estoque já tem movimentações registradas.')
+  }
+  if (isDemoMode) {
+    demoState.stockLocations = demoState.stockLocations.filter((l) => l.id !== id)
+    return
+  }
+  const { error } = await supabase.from('stock_locations').delete().eq('id', id)
+  if (error) throw error
+}
+
 export async function listProducts(): Promise<Product[]> {
   if (isDemoMode) return demoState.products
   const { data, error } = await supabase.from('products').select('*').order('name')
@@ -451,6 +478,33 @@ export async function createProduct(name: string, unit: string, category: string
   const { data, error } = await supabase.from('products').insert({ name, unit, category }).select().single()
   if (error) throw error
   return data as Product
+}
+
+export async function updateProduct(id: string, patch: Partial<Pick<Product, 'name' | 'unit' | 'category'>>): Promise<Product> {
+  if (isDemoMode) {
+    const idx = demoState.products.findIndex((p) => p.id === id)
+    if (idx < 0) throw new Error('Produto não encontrado')
+    demoState.products[idx] = { ...demoState.products[idx], ...patch }
+    return demoState.products[idx]
+  }
+  const { data, error } = await supabase.from('products').update(patch).eq('id', id).select().single()
+  if (error) throw error
+  return data as Product
+}
+
+// Mesma lógica de guarda do estoque: produto com histórico de movimentação não
+// pode ser excluído (edite o cadastro em vez disso).
+export async function deleteProduct(id: string): Promise<void> {
+  const movements = await listStockMovements()
+  if (movements.some((m) => m.product_id === id)) {
+    throw new Error('Não é possível excluir: este produto já tem movimentações registradas.')
+  }
+  if (isDemoMode) {
+    demoState.products = demoState.products.filter((p) => p.id !== id)
+    return
+  }
+  const { error } = await supabase.from('products').delete().eq('id', id)
+  if (error) throw error
 }
 
 export async function listStockMovements(eventId?: string): Promise<StockMovement[]> {

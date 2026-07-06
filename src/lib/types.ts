@@ -293,6 +293,8 @@ export interface RolePermissions {
   can_edit_expense: boolean
   can_edit_stock: boolean
   can_approve_event_requests: boolean
+  can_manage_stock_catalog: boolean
+  can_edit_own_stock: boolean
   updated_at: string
 }
 

@@ -30,7 +30,9 @@ const PERMISSION_GROUPS: { title: string; fields: { key: PermissionKey; label: s
     title: 'Estoque',
     fields: [
       { key: 'can_add_stock', label: 'Movimentar estoque', description: 'Lançar entradas e saídas de produtos.' },
-      { key: 'can_edit_stock', label: 'Editar ou cancelar movimentação', description: 'Corrigir a quantidade de uma movimentação ou cancelá-la.' }
+      { key: 'can_edit_stock', label: 'Editar ou cancelar qualquer movimentação', description: 'Corrigir a quantidade de qualquer movimentação (de qualquer colaborador) ou cancelá-la.' },
+      { key: 'can_edit_own_stock', label: 'Editar as próprias movimentações', description: 'Corrigir ou cancelar apenas as movimentações que a própria pessoa registrou.' },
+      { key: 'can_manage_stock_catalog', label: 'Gerenciar produtos e estoques', description: 'Criar, editar e excluir produtos e estoques/almoxarifados.' }
     ]
   },
   {
