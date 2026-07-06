@@ -1,7 +1,8 @@
 import type {
   AppSettings, Badge, BadgeDefConfig, CashierSettlement, Compliment, Department, EventItem,
-  EventMember, Expense, ExpenseCategory, HiveLevelConfig, HoneyPoint, PaymentMethodOption,
-  Product, Profile, RolePermissions, StockLocation, StockMovement
+  EventMember, EventProduct, Expense, ExpenseCategory, HiveLevelConfig, HoneyPoint,
+  PaymentMethodOption, Product, ProductionConsumption, Profile, RolePermissions, StockLocation,
+  StockMovement, Supplier, TransferRequest
 } from './types'
 
 export const mockDepartments: Department[] = [
@@ -177,12 +178,37 @@ export const mockProfiles: Profile[] = [
   }
 ]
 
+const eventResumoDefaults = {
+  producer_name: null, producer_auth_email: null, producer_auth_email_secondary: null,
+  address: null, start_time: null, end_date: null, end_time: null, link: null,
+  music_style: null, flyer_url: null, sales_amount: 0, commission_percentage: 0,
+  credits_bonus: 0, repasses: 0
+}
+
 export const mockEvents: EventItem[] = [
-  { id: 'e1', name: 'Festival Colmeia de Verão', event_date: '2026-01-18', location: 'Parque Ibirapuera', city: 'São Paulo', status: 'Concluído', leader_id: 'p1', created_at: '2025-11-01T10:00:00Z' },
-  { id: 'e2', name: 'Beetz Night Rooftop', event_date: '2026-06-20', location: 'Edifício Copan Rooftop', city: 'São Paulo', status: 'Concluído', leader_id: 'p6', created_at: '2026-05-01T10:00:00Z' },
-  { id: 'e3', name: 'Feira Corporativa TechExpo', event_date: '2026-07-15', location: 'Expo Center Norte', city: 'São Paulo', status: 'Confirmado', leader_id: 'p2', created_at: '2026-06-10T10:00:00Z' },
-  { id: 'e4', name: 'Casamento Villa Bela', event_date: '2026-08-02', location: 'Villa Bela Eventos', city: 'Campinas', status: 'Planejado', leader_id: 'p11', created_at: '2026-06-25T10:00:00Z' },
-  { id: 'e5', name: 'Réveillon Beetz na Praia', event_date: '2025-12-31', location: 'Orla de Santos', city: 'Santos', status: 'Concluído', leader_id: 'p8', created_at: '2025-10-01T10:00:00Z' }
+  {
+    id: 'e1', name: 'Festival Colmeia de Verão', event_date: '2026-01-18', location: 'Parque Ibirapuera', city: 'São Paulo', status: 'Concluído', leader_id: 'p1', created_at: '2025-11-01T10:00:00Z',
+    ...eventResumoDefaults, producer_name: 'Ibirapuera Produções', address: 'Av. Pedro Álvares Cabral, s/n', start_time: '18:00', end_date: '2026-01-19', end_time: '02:00',
+    music_style: 'Eletrônica', sales_amount: 45000, commission_percentage: 15, credits_bonus: 500, repasses: 3000
+  },
+  {
+    id: 'e2', name: 'Beetz Night Rooftop', event_date: '2026-06-20', location: 'Edifício Copan Rooftop', city: 'São Paulo', status: 'Concluído', leader_id: 'p6', created_at: '2026-05-01T10:00:00Z',
+    ...eventResumoDefaults, producer_name: 'Copan Eventos', address: 'Av. Ipiranga, 200', start_time: '20:00', end_date: '2026-06-21', end_time: '04:00',
+    music_style: 'House', sales_amount: 28000, commission_percentage: 20, credits_bonus: 0, repasses: 2000
+  },
+  {
+    id: 'e3', name: 'Feira Corporativa TechExpo', event_date: '2026-07-15', location: 'Expo Center Norte', city: 'São Paulo', status: 'Confirmado', leader_id: 'p2', created_at: '2026-06-10T10:00:00Z',
+    ...eventResumoDefaults, producer_name: 'TechExpo Feiras Ltda', address: 'Rua José Bernardo Pinto, 333', start_time: '09:00', end_date: '2026-07-16', end_time: '19:00', music_style: 'Ambiente'
+  },
+  {
+    id: 'e4', name: 'Casamento Villa Bela', event_date: '2026-08-02', location: 'Villa Bela Eventos', city: 'Campinas', status: 'Planejado', leader_id: 'p11', created_at: '2026-06-25T10:00:00Z',
+    ...eventResumoDefaults, producer_name: 'Villa Bela Cerimonial', address: 'Estrada do Lago, 45', start_time: '17:00', end_time: '23:30', music_style: 'MPB / Jazz'
+  },
+  {
+    id: 'e5', name: 'Réveillon Beetz na Praia', event_date: '2025-12-31', location: 'Orla de Santos', city: 'Santos', status: 'Concluído', leader_id: 'p8', created_at: '2025-10-01T10:00:00Z',
+    ...eventResumoDefaults, producer_name: 'Beetz Produções', address: 'Orla de Santos, Praia do Gonzaga', start_time: '21:00', end_date: '2026-01-01', end_time: '05:00',
+    music_style: 'Sertanejo / Pop', sales_amount: 62000, commission_percentage: 18, credits_bonus: 1200, repasses: 5000
+  }
 ]
 
 function member(id: string, event_id: string, profile_id: string, role_in_event: string): EventMember {
@@ -224,19 +250,26 @@ export const mockBadges: Badge[] = [
   { id: 'b3', profile_id: 'p3', badge_type: 'most_complimented', awarded_at: '2026-01-20T10:00:00Z' }
 ]
 
+// ---------- Fornecedores ----------
+export const mockSuppliers: Supplier[] = [
+  { id: 'sup1', name: 'Casa Barreirinhas', contact: '(98) 99999-1111', created_at: '2025-01-01T10:00:00Z' },
+  { id: 'sup2', name: 'Distribuidora Gelo Fácil', contact: '(11) 98888-2222', created_at: '2025-01-01T10:00:00Z' },
+  { id: 'sup3', name: 'Som & Luz Produções', contact: '(11) 97777-3333', created_at: '2025-01-01T10:00:00Z' }
+]
+
 // ---------- Despesas ----------
 export const mockExpenses: Expense[] = [
   {
     id: 'ex1', event_id: 'e1', status: 'Pago', category: 'Transporte', receipt_data: null,
     payment_method: 'Pix', description: 'Frete de equipamentos de som', quantity: 1, unit_value: 350,
     dex_fee: 0, total: 350, signature_data: null, repasse_data: null, created_by: 'p2',
-    created_at: '2026-01-17T10:00:00Z'
+    team_member_id: 'p2', supplier_id: 'sup3', created_at: '2026-01-17T10:00:00Z'
   },
   {
     id: 'ex2', event_id: 'e1', status: 'Pendente', category: 'Bar', receipt_data: null,
     payment_method: 'Crédito', description: 'Compra de gelo e limões', quantity: 20, unit_value: 8.5,
     dex_fee: 4.9, total: 20 * 8.5 + 4.9, signature_data: null, repasse_data: null, created_by: 'p3',
-    created_at: '2026-01-17T14:00:00Z'
+    team_member_id: 'p3', supplier_id: 'sup2', created_at: '2026-01-17T14:00:00Z'
   }
 ]
 
@@ -276,13 +309,28 @@ export const mockStockMovements: StockMovement[] = [
   { id: 'sm4', product_id: 'pr2', stock_location_id: 'sl2', event_id: 'e1', movement_type: 'Saída', quantity: 40, notes: 'Usado no Festival de Verão', created_by: 'p3', created_at: '2026-01-18T20:00:00Z' }
 ]
 
+// ---------- Produtos do evento, consumo da produção e transferências ----------
+export const mockEventProducts: EventProduct[] = [
+  { id: 'ep1', event_id: 'e1', product_id: 'pr1', quantity: 800, unit_price: 3.5, total: 800 * 3.5, notes: 'Copos para venda no bar', created_at: '2026-01-10T10:00:00Z' },
+  { id: 'ep2', event_id: 'e1', product_id: 'pr2', quantity: 60, unit_price: 15, total: 60 * 15, notes: 'Gelo para venda', created_at: '2026-01-10T10:00:00Z' }
+]
+
+export const mockProductionConsumption: ProductionConsumption[] = [
+  { id: 'pc1', event_id: 'e1', product_id: 'pr3', quantity: 10, unit_cost: 8, total_cost: 10 * 8, notes: 'Guardanapos para a equipe', created_by: 'p2', created_at: '2026-01-18T19:00:00Z' }
+]
+
+export const mockTransferRequests: TransferRequest[] = [
+  { id: 'tr1', event_id: 'e1', product_id: 'pr2', quantity: 20, from_location_id: 'sl1', to_location_id: 'sl2', requested_by: 'Rafael Lima (Produção)', status: 'Aprovado', notes: 'Reforço de gelo para o bar', created_at: '2026-01-17T09:00:00Z' },
+  { id: 'tr2', event_id: 'e1', product_id: 'pr1', quantity: 200, from_location_id: 'sl1', to_location_id: 'sl2', requested_by: 'Rafael Lima (Produção)', status: 'Pendente', notes: 'Copos extras, previsão de casa cheia', created_at: '2026-01-18T08:00:00Z' }
+]
+
 // ---------- Configurações (perfis de acesso, listas, gamificação, marca) ----------
 export const mockRolePermissions: RolePermissions[] = [
-  { role: 'diretoria', can_add_expense: true, can_review_expense: true, can_add_cashier: true, can_add_stock: true, can_manage_users: true, updated_at: '2026-01-01T10:00:00Z' },
-  { role: 'garcom', can_add_expense: false, can_review_expense: false, can_add_cashier: true, can_add_stock: false, can_manage_users: false, updated_at: '2026-01-01T10:00:00Z' },
-  { role: 'caixa', can_add_expense: false, can_review_expense: false, can_add_cashier: true, can_add_stock: false, can_manage_users: false, updated_at: '2026-01-01T10:00:00Z' },
-  { role: 'operacional', can_add_expense: false, can_review_expense: false, can_add_cashier: false, can_add_stock: true, can_manage_users: false, updated_at: '2026-01-01T10:00:00Z' },
-  { role: 'colaborador', can_add_expense: false, can_review_expense: false, can_add_cashier: false, can_add_stock: false, can_manage_users: false, updated_at: '2026-01-01T10:00:00Z' }
+  { role: 'diretoria', can_add_expense: true, can_review_expense: true, can_add_cashier: true, can_add_stock: true, can_manage_users: true, can_view_financial_summary: true, updated_at: '2026-01-01T10:00:00Z' },
+  { role: 'garcom', can_add_expense: false, can_review_expense: false, can_add_cashier: true, can_add_stock: false, can_manage_users: false, can_view_financial_summary: false, updated_at: '2026-01-01T10:00:00Z' },
+  { role: 'caixa', can_add_expense: false, can_review_expense: false, can_add_cashier: true, can_add_stock: false, can_manage_users: false, can_view_financial_summary: false, updated_at: '2026-01-01T10:00:00Z' },
+  { role: 'operacional', can_add_expense: false, can_review_expense: false, can_add_cashier: false, can_add_stock: true, can_manage_users: false, can_view_financial_summary: false, updated_at: '2026-01-01T10:00:00Z' },
+  { role: 'colaborador', can_add_expense: false, can_review_expense: false, can_add_cashier: false, can_add_stock: false, can_manage_users: false, can_view_financial_summary: false, updated_at: '2026-01-01T10:00:00Z' }
 ]
 
 export const mockExpenseCategories: ExpenseCategory[] = [

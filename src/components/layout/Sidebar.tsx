@@ -1,31 +1,65 @@
-import { NavLink } from 'react-router-dom'
-import { Home, Users, UserCircle, Hexagon, CalendarDays, Trophy, Info, LogOut, Package, ShieldCheck, Settings } from 'lucide-react'
+import { useState } from 'react'
+import { NavLink, useLocation } from 'react-router-dom'
+import {
+  Home, Users, UserCircle, Hexagon, CalendarDays, Trophy, Info, LogOut, Package,
+  ShieldCheck, Settings, ChevronDown
+} from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { canManageUsers, canViewStockTab } from '../../lib/permissions'
 import Avatar from '../ui/Avatar'
 
-const baseLinks = [
-  { to: '/dashboard', label: 'Início', icon: Home },
-  { to: '/turma', label: 'Conhecer a turma', icon: Users },
-  { to: '/perfil/me', label: 'Meu perfil', icon: UserCircle },
-  { to: '/mapa', label: 'Mapa da colmeia', icon: Hexagon },
-  { to: '/eventos', label: 'Eventos', icon: CalendarDays }
-]
+interface NavItem {
+  to: string
+  label: string
+  icon: any
+}
 
-const endLinks = [
-  { to: '/ranking', label: 'Ranking', icon: Trophy },
-  { to: '/informacoes', label: 'Informações', icon: Info }
-]
+interface NavGroupDef {
+  key: string
+  label: string
+  icon: any
+  items: NavItem[]
+}
 
 export default function Sidebar() {
   const { profile, email, signOut, accessRole } = useAuth()
+  const location = useLocation()
 
-  const links = [
-    ...baseLinks,
-    ...(canViewStockTab(accessRole) ? [{ to: '/estoque', label: 'Estoque', icon: Package }] : []),
-    ...endLinks,
-    ...(canManageUsers(accessRole) ? [{ to: '/admin', label: 'Administração', icon: ShieldCheck }] : []),
-    ...(canManageUsers(accessRole) ? [{ to: '/configuracoes', label: 'Configurações', icon: Settings }] : [])
+  const topLink: NavItem = { to: '/dashboard', label: 'Início', icon: Home }
+  const bottomLink: NavItem = { to: '/informacoes', label: 'Informações', icon: Info }
+
+  const groups: NavGroupDef[] = [
+    {
+      key: 'comunidade',
+      label: 'Comunidade',
+      icon: Users,
+      items: [
+        { to: '/turma', label: 'Conhecer a turma', icon: Users },
+        { to: '/perfil/me', label: 'Meu perfil', icon: UserCircle },
+        { to: '/mapa', label: 'Mapa da colmeia', icon: Hexagon },
+        { to: '/ranking', label: 'Ranking', icon: Trophy }
+      ]
+    },
+    {
+      key: 'eventos',
+      label: 'Eventos',
+      icon: CalendarDays,
+      items: [
+        { to: '/eventos', label: 'Eventos', icon: CalendarDays },
+        ...(canViewStockTab(accessRole) ? [{ to: '/estoque', label: 'Estoque', icon: Package }] : [])
+      ]
+    },
+    ...(canManageUsers(accessRole)
+      ? [{
+          key: 'gestao',
+          label: 'Gestão',
+          icon: ShieldCheck,
+          items: [
+            { to: '/admin', label: 'Administração', icon: ShieldCheck },
+            { to: '/configuracoes', label: 'Configurações', icon: Settings }
+          ]
+        }]
+      : [])
   ]
 
   return (
@@ -38,21 +72,18 @@ export default function Sidebar() {
         </div>
       </div>
 
-      <nav className="flex-1 space-y-1">
-        {links.map(({ to, label, icon: Icon }) => (
-          <NavLink
-            key={to}
-            to={to}
-            className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
-                isActive ? 'bg-beetz-yellow text-beetz-dark' : 'text-white/80 hover:bg-white/10'
-              }`
-            }
-          >
-            <Icon size={18} />
-            {label}
-          </NavLink>
-        ))}
+      <nav className="flex-1 space-y-1 overflow-y-auto">
+        <TopLevelLink item={topLink} />
+
+        <div className="pt-2 mt-1 space-y-1">
+          {groups.map((group) => (
+            <NavGroup key={group.key} group={group} currentPath={location.pathname} />
+          ))}
+        </div>
+
+        <div className="pt-2 mt-1 border-t border-white/10">
+          <TopLevelLink item={bottomLink} />
+        </div>
       </nav>
 
       <div className="border-t border-white/10 pt-4 mt-4">
@@ -71,5 +102,65 @@ export default function Sidebar() {
         </button>
       </div>
     </aside>
+  )
+}
+
+function TopLevelLink({ item }: { item: NavItem }) {
+  const Icon = item.icon
+  return (
+    <NavLink
+      to={item.to}
+      className={({ isActive }) =>
+        `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+          isActive ? 'bg-beetz-yellow text-beetz-dark' : 'text-white/80 hover:bg-white/10'
+        }`
+      }
+    >
+      <Icon size={18} />
+      {item.label}
+    </NavLink>
+  )
+}
+
+function NavGroup({ group, currentPath }: { group: NavGroupDef; currentPath: string }) {
+  const containsActive = group.items.some((item) => currentPath.startsWith(item.to))
+  const [open, setOpen] = useState(containsActive)
+  const GroupIcon = group.icon
+
+  return (
+    <div>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+          containsActive && !open ? 'text-beetz-yellow' : 'text-white/80'
+        } hover:bg-white/10`}
+      >
+        <GroupIcon size={18} />
+        <span className="flex-1 text-left">{group.label}</span>
+        <ChevronDown size={15} className={`transition-transform text-white/50 ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="mt-1 ml-4 pl-3 border-l border-white/10 space-y-1">
+          {group.items.map((item) => {
+            const Icon = item.icon
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) =>
+                  `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    isActive ? 'bg-beetz-yellow text-beetz-dark' : 'text-white/70 hover:bg-white/10'
+                  }`
+                }
+              >
+                <Icon size={16} />
+                {item.label}
+              </NavLink>
+            )
+          })}
+        </div>
+      )}
+    </div>
   )
 }

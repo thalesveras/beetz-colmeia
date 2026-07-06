@@ -20,7 +20,8 @@ const PERMISSION_FIELDS: { key: keyof Omit<RolePermissions, 'role' | 'updated_at
   { key: 'can_review_expense', label: 'Revisar despesa' },
   { key: 'can_add_cashier', label: 'Fechar caixa' },
   { key: 'can_add_stock', label: 'Movimentar estoque' },
-  { key: 'can_manage_users', label: 'Gerenciar usuários' }
+  { key: 'can_manage_users', label: 'Gerenciar usuários' },
+  { key: 'can_view_financial_summary', label: 'Ver fechamento (diretoria)' }
 ]
 
 const ROLE_ORDER: AccessRole[] = ['diretoria', 'garcom', 'caixa', 'operacional', 'colaborador']

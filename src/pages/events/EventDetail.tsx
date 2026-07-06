@@ -6,14 +6,17 @@ import Avatar from '../../components/ui/Avatar'
 import ExpensesTab from './ExpensesTab'
 import CashierTab from './CashierTab'
 import StockTab from './StockTab'
+import ProductsTab from './ProductsTab'
+import ProductionConsumptionTab from './ProductionConsumptionTab'
+import TransferRequestsTab from './TransferRequestsTab'
+import EventSummaryCard from './EventSummaryCard'
+import FinancialSummaryCard from './FinancialSummaryCard'
 import { useAuth } from '../../contexts/AuthContext'
-import { canViewCashierTab, canViewExpensesTab, canViewStockTab } from '../../lib/permissions'
+import {
+  canManageUsers, canViewCashierTab, canViewExpensesTab, canViewFinancialSummary, canViewStockTab
+} from '../../lib/permissions'
 
-function formatDate(d: string) {
-  return new Date(d + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })
-}
-
-type TabKey = 'equipe' | 'despesas' | 'recebimentos' | 'estoque'
+type TabKey = 'equipe' | 'despesas' | 'recebimentos' | 'estoque' | 'produtos' | 'consumo' | 'transferencias'
 
 export default function EventDetail() {
   const { id } = useParams()
@@ -23,7 +26,10 @@ export default function EventDetail() {
     { key: 'equipe', label: 'Equipe' },
     ...(canViewExpensesTab(accessRole) ? [{ key: 'despesas' as TabKey, label: 'Despesas' }] : []),
     ...(canViewCashierTab(accessRole) ? [{ key: 'recebimentos' as TabKey, label: 'Recebimentos' }] : []),
-    ...(canViewStockTab(accessRole) ? [{ key: 'estoque' as TabKey, label: 'Estoque' }] : [])
+    ...(canViewStockTab(accessRole) ? [{ key: 'produtos' as TabKey, label: 'Produtos' }] : []),
+    ...(canViewStockTab(accessRole) ? [{ key: 'estoque' as TabKey, label: 'Estoque' }] : []),
+    ...(canViewStockTab(accessRole) ? [{ key: 'consumo' as TabKey, label: 'Consumo da produção' }] : []),
+    ...(canViewStockTab(accessRole) ? [{ key: 'transferencias' as TabKey, label: 'Transferências' }] : [])
   ]
   const [event, setEvent] = useState<EventItem | null>(null)
   const [members, setMembers] = useState<(EventMember & { profile: Profile | null })[]>([])
@@ -67,26 +73,23 @@ export default function EventDetail() {
     <div className="space-y-6 max-w-4xl">
       <Link to="/eventos" className="text-sm text-beetz-dark/50 hover:text-beetz-dark">← Voltar para eventos</Link>
 
-      <div className="bg-white rounded-3xl shadow-soft border border-beetz-dark/5 p-6 md:p-8">
-        <span className="text-xs font-semibold bg-beetz-yellow/30 text-beetz-dark px-2.5 py-1 rounded-full">{event.status}</span>
-        <h1 className="text-2xl md:text-3xl font-extrabold mt-3">{event.name}</h1>
-        <div className="grid sm:grid-cols-3 gap-4 mt-5 text-sm">
-          <div><p className="text-beetz-dark/50">Data</p><p className="font-semibold">{formatDate(event.event_date)}</p></div>
-          <div><p className="text-beetz-dark/50">Local</p><p className="font-semibold">{event.location}</p></div>
-          <div><p className="text-beetz-dark/50">Cidade</p><p className="font-semibold">{event.city}</p></div>
-        </div>
-        {leader && (
-          <div className="mt-5 flex items-center gap-3 border-t border-beetz-dark/5 pt-5">
-            <Avatar src={leader.avatar_url} name={`${leader.first_name} ${leader.last_name}`} size="md" />
-            <div>
-              <p className="text-xs text-beetz-dark/50">Líder responsável</p>
-              <Link to={`/perfil/${leader.id}`} className="font-semibold hover:underline">{leader.first_name} {leader.last_name}</Link>
-            </div>
-          </div>
-        )}
-      </div>
+      <EventSummaryCard event={event} canEdit={canManageUsers(accessRole)} onSaved={setEvent} />
 
-      <div className="flex gap-1 bg-white rounded-2xl p-1.5 shadow-soft border border-beetz-dark/5 w-fit">
+      {leader && (
+        <div className="bg-white rounded-2xl shadow-soft border border-beetz-dark/5 p-5 flex items-center gap-3">
+          <Avatar src={leader.avatar_url} name={`${leader.first_name} ${leader.last_name}`} size="md" />
+          <div>
+            <p className="text-xs text-beetz-dark/50">Líder responsável</p>
+            <Link to={`/perfil/${leader.id}`} className="font-semibold hover:underline">{leader.first_name} {leader.last_name}</Link>
+          </div>
+        </div>
+      )}
+
+      {canViewFinancialSummary(accessRole) && (
+        <FinancialSummaryCard event={event} onEventUpdated={setEvent} />
+      )}
+
+      <div className="flex gap-1 flex-wrap bg-white rounded-2xl p-1.5 shadow-soft border border-beetz-dark/5 w-fit">
         {tabs.map((t) => (
           <button
             key={t.key}
@@ -147,9 +150,27 @@ export default function EventDetail() {
         </div>
       )}
 
+      {activeTab === 'produtos' && canViewStockTab(accessRole) && (
+        <div className="bg-white rounded-2xl p-6 shadow-soft border border-beetz-dark/5">
+          <ProductsTab eventId={id} />
+        </div>
+      )}
+
       {activeTab === 'estoque' && canViewStockTab(accessRole) && (
         <div className="bg-white rounded-2xl p-6 shadow-soft border border-beetz-dark/5">
           <StockTab eventId={id} />
+        </div>
+      )}
+
+      {activeTab === 'consumo' && canViewStockTab(accessRole) && (
+        <div className="bg-white rounded-2xl p-6 shadow-soft border border-beetz-dark/5">
+          <ProductionConsumptionTab eventId={id} />
+        </div>
+      )}
+
+      {activeTab === 'transferencias' && canViewStockTab(accessRole) && (
+        <div className="bg-white rounded-2xl p-6 shadow-soft border border-beetz-dark/5">
+          <TransferRequestsTab eventId={id} canApprove={canManageUsers(accessRole)} />
         </div>
       )}
     </div>

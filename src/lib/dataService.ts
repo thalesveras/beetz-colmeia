@@ -1,16 +1,18 @@
 import { isDemoMode, supabase } from './supabaseClient'
 import {
   mockAppSettings, mockBadgeDefConfigs, mockBadges, mockCashierSettlements, mockCompliments,
-  mockDepartments, mockEventMembers, mockEvents, mockExpenseCategories, mockExpenses,
-  mockHiveLevelConfigs, mockHoneyPoints, mockPaymentMethods, mockProducts, mockProfiles,
-  mockRolePermissions, mockStockLocations, mockStockMovements
+  mockDepartments, mockEventMembers, mockEventProducts, mockEvents, mockExpenseCategories,
+  mockExpenses, mockHiveLevelConfigs, mockHoneyPoints, mockPaymentMethods,
+  mockProductionConsumption, mockProducts, mockProfiles, mockRolePermissions, mockStockLocations,
+  mockStockMovements, mockSuppliers, mockTransferRequests
 } from './mockData'
 import { badgesFromStats, getHiveLevel } from './levels'
 import type {
-  AppSettings, Badge, BadgeDefConfig, CashierSettlement, Compliment, Department, EventItem,
-  EventMember, Expense, ExpenseCategory, HiveLevelConfig, HoneyPoint, MovementType,
-  PaymentMethodOption, Product, Profile, ProfileStats, RolePermissions, StockBalance,
-  StockLocation, StockMovement
+  AppSettings, Badge, BadgeDefConfig, CashierSettlement, Compliment, Department, EventFinancialSummary,
+  EventItem, EventMember, EventProduct, Expense, ExpenseCategory, HiveLevelConfig, HoneyPoint,
+  MovementType, PaymentMethodOption, Product, ProductionConsumption, Profile, ProfileStats,
+  RolePermissions, StockBalance, StockLocation, StockMovement, Supplier, TransferRequest,
+  TransferRequestStatus
 } from './types'
 
 // ---------- Estado em memória para o modo demonstração ----------
@@ -32,7 +34,11 @@ const demoState = {
   paymentMethods: [...mockPaymentMethods],
   hiveLevels: [...mockHiveLevelConfigs],
   badgeDefs: [...mockBadgeDefConfigs],
-  appSettings: { ...mockAppSettings }
+  appSettings: { ...mockAppSettings },
+  suppliers: [...mockSuppliers],
+  eventProducts: [...mockEventProducts],
+  productionConsumption: [...mockProductionConsumption],
+  transferRequests: [...mockTransferRequests]
 }
 
 function uid(prefix: string) {
@@ -111,9 +117,34 @@ export async function getEventById(id: string): Promise<EventItem | null> {
   return data as EventItem | null
 }
 
-export async function createEvent(event: Omit<EventItem, 'id' | 'created_at'>): Promise<EventItem> {
+export async function updateEvent(id: string, patch: Partial<Omit<EventItem, 'id' | 'created_at'>>): Promise<EventItem> {
   if (isDemoMode) {
-    const newEvent: EventItem = { ...event, id: uid('e'), created_at: new Date().toISOString() }
+    const idx = demoState.events.findIndex((e) => e.id === id)
+    if (idx < 0) throw new Error('Evento não encontrado')
+    demoState.events[idx] = { ...demoState.events[idx], ...patch }
+    return demoState.events[idx]
+  }
+  const { data, error } = await supabase.from('events').update(patch).eq('id', id).select().single()
+  if (error) throw error
+  return data as EventItem
+}
+
+// Só os campos essenciais são obrigatórios ao criar; o resumo do evento e os
+// campos financeiros do fechamento podem ser preenchidos depois, na página do evento.
+export type NewEventInput =
+  Pick<EventItem, 'name' | 'event_date' | 'location' | 'city' | 'status' | 'leader_id'> &
+  Partial<Omit<EventItem, 'id' | 'created_at' | 'name' | 'event_date' | 'location' | 'city' | 'status' | 'leader_id'>>
+
+const eventResumoDefaults = {
+  producer_name: null, producer_auth_email: null, producer_auth_email_secondary: null,
+  address: null, start_time: null, end_date: null, end_time: null, link: null,
+  music_style: null, flyer_url: null, sales_amount: 0, commission_percentage: 0,
+  credits_bonus: 0, repasses: 0
+}
+
+export async function createEvent(event: NewEventInput): Promise<EventItem> {
+  if (isDemoMode) {
+    const newEvent: EventItem = { ...eventResumoDefaults, ...event, id: uid('e'), created_at: new Date().toISOString() }
     demoState.events.push(newEvent)
     return newEvent
   }
@@ -527,4 +558,126 @@ export async function updateAppSettings(patch: Partial<Omit<AppSettings, 'id' | 
     .update({ ...patch, updated_at: new Date().toISOString() }).eq('id', true).select().single()
   if (error) throw error
   return data as AppSettings
+}
+
+// ---------- Fornecedores ----------
+export async function listSuppliers(): Promise<Supplier[]> {
+  if (isDemoMode) return demoState.suppliers
+  const { data, error } = await supabase.from('suppliers').select('*').order('name')
+  if (error) throw error
+  return data as Supplier[]
+}
+
+export async function createSupplier(name: string, contact: string | null): Promise<Supplier> {
+  if (isDemoMode) {
+    const supplier: Supplier = { id: uid('sup'), name, contact, created_at: new Date().toISOString() }
+    demoState.suppliers.push(supplier)
+    return supplier
+  }
+  const { data, error } = await supabase.from('suppliers').insert({ name, contact }).select().single()
+  if (error) throw error
+  return data as Supplier
+}
+
+// ---------- Produtos do evento ----------
+export type NewEventProductInput = Omit<EventProduct, 'id' | 'created_at' | 'total'>
+
+export async function listEventProducts(eventId: string): Promise<EventProduct[]> {
+  if (isDemoMode) return demoState.eventProducts.filter((p) => p.event_id === eventId)
+  const { data, error } = await supabase.from('event_products').select('*').eq('event_id', eventId).order('created_at', { ascending: false })
+  if (error) throw error
+  return data as EventProduct[]
+}
+
+export async function createEventProduct(input: NewEventProductInput): Promise<EventProduct> {
+  if (isDemoMode) {
+    const total = input.quantity * input.unit_price
+    const record: EventProduct = { ...input, id: uid('ep'), total, created_at: new Date().toISOString() }
+    demoState.eventProducts.push(record)
+    return record
+  }
+  const { data, error } = await supabase.from('event_products').insert(input).select().single()
+  if (error) throw error
+  return data as EventProduct
+}
+
+// ---------- Consumo da produção ----------
+export type NewProductionConsumptionInput = Omit<ProductionConsumption, 'id' | 'created_at' | 'total_cost'>
+
+export async function listProductionConsumption(eventId: string): Promise<ProductionConsumption[]> {
+  if (isDemoMode) return demoState.productionConsumption.filter((c) => c.event_id === eventId)
+  const { data, error } = await supabase.from('production_consumption').select('*').eq('event_id', eventId).order('created_at', { ascending: false })
+  if (error) throw error
+  return data as ProductionConsumption[]
+}
+
+export async function createProductionConsumption(input: NewProductionConsumptionInput): Promise<ProductionConsumption> {
+  if (isDemoMode) {
+    const total_cost = input.quantity * input.unit_cost
+    const record: ProductionConsumption = { ...input, id: uid('pc'), total_cost, created_at: new Date().toISOString() }
+    demoState.productionConsumption.push(record)
+    return record
+  }
+  const { data, error } = await supabase.from('production_consumption').insert(input).select().single()
+  if (error) throw error
+  return data as ProductionConsumption
+}
+
+// ---------- Transferências solicitadas pela produção ----------
+export type NewTransferRequestInput = Omit<TransferRequest, 'id' | 'created_at' | 'status'>
+
+export async function listTransferRequests(eventId: string): Promise<TransferRequest[]> {
+  if (isDemoMode) return demoState.transferRequests.filter((t) => t.event_id === eventId)
+  const { data, error } = await supabase.from('transfer_requests').select('*').eq('event_id', eventId).order('created_at', { ascending: false })
+  if (error) throw error
+  return data as TransferRequest[]
+}
+
+export async function createTransferRequest(input: NewTransferRequestInput): Promise<TransferRequest> {
+  if (isDemoMode) {
+    const record: TransferRequest = { ...input, id: uid('tr'), status: 'Pendente', created_at: new Date().toISOString() }
+    demoState.transferRequests.push(record)
+    return record
+  }
+  const { data, error } = await supabase.from('transfer_requests').insert({ ...input, status: 'Pendente' }).select().single()
+  if (error) throw error
+  return data as TransferRequest
+}
+
+export async function updateTransferRequestStatus(id: string, status: TransferRequestStatus): Promise<void> {
+  if (isDemoMode) {
+    const idx = demoState.transferRequests.findIndex((t) => t.id === id)
+    if (idx >= 0) demoState.transferRequests[idx] = { ...demoState.transferRequests[idx], status }
+    return
+  }
+  const { error } = await supabase.from('transfer_requests').update({ status }).eq('id', id)
+  if (error) throw error
+}
+
+// ---------- Fechamento financeiro do evento (visão diretoria) ----------
+export async function getEventFinancialSummary(eventId: string): Promise<EventFinancialSummary> {
+  const [expenses, eventProducts, consumption, event] = await Promise.all([
+    listExpensesForEvent(eventId),
+    listEventProducts(eventId),
+    listProductionConsumption(eventId),
+    getEventById(eventId)
+  ])
+
+  const despesas = expenses.reduce((sum, e) => sum + e.total, 0)
+  const custoProdutos = eventProducts.reduce((sum, p) => sum + p.total, 0)
+  const consumoProducao = consumption.reduce((sum, c) => sum + c.total_cost, 0)
+
+  const vendas = event?.sales_amount ?? 0
+  const percentual = event?.commission_percentage ?? 0
+  const creditosOuBonificacoes = event?.credits_bonus ?? 0
+  const repasses = event?.repasses ?? 0
+
+  const aReceber = vendas * (percentual / 100)
+  const saldoAReceberDaProdutora = aReceber + creditosOuBonificacoes - repasses
+  const lucroOuPerda = aReceber + creditosOuBonificacoes - despesas - custoProdutos - consumoProducao
+
+  return {
+    despesas, custoProdutos, consumoProducao, vendas, percentual, aReceber,
+    creditosOuBonificacoes, repasses, saldoAReceberDaProdutora, lucroOuPerda
+  }
 }

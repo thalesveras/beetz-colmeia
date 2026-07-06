@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import {
-  createExpense, listExpenseCategories, listExpensesForEvent, listPaymentMethods, updateExpenseStatus
+  createExpense, createSupplier, listEventMembers, listExpenseCategories, listExpensesForEvent,
+  listPaymentMethods, listProfiles, listSuppliers, updateExpenseStatus
 } from '../../lib/dataService'
-import type { Expense, ExpenseCategory, ExpenseStatus, PaymentMethod, PaymentMethodOption } from '../../lib/types'
+import type {
+  Expense, ExpenseCategory, ExpenseStatus, PaymentMethod, PaymentMethodOption, Profile, Supplier
+} from '../../lib/types'
 import FileField from '../../components/ui/FileField'
 import SignaturePad from '../../components/ui/SignaturePad'
 import { Plus } from 'lucide-react'
@@ -28,6 +31,8 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [categories, setCategories] = useState<ExpenseCategory[]>([])
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodOption[]>([])
+  const [teamMembers, setTeamMembers] = useState<Profile[]>([])
+  const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -41,6 +46,10 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
   const [dexFee, setDexFee] = useState(0)
   const [signatureData, setSignatureData] = useState<string | null>(null)
   const [repasseData, setRepasseData] = useState<string | null>(null)
+  const [teamMemberId, setTeamMemberId] = useState('')
+  const [supplierId, setSupplierId] = useState('')
+  const [newSupplierName, setNewSupplierName] = useState('')
+  const [addingSupplier, setAddingSupplier] = useState(false)
 
   async function load() {
     setLoading(true)
@@ -48,11 +57,32 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
     setLoading(false)
   }
 
+  async function loadFormOptions() {
+    const [members, allProfiles, supplierList] = await Promise.all([
+      listEventMembers(eventId), listProfiles(), listSuppliers()
+    ])
+    const memberIds = new Set(members.map((m) => m.profile_id))
+    setTeamMembers(allProfiles.filter((p) => memberIds.has(p.id)))
+    setSuppliers(supplierList)
+  }
+
   useEffect(() => { load() }, [eventId])
   useEffect(() => {
     listExpenseCategories().then(setCategories)
     listPaymentMethods().then(setPaymentMethods)
-  }, [])
+    loadFormOptions()
+  }, [eventId])
+
+  async function handleAddSupplier() {
+    const name = newSupplierName.trim()
+    if (!name) return
+    setAddingSupplier(true)
+    const created = await createSupplier(name, null)
+    setSuppliers((prev) => [...prev, created])
+    setSupplierId(created.id)
+    setNewSupplierName('')
+    setAddingSupplier(false)
+  }
 
   const total = expenses.reduce((sum, e) => sum + e.total, 0)
   const formTotal = quantity * unitValue + dexFee
@@ -60,6 +90,7 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
   function resetForm() {
     setCategory(''); setReceiptData(null); setPaymentMethod(''); setDescription('')
     setQuantity(1); setUnitValue(0); setDexFee(0); setSignatureData(null); setRepasseData(null)
+    setTeamMemberId(''); setSupplierId('')
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -78,7 +109,9 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
       dex_fee: dexFee,
       signature_data: signatureData,
       repasse_data: repasseData,
-      created_by: userId
+      created_by: userId,
+      team_member_id: teamMemberId || null,
+      supplier_id: supplierId || null
     })
     setSaving(false)
     resetForm()
@@ -121,6 +154,37 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
                 <option value="">Selecionar...</option>
                 {paymentMethods.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
               </select>
+            </div>
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <label className="text-sm font-medium block mb-1">Adicionar equipe</label>
+              <select className={inputClass} value={teamMemberId} onChange={(e) => setTeamMemberId(e.target.value)}>
+                <option value="">Nenhum</option>
+                {teamMembers.map((m) => <option key={m.id} value={m.id}>{m.first_name} {m.last_name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-sm font-medium block mb-1">Adicionar fornecedor</label>
+              <select className={inputClass} value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
+                <option value="">Nenhum</option>
+                {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              <div className="flex gap-2 mt-1.5">
+                <input
+                  className="flex-1 border border-beetz-dark/15 rounded-lg px-2.5 py-1.5 text-xs"
+                  placeholder="Novo fornecedor..."
+                  value={newSupplierName}
+                  onChange={(e) => setNewSupplierName(e.target.value)}
+                />
+                <button
+                  type="button" onClick={handleAddSupplier} disabled={addingSupplier || !newSupplierName.trim()}
+                  className="text-xs font-semibold bg-beetz-dark text-white px-2.5 rounded-lg disabled:opacity-40"
+                >
+                  +
+                </button>
+              </div>
             </div>
           </div>
 
@@ -176,7 +240,11 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
               </select>
               <div className="flex-1 min-w-[140px]">
                 <p className="font-semibold text-sm">{exp.category || 'Sem categoria'}</p>
-                <p className="text-xs text-beetz-dark/50">{exp.description || '—'} {exp.payment_method ? `· ${exp.payment_method}` : ''}</p>
+                <p className="text-xs text-beetz-dark/50">
+                  {exp.description || '—'} {exp.payment_method ? `· ${exp.payment_method}` : ''}
+                  {exp.team_member_id ? ` · Equipe: ${teamMembers.find((m) => m.id === exp.team_member_id)?.first_name ?? '—'}` : ''}
+                  {exp.supplier_id ? ` · Fornecedor: ${suppliers.find((s) => s.id === exp.supplier_id)?.name ?? '—'}` : ''}
+                </p>
               </div>
               <span className="font-bold text-sm">{currency(exp.total)}</span>
             </div>

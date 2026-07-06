@@ -72,6 +72,22 @@ export interface EventItem {
   status: EventStatus
   leader_id: string | null
   created_at: string
+  // Resumo do evento
+  producer_name: string | null
+  producer_auth_email: string | null
+  producer_auth_email_secondary: string | null
+  address: string | null
+  start_time: string | null
+  end_date: string | null
+  end_time: string | null
+  link: string | null
+  music_style: string | null
+  flyer_url: string | null
+  // Fechamento — visão diretoria (entradas manuais)
+  sales_amount: number
+  commission_percentage: number
+  credits_bonus: number
+  repasses: number
 }
 
 export interface EventMember {
@@ -134,7 +150,67 @@ export interface Expense {
   signature_data: string | null
   repasse_data: string | null
   created_by: string | null
+  team_member_id: string | null
+  supplier_id: string | null
   created_at: string
+}
+
+export interface Supplier {
+  id: string
+  name: string
+  contact: string | null
+  created_at: string
+}
+
+export interface EventProduct {
+  id: string
+  event_id: string
+  product_id: string
+  quantity: number
+  unit_price: number
+  total: number
+  notes: string | null
+  created_at: string
+}
+
+export interface ProductionConsumption {
+  id: string
+  event_id: string
+  product_id: string
+  quantity: number
+  unit_cost: number
+  total_cost: number
+  notes: string | null
+  created_by: string | null
+  created_at: string
+}
+
+export type TransferRequestStatus = 'Pendente' | 'Aprovado' | 'Negado'
+
+export interface TransferRequest {
+  id: string
+  event_id: string
+  product_id: string
+  quantity: number
+  from_location_id: string | null
+  to_location_id: string | null
+  requested_by: string | null
+  status: TransferRequestStatus
+  notes: string | null
+  created_at: string
+}
+
+export interface EventFinancialSummary {
+  despesas: number
+  custoProdutos: number
+  consumoProducao: number
+  vendas: number
+  percentual: number
+  aReceber: number
+  creditosOuBonificacoes: number
+  repasses: number
+  saldoAReceberDaProdutora: number
+  lucroOuPerda: number
 }
 
 export type CashierRoleType = 'Caixa' | 'Garçom'
@@ -202,6 +278,7 @@ export interface RolePermissions {
   can_add_cashier: boolean
   can_add_stock: boolean
   can_manage_users: boolean
+  can_view_financial_summary: boolean
   updated_at: string
 }
 
