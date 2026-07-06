@@ -79,19 +79,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await loadProfile(id)
       return { error: null }
     }
-    const { error } = await supabase.auth.signInWithPassword({ email: emailInput, password })
-    return { error: error?.message ?? null }
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email: emailInput, password })
+      return { error: error?.message ?? null }
+    } catch (err: any) {
+      return { error: err?.message ?? 'Não foi possível entrar. Tente novamente.' }
+    }
   }
 
   async function signUp(emailInput: string, password: string) {
     if (isDemoMode) {
       return signIn(emailInput, password)
     }
-    const { error, data } = await supabase.auth.signUp({ email: emailInput, password })
-    if (!error && data.user) {
-      await upsertProfile({ id: data.user.id, email: emailInput, onboarding_completed: false })
+    try {
+      const { error, data } = await supabase.auth.signUp({ email: emailInput, password })
+      if (error) return { error: error.message }
+
+      // Se o projeto exige confirmação de email, não existe sessão ainda.
+      // Sem sessão não dá pra gravar o perfil (RLS bloqueia), então avisamos
+      // a pessoa em vez de travar a tela.
+      if (!data.session) {
+        return { error: 'Conta criada! Verifique seu email para confirmar antes de entrar (ou desative a confirmação de email nas configurações do Supabase).' }
+      }
+
+      if (data.user) {
+        try {
+          await upsertProfile({ id: data.user.id, email: emailInput, onboarding_completed: false })
+        } catch (profileError) {
+          // Não deixa um erro ao criar o perfil travar o cadastro — o perfil
+          // pode ser criado depois pelo trigger do banco ou no próximo passo.
+          console.error('Falha ao criar perfil inicial:', profileError)
+        }
+      }
+      return { error: null }
+    } catch (err: any) {
+      return { error: err?.message ?? 'Não foi possível criar a conta. Tente novamente.' }
     }
-    return { error: error?.message ?? null }
   }
 
   async function signOut() {

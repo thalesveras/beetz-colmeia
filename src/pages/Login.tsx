@@ -18,14 +18,19 @@ export default function Login() {
     e.preventDefault()
     setError(null)
     setLoading(true)
-    const action = mode === 'entrar' ? signIn : signUp
-    const { error } = await action(email, password)
-    setLoading(false)
-    if (error) {
-      setError(error)
-      return
+    try {
+      const action = mode === 'entrar' ? signIn : signUp
+      const { error } = await action(email, password)
+      if (error) {
+        setError(error)
+        return
+      }
+      navigate(next)
+    } catch (err: any) {
+      setError(err?.message ?? 'Algo deu errado. Tente novamente.')
+    } finally {
+      setLoading(false)
     }
-    navigate(next)
   }
 
   return (
