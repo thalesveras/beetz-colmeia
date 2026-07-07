@@ -736,6 +736,11 @@ function ProfileImporterSection() {
     setSyncing(true)
     setSyncError(null)
     setSyncResult(null)
+    // Limpa também o resultado/erro do diagnóstico — os dois botões mexem no
+    // mesmo cartão, e um banner de um botão ficando na tela depois de clicar
+    // no outro só confunde (parecia "conectou mas não sincronizou").
+    setInspectError(null)
+    setInspectFields(null)
     try {
       const res = await syncZohoCreator()
       setSyncResult(res)
@@ -750,6 +755,8 @@ function ProfileImporterSection() {
     setInspecting(true)
     setInspectError(null)
     setInspectFields(null)
+    setSyncError(null)
+    setSyncResult(null)
     try {
       const res = await inspectZohoCreatorFields()
       setInspectFields(res.fields)
