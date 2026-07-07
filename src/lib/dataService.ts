@@ -178,15 +178,37 @@ export interface SyncZohoCreatorResult {
   skippedAlreadyClaimed: number
 }
 
-// Puxa direto da API do Zoho Creator (relatório Nosso_time1) em vez de depender
-// de export manual de CSV. A troca de token e a chamada à API do Zoho acontecem
+// O cliente do supabase-js só lança "Edge Function returned a non-2xx status
+// code" por padrão quando a function responde com erro — a mensagem de verdade
+// (que a nossa function manda no corpo JSON) fica em error.context, que é o
+// Response bruto e precisa ser lido à parte.
+async function extractFunctionErrorMessage(error: any): Promise<string> {
+  const ctx = error?.context
+  if (ctx && typeof ctx.clone === 'function') {
+    try {
+      const body = await ctx.clone().json()
+      if (body?.error) return body.error
+    } catch {
+      try {
+        const text = await ctx.clone().text()
+        if (text) return text
+      } catch {
+        // segue pro fallback abaixo
+      }
+    }
+  }
+  return error?.message ?? 'Erro desconhecido ao chamar a Edge Function.'
+}
+
+// Puxa direto da API do Zoho Creator (relatório Equipe) em vez de depender de
+// export manual de CSV. A troca de token e a chamada à API do Zoho acontecem
 // na Edge Function zoho-creator-sync (os secrets do Zoho não passam pelo navegador).
 export async function syncZohoCreator(): Promise<SyncZohoCreatorResult> {
   if (isDemoMode) {
     return { totalFetched: 0, imported: 0, skippedNoEmail: 0, skippedAlreadyClaimed: 0 }
   }
   const { data, error } = await supabase.functions.invoke('zoho-creator-sync', { body: {} })
-  if (error) throw error
+  if (error) throw new Error(await extractFunctionErrorMessage(error))
   if (data?.error) throw new Error(data.error)
   return data
 }
@@ -197,17 +219,17 @@ export interface ZohoFieldInfo {
   type: number
 }
 
-// Modo diagnóstico: só lista os campos reais do formulário (ex: "Colaboradores")
+// Modo diagnóstico: só lista os campos reais do formulário (ex: "Adicionar_equipe")
 // no Zoho Creator, sem gravar nada — usado pra conferir/corrigir o mapeamento
 // fixo no código da Edge Function antes de rodar a sincronização de verdade.
 export async function inspectZohoCreatorFields(formLinkName?: string): Promise<{ formLinkName: string; fields: ZohoFieldInfo[] }> {
   if (isDemoMode) {
-    return { formLinkName: formLinkName ?? 'Colaboradores', fields: [] }
+    return { formLinkName: formLinkName ?? 'Adicionar_equipe', fields: [] }
   }
   const { data, error } = await supabase.functions.invoke('zoho-creator-sync', {
     body: { inspect: true, form_link_name: formLinkName }
   })
-  if (error) throw error
+  if (error) throw new Error(await extractFunctionErrorMessage(error))
   if (data?.error) throw new Error(data.error)
   return data
 }

@@ -825,7 +825,7 @@ function ProfileImporterSection() {
       <div className="bg-beetz-gray rounded-xl p-4 mb-5">
         <p className="text-sm font-semibold mb-1 flex items-center gap-1.5"><RefreshCw size={14} /> Sincronizar direto com o Zoho Creator</p>
         <p className="text-xs text-beetz-dark/60 mb-3">
-          Busca os registros do relatório Nosso_time1 direto na API do Zoho, sem precisar exportar .csv na mão.
+          Busca os registros do relatório Equipe direto na API do Zoho, sem precisar exportar .csv na mão.
           Precisa ter os secrets do Zoho (client ID, client secret e refresh token) cadastrados na Edge Function
           <code className="bg-white px-1 py-0.5 rounded mx-1">zoho-creator-sync</code>.
         </p>
