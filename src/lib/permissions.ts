@@ -5,15 +5,23 @@ export type AccessRole = 'diretoria' | 'garcom' | 'caixa' | 'operacional' | 'col
 // Departamentos "de mão na massa" que dão acesso operacional (estoque)
 const OPERATIONAL_SLUGS = ['producao', 'bar', 'seguranca', 'credenciamento', 'limpeza']
 
-export function computeAccessRole(profile: Profile | null | undefined, departments: Department[]): AccessRole {
-  if (!profile?.department_id) return 'colaborador'
-  const dept = departments.find((d) => d.id === profile.department_id)
-  if (!dept) return 'colaborador'
+// Pra qual papel de acesso um departamento aponta. Vários departamentos podem
+// apontar pro mesmo papel (ex: Bar, Produção, Segurança, Credenciamento e
+// Limpeza todos caem em "operacional") — as permissões são por papel, não por
+// departamento individual.
+export function departmentToAccessRole(dept: Pick<Department, 'slug'>): AccessRole {
   if (dept.slug === 'diretoria') return 'diretoria'
   if (dept.slug === 'garcons') return 'garcom'
   if (dept.slug === 'caixa') return 'caixa'
   if (OPERATIONAL_SLUGS.includes(dept.slug)) return 'operacional'
   return 'colaborador'
+}
+
+export function computeAccessRole(profile: Profile | null | undefined, departments: Department[]): AccessRole {
+  if (!profile?.department_id) return 'colaborador'
+  const dept = departments.find((d) => d.id === profile.department_id)
+  if (!dept) return 'colaborador'
+  return departmentToAccessRole(dept)
 }
 
 export const ACCESS_ROLE_LABELS: Record<AccessRole, string> = {

@@ -171,6 +171,37 @@ export async function importZohoPendingProfiles(rows: Partial<ZohoPendingProfile
   }
 }
 
+export interface ZohoPendingProfilesStats {
+  total: number
+  claimed: number
+  waiting: number
+}
+
+// Contagem "ao vivo" de zoho_pending_profiles, direto do banco — não depende
+// do resultado da última sincronização/importação, que só mostra o que
+// aconteceu naquela rodada específica. Serve pra Diretoria conferir a
+// qualquer momento quantos pré-cadastros existem no total e quantos já
+// viraram perfil de verdade (claimed_at preenchido).
+export async function getZohoPendingProfilesStats(): Promise<ZohoPendingProfilesStats> {
+  if (isDemoMode) {
+    return { total: 0, claimed: 0, waiting: 0 }
+  }
+  const { count: total, error: totalError } = await supabase
+    .from('zoho_pending_profiles')
+    .select('*', { count: 'exact', head: true })
+  if (totalError) throw totalError
+
+  const { count: claimed, error: claimedError } = await supabase
+    .from('zoho_pending_profiles')
+    .select('*', { count: 'exact', head: true })
+    .not('claimed_at', 'is', null)
+  if (claimedError) throw claimedError
+
+  const totalCount = total ?? 0
+  const claimedCount = claimed ?? 0
+  return { total: totalCount, claimed: claimedCount, waiting: totalCount - claimedCount }
+}
+
 export interface SyncZohoCreatorResult {
   totalFetched: number
   imported: number

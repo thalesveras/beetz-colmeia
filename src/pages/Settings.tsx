@@ -3,17 +3,18 @@ import Papa from 'papaparse'
 import { AlertTriangle, Plus, RefreshCw, Search, Upload, X, Save, Settings as SettingsIcon, Trash2 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useConfig } from '../contexts/ConfigContext'
-import { ACCESS_ROLE_LABELS, canManageUsers, type AccessRole } from '../lib/permissions'
+import { ACCESS_ROLE_LABELS, canManageUsers, departmentToAccessRole, type AccessRole } from '../lib/permissions'
 import {
   createExpenseCategory, createPaymentMethod, createServiceModality, deleteExpenseCategory,
-  deletePaymentMethod, deleteServiceModality, importZohoPendingProfiles, inspectZohoCreatorFields,
-  listBadgeDefsConfig, listExpenseCategories, listHiveLevelsConfig, listPaymentMethods,
-  listRolePermissions, listServiceModalities, syncZohoCreator, updateAppSettings, updateBadgeDef,
-  updateHiveLevel, updateRolePermission, updateServiceModality
+  deletePaymentMethod, deleteServiceModality, getZohoPendingProfilesStats, importZohoPendingProfiles,
+  inspectZohoCreatorFields, listBadgeDefsConfig, listDepartments, listExpenseCategories,
+  listHiveLevelsConfig, listPaymentMethods, listRolePermissions, listServiceModalities, syncZohoCreator,
+  updateAppSettings, updateBadgeDef, updateHiveLevel, updateRolePermission, updateServiceModality
 } from '../lib/dataService'
+import type { ZohoPendingProfilesStats } from '../lib/dataService'
 import type {
-  AppSettings, BadgeDefConfig, ExperienceLevel, ExpenseCategory, HiveLevelConfig, PaymentMethodOption,
-  RolePermissions, ServiceModality, ZohoPendingProfile
+  AppSettings, BadgeDefConfig, Department, ExperienceLevel, ExpenseCategory, HiveLevelConfig,
+  PaymentMethodOption, RolePermissions, ServiceModality, ZohoPendingProfile
 } from '../lib/types'
 
 const inputClass = 'w-full border border-beetz-dark/15 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
@@ -103,19 +104,37 @@ export default function Settings() {
 // mudam, mas o número de permissões deve crescer, e listas escalam melhor que colunas.
 function RolePermissionsSection({ onSaved }: { onSaved: () => void }) {
   const [permissions, setPermissions] = useState<RolePermissions[]>([])
+  const [departments, setDepartments] = useState<Department[]>([])
   const [selectedRole, setSelectedRole] = useState<AccessRole>('diretoria')
   const [loading, setLoading] = useState(true)
   const [savingKey, setSavingKey] = useState<string | null>(null)
 
   async function load() {
     setLoading(true)
-    setPermissions(await listRolePermissions())
+    const [perms, depts] = await Promise.all([listRolePermissions(), listDepartments()])
+    setPermissions(perms)
+    setDepartments(depts)
     setLoading(false)
   }
 
   useEffect(() => { load() }, [])
 
   const current = permissions.find((p) => p.role === selectedRole)
+
+  // Cada papel de acesso pode corresponder a mais de um departamento
+  // cadastrado (ex: Bar, Produção, Segurança, Credenciamento e Limpeza todos
+  // caem em "Operacional") — mostramos os nomes reais dos departamentos em
+  // vez de uma descrição fixa, pra ficar claro quem cada perfil afeta.
+  const deptNamesByRole: Record<AccessRole, string[]> = { diretoria: [], garcom: [], caixa: [], operacional: [], colaborador: [] }
+  for (const dept of departments) {
+    deptNamesByRole[departmentToAccessRole(dept)].push(dept.name)
+  }
+  function roleLabel(role: AccessRole): string {
+    const names = deptNamesByRole[role]
+    if (names.length === 0) return ACCESS_ROLE_LABELS[role]
+    const roleName = ACCESS_ROLE_LABELS[role].split(' (')[0]
+    return `${roleName} (${names.join(', ')})`
+  }
 
   async function toggle(field: PermissionKey, currentValue: boolean) {
     setSavingKey(field)
@@ -141,7 +160,7 @@ function RolePermissionsSection({ onSaved }: { onSaved: () => void }) {
               selectedRole === role ? 'bg-beetz-dark text-white' : 'bg-beetz-gray text-beetz-dark/70 hover:bg-beetz-dark/10'
             }`}
           >
-            {ACCESS_ROLE_LABELS[role]}
+            {roleLabel(role)}
           </button>
         ))}
       </div>
@@ -732,6 +751,19 @@ function ProfileImporterSection() {
   const [inspectError, setInspectError] = useState<string | null>(null)
   const [inspectFields, setInspectFields] = useState<{ link_name: string; display_name: string; type: number }[] | null>(null)
 
+  // Contagem "ao vivo" do banco — não depende do resultado da última
+  // sincronização, então dá pra conferir a qualquer momento se está tudo
+  // sincronizado (e não só o que a última rodada trouxe).
+  const [stats, setStats] = useState<ZohoPendingProfilesStats | null>(null)
+  async function loadStats() {
+    try {
+      setStats(await getZohoPendingProfilesStats())
+    } catch {
+      // Não trava a tela por causa disso — é só um número informativo.
+    }
+  }
+  useEffect(() => { loadStats() }, [])
+
   async function handleSync() {
     setSyncing(true)
     setSyncError(null)
@@ -744,6 +776,7 @@ function ProfileImporterSection() {
     try {
       const res = await syncZohoCreator()
       setSyncResult(res)
+      await loadStats()
     } catch (err: any) {
       setSyncError(err?.message ?? 'Erro ao sincronizar com o Zoho Creator.')
     } finally {
@@ -813,6 +846,7 @@ function ProfileImporterSection() {
       const res = await importZohoPendingProfiles(allMapped)
       setResult(res)
       setStep('done')
+      await loadStats()
     } catch (err: any) {
       setError(err?.message ?? 'Erro ao importar. Tente novamente.')
     } finally {
@@ -828,6 +862,25 @@ function ProfileImporterSection() {
         Ninguém vira usuário automaticamente — os dados só entram no perfil da pessoa quando ela mesma se
         cadastra com o e-mail correspondente, e ela revisa tudo antes de confirmar.
       </p>
+
+      {stats && (
+        <div className="flex flex-wrap gap-4 bg-beetz-gray rounded-xl p-3.5 mb-4 text-sm">
+          <div>
+            <span className="font-bold">{stats.total}</span>
+            <span className="text-beetz-dark/60"> pré-cadastro(s) no total</span>
+          </div>
+          <div className="w-px bg-beetz-dark/10" />
+          <div>
+            <span className="font-bold">{stats.claimed}</span>
+            <span className="text-beetz-dark/60"> já viraram perfil (a pessoa se cadastrou)</span>
+          </div>
+          <div className="w-px bg-beetz-dark/10" />
+          <div>
+            <span className="font-bold">{stats.waiting}</span>
+            <span className="text-beetz-dark/60"> esperando a pessoa se cadastrar</span>
+          </div>
+        </div>
+      )}
 
       <div className="bg-beetz-gray rounded-xl p-4 mb-5">
         <p className="text-sm font-semibold mb-1 flex items-center gap-1.5"><RefreshCw size={14} /> Sincronizar direto com o Zoho Creator</p>
