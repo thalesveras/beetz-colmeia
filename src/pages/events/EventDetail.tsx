@@ -117,18 +117,23 @@ export default function EventDetail() {
         </>
       )}
 
-      <div className="flex gap-1 flex-wrap bg-white rounded-2xl p-1.5 shadow-soft border border-beetz-dark/5 w-fit">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setActiveTab(t.key)}
-            className={`px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
-              activeTab === t.key ? 'bg-beetz-dark text-white' : 'text-beetz-dark/60 hover:bg-beetz-gray'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div className="bg-white rounded-2xl p-1.5 shadow-soft border border-beetz-dark/5">
+        <div
+          className="flex gap-1 overflow-x-auto [&::-webkit-scrollbar]:hidden"
+          style={{ scrollbarWidth: 'none' }}
+        >
+          {tabs.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setActiveTab(t.key)}
+              className={`shrink-0 whitespace-nowrap px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
+                activeTab === t.key ? 'bg-beetz-dark text-white' : 'text-beetz-dark/60 hover:bg-beetz-gray'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {activeTab === 'equipe' && (

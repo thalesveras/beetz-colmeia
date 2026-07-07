@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react'
 import Papa from 'papaparse'
-import { AlertTriangle, Plus, Upload, X, Save, Settings as SettingsIcon, Trash2 } from 'lucide-react'
+import { AlertTriangle, Plus, RefreshCw, Search, Upload, X, Save, Settings as SettingsIcon, Trash2 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useConfig } from '../contexts/ConfigContext'
 import { ACCESS_ROLE_LABELS, canManageUsers, type AccessRole } from '../lib/permissions'
 import {
   createExpenseCategory, createPaymentMethod, createServiceModality, deleteExpenseCategory,
-  deletePaymentMethod, deleteServiceModality, importZohoPendingProfiles, listBadgeDefsConfig,
-  listExpenseCategories, listHiveLevelsConfig, listPaymentMethods, listRolePermissions,
-  listServiceModalities, updateAppSettings, updateBadgeDef, updateHiveLevel, updateRolePermission,
-  updateServiceModality
+  deletePaymentMethod, deleteServiceModality, importZohoPendingProfiles, inspectZohoCreatorFields,
+  listBadgeDefsConfig, listExpenseCategories, listHiveLevelsConfig, listPaymentMethods,
+  listRolePermissions, listServiceModalities, syncZohoCreator, updateAppSettings, updateBadgeDef,
+  updateHiveLevel, updateRolePermission, updateServiceModality
 } from '../lib/dataService'
 import type {
   AppSettings, BadgeDefConfig, ExperienceLevel, ExpenseCategory, HiveLevelConfig, PaymentMethodOption,
@@ -724,6 +724,42 @@ function ProfileImporterSection() {
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState<{ totalRows: number; imported: number; skippedNoEmail: number; skippedAlreadyClaimed: number } | null>(null)
 
+  const [syncing, setSyncing] = useState(false)
+  const [syncError, setSyncError] = useState<string | null>(null)
+  const [syncResult, setSyncResult] = useState<{ totalFetched: number; imported: number; skippedNoEmail: number; skippedAlreadyClaimed: number } | null>(null)
+
+  const [inspecting, setInspecting] = useState(false)
+  const [inspectError, setInspectError] = useState<string | null>(null)
+  const [inspectFields, setInspectFields] = useState<{ link_name: string; display_name: string; type: number }[] | null>(null)
+
+  async function handleSync() {
+    setSyncing(true)
+    setSyncError(null)
+    setSyncResult(null)
+    try {
+      const res = await syncZohoCreator()
+      setSyncResult(res)
+    } catch (err: any) {
+      setSyncError(err?.message ?? 'Erro ao sincronizar com o Zoho Creator.')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  async function handleInspect() {
+    setInspecting(true)
+    setInspectError(null)
+    setInspectFields(null)
+    try {
+      const res = await inspectZohoCreatorFields()
+      setInspectFields(res.fields)
+    } catch (err: any) {
+      setInspectError(err?.message ?? 'Erro ao consultar os campos do Zoho Creator.')
+    } finally {
+      setInspecting(false)
+    }
+  }
+
   function reset() {
     setStep('upload'); setFileName(''); setHeaders([]); setRows([]); setMapping({}); setJsonColumn(''); setError(null); setResult(null)
   }
@@ -785,6 +821,85 @@ function ProfileImporterSection() {
         Ninguém vira usuário automaticamente — os dados só entram no perfil da pessoa quando ela mesma se
         cadastra com o e-mail correspondente, e ela revisa tudo antes de confirmar.
       </p>
+
+      <div className="bg-beetz-gray rounded-xl p-4 mb-5">
+        <p className="text-sm font-semibold mb-1 flex items-center gap-1.5"><RefreshCw size={14} /> Sincronizar direto com o Zoho Creator</p>
+        <p className="text-xs text-beetz-dark/60 mb-3">
+          Busca os registros do relatório Nosso_time1 direto na API do Zoho, sem precisar exportar .csv na mão.
+          Precisa ter os secrets do Zoho (client ID, client secret e refresh token) cadastrados na Edge Function
+          <code className="bg-white px-1 py-0.5 rounded mx-1">zoho-creator-sync</code>.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            className="flex items-center gap-2 bg-beetz-dark text-white font-semibold px-4 py-2.5 rounded-xl text-sm hover:bg-black transition-colors disabled:opacity-60"
+          >
+            <RefreshCw size={15} className={syncing ? 'animate-spin' : ''} /> {syncing ? 'Sincronizando...' : 'Sincronizar agora'}
+          </button>
+          <button
+            onClick={handleInspect}
+            disabled={inspecting}
+            className="flex items-center gap-2 border border-beetz-dark/15 font-semibold px-4 py-2.5 rounded-xl text-sm hover:bg-white transition-colors disabled:opacity-60"
+            title="Consulta os campos reais do formulário Colaboradores no Zoho, sem gravar nada — útil pra conferir se o mapeamento fixo no código está certo."
+          >
+            <Search size={15} /> {inspecting ? 'Consultando...' : 'Ver campos do formulário (diagnóstico)'}
+          </button>
+        </div>
+        {syncError && (
+          <div className="flex items-start gap-2 bg-red-50 text-red-700 text-sm rounded-xl p-3 mt-3">
+            <AlertTriangle size={16} className="shrink-0 mt-0.5" /> {syncError}
+          </div>
+        )}
+        {syncResult && (
+          <div className="bg-green-50 text-green-700 rounded-xl p-3 mt-3 text-sm space-y-1">
+            <p className="font-semibold">Sincronização concluída — {syncResult.totalFetched} registro(s) encontrado(s) no Zoho.</p>
+            <p>{syncResult.imported} pré-cadastrado(s) ou atualizado(s).</p>
+            {syncResult.skippedNoEmail > 0 && <p>{syncResult.skippedNoEmail} sem e-mail, ignorado(s).</p>}
+            {syncResult.skippedAlreadyClaimed > 0 && <p>{syncResult.skippedAlreadyClaimed} já pertenciam a alguém que já se cadastrou.</p>}
+          </div>
+        )}
+        {inspectError && (
+          <div className="flex items-start gap-2 bg-red-50 text-red-700 text-sm rounded-xl p-3 mt-3">
+            <AlertTriangle size={16} className="shrink-0 mt-0.5" /> {inspectError}
+          </div>
+        )}
+        {inspectFields && (
+          <div className="mt-3">
+            <p className="text-xs text-beetz-dark/60 mb-2">
+              {inspectFields.length === 0
+                ? 'Nenhum campo retornado.'
+                : `${inspectFields.length} campo(s) encontrado(s) no formulário. Confira os "link name" abaixo — são esses nomes que precisam bater com o que a Edge Function espera.`}
+            </p>
+            {inspectFields.length > 0 && (
+              <div className="overflow-x-auto rounded-xl border border-beetz-dark/10 max-h-64 overflow-y-auto">
+                <table className="w-full text-xs">
+                  <thead className="bg-white text-left sticky top-0">
+                    <tr>
+                      <th className="p-2">Link name (é isso que vai no código)</th>
+                      <th className="p-2">Nome exibido no Zoho</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-beetz-dark/5 bg-white">
+                    {inspectFields.map((f) => (
+                      <tr key={f.link_name}>
+                        <td className="p-2 font-mono">{f.link_name}</td>
+                        <td className="p-2">{f.display_name}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center gap-3 mb-5">
+        <div className="flex-1 h-px bg-beetz-dark/10" />
+        <span className="text-xs text-beetz-dark/40">ou importe um arquivo manualmente</span>
+        <div className="flex-1 h-px bg-beetz-dark/10" />
+      </div>
 
       {error && (
         <div className="flex items-start gap-2 bg-red-50 text-red-700 text-sm rounded-xl p-3 mb-4">

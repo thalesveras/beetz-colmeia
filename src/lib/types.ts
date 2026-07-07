@@ -52,6 +52,7 @@ export interface ZohoPendingProfile {
   experience_level: ExperienceLevel | null
   entry_date: string | null
   zoho_record_id: string | null
+  department_hint: string | null
 }
 
 export interface Department {

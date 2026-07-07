@@ -171,6 +171,47 @@ export async function importZohoPendingProfiles(rows: Partial<ZohoPendingProfile
   }
 }
 
+export interface SyncZohoCreatorResult {
+  totalFetched: number
+  imported: number
+  skippedNoEmail: number
+  skippedAlreadyClaimed: number
+}
+
+// Puxa direto da API do Zoho Creator (relatório Nosso_time1) em vez de depender
+// de export manual de CSV. A troca de token e a chamada à API do Zoho acontecem
+// na Edge Function zoho-creator-sync (os secrets do Zoho não passam pelo navegador).
+export async function syncZohoCreator(): Promise<SyncZohoCreatorResult> {
+  if (isDemoMode) {
+    return { totalFetched: 0, imported: 0, skippedNoEmail: 0, skippedAlreadyClaimed: 0 }
+  }
+  const { data, error } = await supabase.functions.invoke('zoho-creator-sync', { body: {} })
+  if (error) throw error
+  if (data?.error) throw new Error(data.error)
+  return data
+}
+
+export interface ZohoFieldInfo {
+  link_name: string
+  display_name: string
+  type: number
+}
+
+// Modo diagnóstico: só lista os campos reais do formulário (ex: "Colaboradores")
+// no Zoho Creator, sem gravar nada — usado pra conferir/corrigir o mapeamento
+// fixo no código da Edge Function antes de rodar a sincronização de verdade.
+export async function inspectZohoCreatorFields(formLinkName?: string): Promise<{ formLinkName: string; fields: ZohoFieldInfo[] }> {
+  if (isDemoMode) {
+    return { formLinkName: formLinkName ?? 'Colaboradores', fields: [] }
+  }
+  const { data, error } = await supabase.functions.invoke('zoho-creator-sync', {
+    body: { inspect: true, form_link_name: formLinkName }
+  })
+  if (error) throw error
+  if (data?.error) throw new Error(data.error)
+  return data
+}
+
 export async function upsertProfile(profile: Partial<Profile> & { id: string }): Promise<Profile> {
   if (isDemoMode) {
     const idx = demoState.profiles.findIndex((p) => p.id === profile.id)
