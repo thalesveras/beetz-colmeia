@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom'
-import { Home, Users, UserCircle, Hexagon, CalendarDays, Trophy, Package, ShieldCheck, Settings } from 'lucide-react'
+import { Home, Users, UserCircle, Hexagon, CalendarDays, Trophy, Package, ShieldCheck, Settings, Wallet } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
-import { canApproveUsers, canManageUsers, canViewStockTab } from '../../lib/permissions'
+import { canApproveUsers, canManageUsers, canViewFinancialSummary, canViewStockTab } from '../../lib/permissions'
 
 const baseLinks = [
   { to: '/dashboard', label: 'Início', icon: Home },
@@ -22,6 +22,7 @@ export default function MobileNav() {
     ...baseLinks,
     ...(canViewStockTab(accessRole) ? [{ to: '/estoque', label: 'Estoque', icon: Package }] : []),
     ...endLinks,
+    ...(canViewFinancialSummary(accessRole) ? [{ to: '/financeiro', label: 'Financeiro', icon: Wallet }] : []),
     ...(canManageUsers(accessRole) || canApproveUsers(accessRole) ? [{ to: '/admin', label: 'Admin', icon: ShieldCheck }] : []),
     ...(canManageUsers(accessRole) ? [{ to: '/configuracoes', label: 'Config', icon: Settings }] : [])
   ]

@@ -13,8 +13,8 @@ import type {
   EventItem, EventMember, EventModality, EventProduct, EventStaffingRequirement, Expense,
   ExpenseCategory, HiveLevelConfig, HoneyPoint, MovementType, PaymentMethodOption, Product,
   ProductionConsumption, Producer, Profile, ProfileStats, RolePermissions, ServiceModality,
-  StockBalance, StockLocation, StockMovement, Supplier, TransferRequest, TransferRequestStatus,
-  ZohoPendingProfile
+  PendingProfilePickerItem, StockBalance, StockLocation, StockMovement, Supplier, TransferRequest,
+  TransferRequestStatus, ZohoPendingProfile
 } from './types'
 
 // ---------- Estado em memória para o modo demonstração ----------
@@ -500,6 +500,28 @@ export async function listExpensesForEvent(eventId: string): Promise<Expense[]> 
   const { data, error } = await supabase.from('expenses').select('*').eq('event_id', eventId).order('created_at', { ascending: false })
   if (error) throw error
   return data as Expense[]
+}
+
+// Todas as despesas, de todos os eventos — usado na visão financeira global
+// (/financeiro), que cruza com listEvents() pra filtrar por mês/produtor/evento.
+export async function listAllExpenses(): Promise<Expense[]> {
+  if (isDemoMode) {
+    return [...demoState.expenses].sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+  }
+  const { data, error } = await supabase.from('expenses').select('*').order('created_at', { ascending: false })
+  if (error) throw error
+  return data as Expense[]
+}
+
+// Lista enxuta (sem CPF/telefone/etc.) de quem ainda não se cadastrou, pra
+// usar no seletor de "Equipe" das Despesas. Qualquer colaborador logado pode
+// chamar isso (a function no banco confere is_staff), diferente da tabela
+// zoho_pending_profiles completa, que continua só-Diretoria.
+export async function listPendingProfilesForPicker(): Promise<PendingProfilePickerItem[]> {
+  if (isDemoMode) return []
+  const { data, error } = await supabase.rpc('list_pending_profiles_for_picker')
+  if (error) throw error
+  return (data ?? []) as PendingProfilePickerItem[]
 }
 
 export async function createExpense(input: NewExpenseInput): Promise<Expense> {

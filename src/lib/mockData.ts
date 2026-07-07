@@ -266,13 +266,13 @@ export const mockExpenses: Expense[] = [
     id: 'ex1', event_id: 'e1', status: 'Pago', category: 'Transporte', receipt_data: null,
     payment_method: 'Pix', description: 'Frete de equipamentos de som', quantity: 1, unit_value: 350,
     dex_fee: 0, total: 350, signature_data: null, repasse_data: null, created_by: 'p2',
-    team_member_id: 'p2', supplier_id: 'sup3', created_at: '2026-01-17T10:00:00Z'
+    team_member_id: 'p2', pending_team_member_id: null, supplier_id: 'sup3', created_at: '2026-01-17T10:00:00Z'
   },
   {
     id: 'ex2', event_id: 'e1', status: 'Pendente', category: 'Bar', receipt_data: null,
     payment_method: 'Crédito', description: 'Compra de gelo e limões', quantity: 20, unit_value: 8.5,
     dex_fee: 4.9, total: 20 * 8.5 + 4.9, signature_data: null, repasse_data: null, created_by: 'p3',
-    team_member_id: 'p3', supplier_id: 'sup2', created_at: '2026-01-17T14:00:00Z'
+    team_member_id: 'p3', pending_team_member_id: null, supplier_id: 'sup2', created_at: '2026-01-17T14:00:00Z'
   }
 ]
 

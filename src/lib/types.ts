@@ -239,8 +239,23 @@ export interface Expense {
   repasse_data: string | null
   created_by: string | null
   team_member_id: string | null
+  // Preenchido quando a despesa é lançada pra alguém que ainda não se
+  // cadastrou no app (só existe como pré-cadastro do Zoho/CSV). Mutuamente
+  // exclusivo com team_member_id — quando a pessoa se cadastra,
+  // claim_pending_profile() migra o valor pra team_member_id automaticamente.
+  pending_team_member_id: string | null
   supplier_id: string | null
   created_at: string
+}
+
+// Versão enxuta de ZohoPendingProfile (sem CPF/telefone/etc.) usada só pra
+// popular seletores de "quem é" em telas como Despesas — qualquer
+// colaborador pode ver isso, não só a Diretoria.
+export interface PendingProfilePickerItem {
+  id: string
+  first_name: string | null
+  last_name: string | null
+  email: string
 }
 
 export interface Supplier {

@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
   Home, Users, UserCircle, Hexagon, CalendarDays, Trophy, Info, LogOut, Package,
-  ShieldCheck, Settings, ChevronDown
+  ShieldCheck, Settings, ChevronDown, Wallet
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
-import { canApproveUsers, canManageUsers, canViewStockTab } from '../../lib/permissions'
+import { canApproveUsers, canManageUsers, canViewFinancialSummary, canViewStockTab } from '../../lib/permissions'
 import Avatar from '../ui/Avatar'
 
 interface NavItem {
@@ -49,12 +49,13 @@ export default function Sidebar() {
         ...(canViewStockTab(accessRole) ? [{ to: '/estoque', label: 'Estoque', icon: Package }] : [])
       ]
     },
-    ...(canManageUsers(accessRole) || canApproveUsers(accessRole)
+    ...(canManageUsers(accessRole) || canApproveUsers(accessRole) || canViewFinancialSummary(accessRole)
       ? [{
           key: 'gestao',
           label: 'Gestão',
           icon: ShieldCheck,
           items: [
+            ...(canViewFinancialSummary(accessRole) ? [{ to: '/financeiro', label: 'Financeiro', icon: Wallet }] : []),
             { to: '/admin', label: 'Administração', icon: ShieldCheck },
             ...(canManageUsers(accessRole) ? [{ to: '/configuracoes', label: 'Configurações', icon: Settings }] : [])
           ]

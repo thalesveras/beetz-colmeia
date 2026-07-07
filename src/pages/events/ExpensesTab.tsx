@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import {
   createExpense, createSupplier, listEventMembers, listExpenseCategories, listExpensesForEvent,
-  listPaymentMethods, listProfiles, listSuppliers, updateExpense, updateExpenseStatus
+  listPaymentMethods, listPendingProfilesForPicker, listProfiles, listSuppliers, updateExpense,
+  updateExpenseStatus
 } from '../../lib/dataService'
 import type {
-  Expense, ExpenseCategory, ExpenseStatus, PaymentMethod, PaymentMethodOption, Profile, Supplier
+  Expense, ExpenseCategory, ExpenseStatus, PaymentMethod, PaymentMethodOption, PendingProfilePickerItem,
+  Profile, Supplier
 } from '../../lib/types'
 import { canEditExpense } from '../../lib/permissions'
 import FileField from '../../components/ui/FileField'
@@ -34,6 +36,7 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
   const [categories, setCategories] = useState<ExpenseCategory[]>([])
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodOption[]>([])
   const [teamMembers, setTeamMembers] = useState<Profile[]>([])
+  const [pendingProfiles, setPendingProfiles] = useState<PendingProfilePickerItem[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -61,12 +64,16 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
   }
 
   async function loadFormOptions() {
-    const [members, allProfiles, supplierList] = await Promise.all([
-      listEventMembers(eventId), listProfiles(), listSuppliers()
+    const [members, allProfiles, supplierList, pending] = await Promise.all([
+      listEventMembers(eventId), listProfiles(), listSuppliers(), listPendingProfilesForPicker()
     ])
     const memberIds = new Set(members.map((m) => m.profile_id))
     setTeamMembers(allProfiles.filter((p) => memberIds.has(p.id)))
     setSuppliers(supplierList)
+    // Pré-cadastro não passa por "membro do evento" (a pessoa nem tem conta
+    // ainda pra ser adicionada como membro) — por isso mostramos todo mundo
+    // que ainda não se cadastrou, não só quem está vinculado a este evento.
+    setPendingProfiles(pending)
   }
 
   useEffect(() => { load() }, [eventId])
@@ -107,7 +114,9 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
     setDexFee(exp.dex_fee)
     setSignatureData(exp.signature_data)
     setRepasseData(exp.repasse_data)
-    setTeamMemberId(exp.team_member_id ?? '')
+    // teamMemberId guarda "p:<id>" (perfil de verdade) ou "z:<id>"
+    // (pré-cadastro do Zoho) — ver seletor "Adicionar equipe" abaixo.
+    setTeamMemberId(exp.team_member_id ? `p:${exp.team_member_id}` : exp.pending_team_member_id ? `z:${exp.pending_team_member_id}` : '')
     setSupplierId(exp.supplier_id ?? '')
     setShowForm(true)
   }
@@ -116,6 +125,7 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
     e.preventDefault()
     if (!userId) return
     setSaving(true)
+    const [teamKind, teamId] = teamMemberId ? teamMemberId.split(':') : [null, null]
     const payload = {
       category: category || null,
       receipt_data: receiptData,
@@ -126,7 +136,8 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
       dex_fee: dexFee,
       signature_data: signatureData,
       repasse_data: repasseData,
-      team_member_id: teamMemberId || null,
+      team_member_id: teamKind === 'p' ? teamId : null,
+      pending_team_member_id: teamKind === 'z' ? teamId : null,
       supplier_id: supplierId || null
     }
     if (editingId) {
@@ -183,7 +194,18 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
               <label className="text-sm font-medium block mb-1">Adicionar equipe</label>
               <select className={inputClass} value={teamMemberId} onChange={(e) => setTeamMemberId(e.target.value)}>
                 <option value="">Nenhum</option>
-                {teamMembers.map((m) => <option key={m.id} value={m.id}>{m.first_name} {m.last_name}</option>)}
+                {teamMembers.length > 0 && (
+                  <optgroup label="Equipe cadastrada">
+                    {teamMembers.map((m) => <option key={m.id} value={`p:${m.id}`}>{m.first_name} {m.last_name}</option>)}
+                  </optgroup>
+                )}
+                {pendingProfiles.length > 0 && (
+                  <optgroup label="Pré-cadastro (ainda não se cadastrou)">
+                    {pendingProfiles.map((m) => (
+                      <option key={m.id} value={`z:${m.id}`}>{m.first_name} {m.last_name}</option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
             </div>
             <div>
@@ -264,6 +286,7 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
                 <p className="text-xs text-beetz-dark/50">
                   {exp.description || '—'} {exp.payment_method ? `· ${exp.payment_method}` : ''}
                   {exp.team_member_id ? ` · Equipe: ${teamMembers.find((m) => m.id === exp.team_member_id)?.first_name ?? '—'}` : ''}
+                  {exp.pending_team_member_id ? ` · Equipe: ${pendingProfiles.find((m) => m.id === exp.pending_team_member_id)?.first_name ?? '—'} (pré-cadastro)` : ''}
                   {exp.supplier_id ? ` · Fornecedor: ${suppliers.find((s) => s.id === exp.supplier_id)?.name ?? '—'}` : ''}
                 </p>
               </div>
