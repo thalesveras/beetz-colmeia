@@ -1,16 +1,19 @@
 import { useEffect, useState } from 'react'
 import Papa from 'papaparse'
-import { AlertTriangle, Image, Plus, RefreshCw, Search, Upload, X, Save, Settings as SettingsIcon, ShieldAlert, Trash2 } from 'lucide-react'
+import {
+  AlertTriangle, Image, Plus, RefreshCw, Search, Upload, X, Save, Settings as SettingsIcon, ShieldAlert, Trash2,
+  Users, ListChecks, Layers, Trophy, Palette, Database
+} from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useConfig } from '../contexts/ConfigContext'
-import { ACCESS_ROLE_LABELS, canManageUsers, departmentToAccessRole, type AccessRole } from '../lib/permissions'
+import { ACCESS_ROLE_LABELS, ACCESS_ROLES, canManageUsers, departmentToAccessRole, type AccessRole } from '../lib/permissions'
 import {
   createExpenseCategory, createPaymentMethod, createServiceModality, deleteExpenseCategory,
   deletePaymentMethod, deleteServiceModality, getZohoPendingProfilesStats, importPendingPhotosBatch,
   importZohoPendingProfiles, inspectZohoCreatorFields, listBadgeDefsConfig, listDepartments,
   listExpenseCategories, listHiveLevelsConfig, listPaymentMethods, listRolePermissions,
-  listServiceModalities, listZohoMeta, syncZohoCreator, updateAppSettings, updateBadgeDef, updateHiveLevel,
-  updateRolePermission, updateServiceModality
+  listServiceModalities, listZohoMeta, syncZohoCreator, updateAppSettings, updateBadgeDef,
+  updateDepartmentAccessRole, updateHiveLevel, updateRolePermission, updateServiceModality
 } from '../lib/dataService'
 import type { ZohoMetaItem, ZohoPendingProfilesStats } from '../lib/dataService'
 import type {
@@ -66,9 +69,21 @@ const PERMISSION_GROUPS: { title: string; fields: { key: PermissionKey; label: s
 
 const ROLE_ORDER: AccessRole[] = ['diretoria', 'garcom', 'caixa', 'operacional', 'colaborador']
 
+type SettingsTabKey = 'perfis' | 'listas' | 'modalidades' | 'gamificacao' | 'marca' | 'dados'
+
+const SETTINGS_TABS: { key: SettingsTabKey; label: string; icon: typeof Users }[] = [
+  { key: 'perfis', label: 'Perfis de acesso', icon: Users },
+  { key: 'listas', label: 'Listas de opções', icon: ListChecks },
+  { key: 'modalidades', label: 'Modalidades de serviço', icon: Layers },
+  { key: 'gamificacao', label: 'Gamificação', icon: Trophy },
+  { key: 'marca', label: 'Dados gerais da marca', icon: Palette },
+  { key: 'dados', label: 'Importador de dados', icon: Database }
+]
+
 export default function Settings() {
   const { accessRole } = useAuth()
   const { refreshConfig } = useConfig()
+  const [tab, setTab] = useState<SettingsTabKey>('perfis')
 
   if (!canManageUsers(accessRole)) {
     return (
@@ -89,12 +104,26 @@ export default function Settings() {
         <p className="text-beetz-dark/60 mt-1">Ajuste os flags e listas que controlam o comportamento do dashboard.</p>
       </div>
 
-      <RolePermissionsSection onSaved={refreshConfig} />
-      <ListsSection />
-      <ModalitiesSection />
-      <GamificationSection onSaved={refreshConfig} />
-      <BrandSection />
-      <ProfileImporterSection />
+      <div className="flex flex-wrap gap-2 border-b border-beetz-dark/10 pb-3">
+        {SETTINGS_TABS.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`flex items-center gap-1.5 text-sm font-semibold px-3.5 py-2 rounded-xl transition-colors ${
+              tab === key ? 'bg-beetz-dark text-white' : 'bg-beetz-gray text-beetz-dark/70 hover:bg-beetz-dark/10'
+            }`}
+          >
+            <Icon size={15} /> {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'perfis' && <RolePermissionsSection onSaved={refreshConfig} />}
+      {tab === 'listas' && <ListsSection />}
+      {tab === 'modalidades' && <ModalitiesSection />}
+      {tab === 'gamificacao' && <GamificationSection onSaved={refreshConfig} />}
+      {tab === 'marca' && <BrandSection />}
+      {tab === 'dados' && <DataImporterSection />}
     </div>
   )
 }
@@ -152,6 +181,8 @@ function RolePermissionsSection({ onSaved }: { onSaved: () => void }) {
         Defina o que cada papel pode fazer. A Diretoria continua sendo o único perfil que não pode se autocadastrar.
       </p>
 
+      <DepartmentRoleMappingSection departments={departments} onChanged={load} />
+
       <div className="flex flex-wrap gap-2 mb-5">
         {ROLE_ORDER.map((role) => (
           <button
@@ -200,6 +231,49 @@ function RolePermissionsSection({ onSaved }: { onSaved: () => void }) {
         </div>
       )}
     </section>
+  )
+}
+
+// Antes o mapeamento departamento -> perfil de acesso era fixo no código
+// (só mostrado, não editável). Agora é um filtro de verdade: cada
+// departamento cadastrado tem um seletor pra escolher a que perfil ele
+// aponta, salvo direto em departments.access_role.
+function DepartmentRoleMappingSection({ departments, onChanged }: { departments: Department[]; onChanged: () => void }) {
+  const [savingId, setSavingId] = useState<string | null>(null)
+
+  async function handleChange(deptId: string, role: AccessRole) {
+    setSavingId(deptId)
+    await updateDepartmentAccessRole(deptId, role)
+    await onChanged()
+    setSavingId(null)
+  }
+
+  return (
+    <div className="mb-5">
+      <h3 className="text-xs font-bold uppercase tracking-wide text-beetz-dark/40 mb-2">Departamentos → perfil de acesso</h3>
+      <p className="text-xs text-beetz-dark/50 mb-3">
+        Escolha a que perfil cada departamento cadastrado aponta. Vários departamentos podem apontar pro mesmo perfil.
+      </p>
+      <div className="divide-y divide-beetz-dark/5 border border-beetz-dark/5 rounded-xl overflow-hidden">
+        {departments.map((dept) => (
+          <div key={dept.id} className={`flex items-center gap-3 px-4 py-2.5 ${savingId === dept.id ? 'opacity-50' : ''}`}>
+            <span className="text-lg shrink-0">{dept.icon}</span>
+            <span className="text-sm font-medium flex-1 min-w-0 truncate">{dept.name}</span>
+            <select
+              className="text-sm border border-beetz-dark/15 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-beetz-yellow"
+              value={dept.access_role}
+              disabled={savingId === dept.id}
+              onChange={(e) => handleChange(dept.id, e.target.value as AccessRole)}
+            >
+              {ACCESS_ROLES.map((role) => (
+                <option key={role} value={role}>{ACCESS_ROLE_LABELS[role].split(' (')[0]}</option>
+              ))}
+            </select>
+          </div>
+        ))}
+        {departments.length === 0 && <p className="text-xs text-beetz-dark/40 px-4 py-3">Nenhum departamento cadastrado.</p>}
+      </div>
+    </div>
   )
 }
 
@@ -733,7 +807,7 @@ function buildRow(csvRow: CsvRow, mapping: Record<string, string>, jsonColumn: s
   return merged
 }
 
-function ProfileImporterSection() {
+function DataImporterSection() {
   const [step, setStep] = useState<'upload' | 'map' | 'preview' | 'done'>('upload')
   const [fileName, setFileName] = useState('')
   const [headers, setHeaders] = useState<string[]>([])
@@ -909,12 +983,43 @@ function ProfileImporterSection() {
 
   return (
     <section className={cardClass}>
-      <h2 className="text-lg font-bold mb-1 flex items-center gap-2"><Upload size={18} /> Importador de perfis</h2>
+      <h2 className="text-lg font-bold mb-1 flex items-center gap-2"><Database size={18} /> Importador de dados</h2>
       <p className="text-sm text-beetz-dark/60 mb-4">
-        Sobe uma planilha (.csv) de um sistema antigo pra pré-cadastrar quem ainda não criou conta aqui.
-        Ninguém vira usuário automaticamente — os dados só entram no perfil da pessoa quando ela mesma se
-        cadastra com o e-mail correspondente, e ela revisa tudo antes de confirmar.
+        Tudo que dá pra trazer do sistema antigo (Zoho Creator) pro Colmeia: perfis de colaboradores,
+        fotos, documentos e, mais abaixo, um jeito de descobrir quais outros relatórios do Zoho (eventos,
+        fechamento, repasses) ainda dá pra importar pro BI. Ninguém vira usuário automaticamente — os dados
+        de um pré-cadastro só entram no perfil da pessoa quando ela mesma se cadastra com o e-mail
+        correspondente, e ela revisa tudo antes de confirmar.
       </p>
+
+      <div className="bg-beetz-gray rounded-xl p-4 mb-5">
+        <p className="text-sm font-semibold mb-2 flex items-center gap-1.5"><Search size={14} /> O que já foi trazido do Zoho x o que falta</p>
+        <div className="grid sm:grid-cols-2 gap-3 text-xs">
+          <div className="bg-white rounded-lg p-3 border border-beetz-dark/5">
+            <p className="font-semibold text-green-700 mb-1">✓ Já integrado</p>
+            <ul className="space-y-1 text-beetz-dark/70 list-disc list-inside">
+              <li>Perfis/equipe (relatório Equipe, sincronização abaixo)</li>
+              <li>Fotos de perfil e de documento</li>
+              <li>Despesas (importação única já feita — ver /financeiro)</li>
+            </ul>
+          </div>
+          <div className="bg-white rounded-lg p-3 border border-beetz-dark/5">
+            <p className="font-semibold text-amber-700 mb-1">○ Ainda não importado</p>
+            <ul className="space-y-1 text-beetz-dark/70 list-disc list-inside">
+              <li>Eventos passados (datas, locais, produtoras)</li>
+              <li>Fechamento financeiro por evento</li>
+              <li>Repasses às produtoras</li>
+            </ul>
+          </div>
+        </div>
+        <p className="text-xs text-beetz-dark/60 mt-3">
+          Pra trazer os itens da segunda lista, o primeiro passo é clicar em <strong>"Ver formulários e
+          relatórios (descoberta)"</strong> mais abaixo — ele lista todos os relatórios que existem no app do
+          Zoho com o nome técnico exato de cada um. Assim que eu souber o nome do relatório de Eventos (e dos
+          campos de fechamento/repasse dentro dele), dá pra construir a importação real, no mesmo padrão do
+          que já existe pra perfis e despesas.
+        </p>
+      </div>
 
       {stats && (
         <div className="flex flex-wrap gap-4 bg-beetz-gray rounded-xl p-3.5 mb-4 text-sm">

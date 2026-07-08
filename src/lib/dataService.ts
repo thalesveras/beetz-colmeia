@@ -59,6 +59,18 @@ export async function listDepartments(): Promise<Department[]> {
   return data as Department[]
 }
 
+// Editável pela Diretoria em /configuracoes — troca a que perfil de acesso
+// (Diretoria/Garçom/Caixa/Operacional/Colaborador) um departamento aponta.
+export async function updateDepartmentAccessRole(departmentId: string, accessRole: string): Promise<void> {
+  if (isDemoMode) {
+    const idx = demoState.departments.findIndex((d) => d.id === departmentId)
+    if (idx >= 0) demoState.departments[idx] = { ...demoState.departments[idx], access_role: accessRole }
+    return
+  }
+  const { error } = await supabase.from('departments').update({ access_role: accessRole }).eq('id', departmentId)
+  if (error) throw error
+}
+
 // ---------- Perfis ----------
 // A Turma e os seletores de escalação só mostram gente com o perfil completo
 // E já aprovada pela Diretoria — quem está pendente ainda não aparece pra equipe.

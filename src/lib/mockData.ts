@@ -6,15 +6,15 @@ import type {
 } from './types'
 
 export const mockDepartments: Department[] = [
-  { id: 'd1', name: 'Diretoria', slug: 'diretoria', icon: '👑', description: 'Visão e direção da Beetz' },
-  { id: 'd2', name: 'Produção', slug: 'producao', icon: '🛠️', description: 'Faz o evento existir de verdade' },
-  { id: 'd3', name: 'Bar', slug: 'bar', icon: '🍹', description: 'A energia da pista começa aqui' },
-  { id: 'd4', name: 'Caixa', slug: 'caixa', icon: '💰', description: 'Cuida de cada centavo da colmeia' },
-  { id: 'd5', name: 'Garçons', slug: 'garcons', icon: '🍽️', description: 'Atendimento com o mel da casa' },
-  { id: 'd6', name: 'Segurança', slug: 'seguranca', icon: '🛡️', description: 'Protege a colmeia inteira' },
-  { id: 'd7', name: 'Credenciamento', slug: 'credenciamento', icon: '🎫', description: 'A primeira abelha que você vê' },
-  { id: 'd8', name: 'Limpeza', slug: 'limpeza', icon: '✨', description: 'Deixa tudo brilhando' },
-  { id: 'd9', name: 'Fornecedores', slug: 'fornecedores', icon: '📦', description: 'Parceiros externos da colmeia' }
+  { id: 'd1', name: 'Diretoria', slug: 'diretoria', icon: '👑', description: 'Visão e direção da Beetz', access_role: 'diretoria' },
+  { id: 'd2', name: 'Produção', slug: 'producao', icon: '🛠️', description: 'Faz o evento existir de verdade', access_role: 'operacional' },
+  { id: 'd3', name: 'Bar', slug: 'bar', icon: '🍹', description: 'A energia da pista começa aqui', access_role: 'operacional' },
+  { id: 'd4', name: 'Caixa', slug: 'caixa', icon: '💰', description: 'Cuida de cada centavo da colmeia', access_role: 'caixa' },
+  { id: 'd5', name: 'Garçons', slug: 'garcons', icon: '🍽️', description: 'Atendimento com o mel da casa', access_role: 'garcom' },
+  { id: 'd6', name: 'Segurança', slug: 'seguranca', icon: '🛡️', description: 'Protege a colmeia inteira', access_role: 'operacional' },
+  { id: 'd7', name: 'Credenciamento', slug: 'credenciamento', icon: '🎫', description: 'A primeira abelha que você vê', access_role: 'operacional' },
+  { id: 'd8', name: 'Limpeza', slug: 'limpeza', icon: '✨', description: 'Deixa tudo brilhando', access_role: 'operacional' },
+  { id: 'd9', name: 'Fornecedores', slug: 'fornecedores', icon: '📦', description: 'Parceiros externos da colmeia', access_role: 'colaborador' }
 ]
 
 function avatar(seed: number) {

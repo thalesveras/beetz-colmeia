@@ -2,19 +2,15 @@ import type { Department, Profile, RolePermissions } from './types'
 
 export type AccessRole = 'diretoria' | 'garcom' | 'caixa' | 'operacional' | 'colaborador'
 
-// Departamentos "de mão na massa" que dão acesso operacional (estoque)
-const OPERATIONAL_SLUGS = ['producao', 'bar', 'seguranca', 'credenciamento', 'limpeza']
+export const ACCESS_ROLES: AccessRole[] = ['diretoria', 'garcom', 'caixa', 'operacional', 'colaborador']
 
 // Pra qual papel de acesso um departamento aponta. Vários departamentos podem
 // apontar pro mesmo papel (ex: Bar, Produção, Segurança, Credenciamento e
 // Limpeza todos caem em "operacional") — as permissões são por papel, não por
-// departamento individual.
-export function departmentToAccessRole(dept: Pick<Department, 'slug'>): AccessRole {
-  if (dept.slug === 'diretoria') return 'diretoria'
-  if (dept.slug === 'garcons') return 'garcom'
-  if (dept.slug === 'caixa') return 'caixa'
-  if (OPERATIONAL_SLUGS.includes(dept.slug)) return 'operacional'
-  return 'colaborador'
+// departamento individual. Editável pela Diretoria em /configuracoes
+// (departments.access_role no banco); antes disso era fixo aqui no código.
+export function departmentToAccessRole(dept: Pick<Department, 'access_role'>): AccessRole {
+  return (ACCESS_ROLES as string[]).includes(dept.access_role) ? (dept.access_role as AccessRole) : 'colaborador'
 }
 
 export function computeAccessRole(profile: Profile | null | undefined, departments: Department[]): AccessRole {

@@ -64,6 +64,11 @@ export interface Department {
   slug: string
   icon: string
   description: string
+  // A que perfil de acesso (AccessRole, em permissions.ts) esse departamento
+  // aponta — editável pela Diretoria em /configuracoes. Guardado como string
+  // solta aqui (em vez de importar AccessRole) pra não criar dependência
+  // circular entre types.ts e permissions.ts.
+  access_role: string
 }
 
 export interface Profile {
