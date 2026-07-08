@@ -22,7 +22,7 @@ import {
   canViewFinancialSummary, canViewStockTab
 } from '../../lib/permissions'
 
-type TabKey = 'equipe' | 'despesas' | 'recebimentos' | 'estoque' | 'produtos' | 'consumo' | 'transferencias'
+type TabKey = 'equipe' | 'despesas' | 'recebimentos' | 'estoque' | 'produtos' | 'consumo' | 'transferencias' | 'fechamentos'
 
 export default function EventDetail() {
   const { id } = useParams()
@@ -35,7 +35,8 @@ export default function EventDetail() {
     ...(canViewStockTab(accessRole) ? [{ key: 'produtos' as TabKey, label: 'Produtos' }] : []),
     ...(canViewStockTab(accessRole) ? [{ key: 'estoque' as TabKey, label: 'Estoque' }] : []),
     ...(canViewStockTab(accessRole) ? [{ key: 'consumo' as TabKey, label: 'Consumo da produção' }] : []),
-    ...(canViewStockTab(accessRole) ? [{ key: 'transferencias' as TabKey, label: 'Transferências' }] : [])
+    ...(canViewStockTab(accessRole) ? [{ key: 'transferencias' as TabKey, label: 'Transferências' }] : []),
+    ...(canViewFinancialSummary(accessRole) ? [{ key: 'fechamentos' as TabKey, label: 'Fechamentos' }] : [])
   ]
   const [event, setEvent] = useState<EventItem | null>(null)
   const [members, setMembers] = useState<(EventMember & { profile: Profile | null })[]>([])
@@ -111,10 +112,7 @@ export default function EventDetail() {
       )}
 
       {canViewFinancialSummary(accessRole) && (
-        <>
-          <ContractCard event={event} onEventUpdated={setEvent} />
-          <FinancialSummaryCard event={event} onEventUpdated={setEvent} />
-        </>
+        <ContractCard event={event} onEventUpdated={setEvent} />
       )}
 
       <div className="bg-white rounded-2xl p-1.5 shadow-soft border border-beetz-dark/5">
@@ -270,6 +268,10 @@ export default function EventDetail() {
         <div className="bg-white rounded-2xl p-6 shadow-soft border border-beetz-dark/5">
           <TransferRequestsTab eventId={id} canApprove={canManageUsers(accessRole)} />
         </div>
+      )}
+
+      {activeTab === 'fechamentos' && canViewFinancialSummary(accessRole) && (
+        <FinancialSummaryCard event={event} onEventUpdated={setEvent} />
       )}
     </div>
   )

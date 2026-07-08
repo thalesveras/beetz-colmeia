@@ -116,6 +116,59 @@ export async function updateProfileDepartment(profileId: string, departmentId: s
   if (error) throw error
 }
 
+// Edição de perfil feita pela Diretoria (tela de Administração) — igual à
+// edição que a própria pessoa faz no /cadastro, só que qualquer campo pode
+// ser corrigido por quem administra o time, não só o dono do perfil.
+export async function adminUpdateProfile(profileId: string, patch: Partial<Profile>): Promise<void> {
+  if (isDemoMode) {
+    const idx = demoState.profiles.findIndex((p) => p.id === profileId)
+    if (idx >= 0) demoState.profiles[idx] = { ...demoState.profiles[idx], ...patch }
+    return
+  }
+  const { error } = await supabase.from('profiles').update(patch).eq('id', profileId)
+  if (error) throw error
+}
+
+// Apaga de vez a conta (auth + perfil, via Edge Function com service role).
+// Não dá pra fazer isso com a chave anon direto no cliente — apagar uma conta
+// de autenticação exige privilégio de admin, por isso passa pela function.
+export async function adminDeleteProfile(profileId: string): Promise<void> {
+  if (isDemoMode) {
+    const idx = demoState.profiles.findIndex((p) => p.id === profileId)
+    if (idx >= 0) demoState.profiles.splice(idx, 1)
+    return
+  }
+  const { data, error } = await supabase.functions.invoke('admin-delete-profile', { body: { id: profileId } })
+  if (error) throw new Error(await extractFunctionErrorMessage(error))
+  if (data?.error) throw new Error(data.error)
+}
+
+export interface InviteTeamMemberInput {
+  email: string
+  first_name: string
+  last_name: string
+  role_hint?: string
+  department_hint?: string
+}
+
+// "Convidar para o time" reaproveita a mesma engrenagem do importador de
+// CSV/Zoho: cria um pré-cadastro (zoho_pending_profiles) pra essa pessoa.
+// Não dispara nenhum e-mail — quando ela entrar no app com Google usando
+// esse mesmo endereço, o cadastro dela já nasce preenchido e liberado.
+export async function inviteTeamMember(input: InviteTeamMemberInput): Promise<void> {
+  await importZohoPendingProfiles([{
+    email: input.email.trim().toLowerCase(),
+    first_name: input.first_name.trim() || null,
+    last_name: input.last_name.trim() || null,
+    role_hint: input.role_hint?.trim() || null,
+    department_hint: input.department_hint?.trim() || null,
+    cpf: null, phone: null, mother_name: null, father_name: null, city: null, state: null,
+    avatar_url: null, about_me: null, fun_fact: null, favorite_events: null, instagram: null,
+    personal_quote: null, skills: [], work_location: null, experience_level: null, entry_date: null,
+    zoho_record_id: null
+  }])
+}
+
 // Tenta casar o e-mail de quem está se cadastrando com um perfil pré-importado
 // (hoje, do histórico do Zoho) e, se achar, pré-preenche o perfil recém-criado
 // com esses dados — a pessoa só revisa e confirma no /cadastro, em vez de
@@ -317,7 +370,7 @@ export async function upsertProfile(profile: Partial<Profile> & { id: string }):
       experience_level: null, entry_date: null, work_location: null, skills: [], health_conditions: null,
       allergies: null, important_notes: null, about_me: null, fun_fact: null, favorite_events: null,
       instagram: null, personal_quote: null, avatar_url: null, onboarding_completed: false,
-      approval_status: 'Pendente', created_at: new Date().toISOString(), ...profile
+      approval_status: 'Aprovado', created_at: new Date().toISOString(), ...profile
     }
     demoState.profiles.push(blank)
     return blank

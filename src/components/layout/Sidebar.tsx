@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
   Home, Users, UserCircle, Hexagon, CalendarDays, Trophy, Info, LogOut, Package,
-  ShieldCheck, Settings, ChevronDown, Wallet
+  ShieldCheck, Settings, ChevronDown, Wallet, Cake
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { canApproveUsers, canManageUsers, canViewFinancialSummary, canViewStockTab } from '../../lib/permissions'
@@ -37,6 +37,7 @@ export default function Sidebar() {
         { to: '/turma', label: 'Conhecer a turma', icon: Users },
         { to: '/perfil/me', label: 'Meu perfil', icon: UserCircle },
         { to: '/mapa', label: 'Mapa da colmeia', icon: Hexagon },
+        { to: '/aniversariantes', label: 'Aniversariantes do mês', icon: Cake },
         { to: '/ranking', label: 'Ranking', icon: Trophy }
       ]
     },
