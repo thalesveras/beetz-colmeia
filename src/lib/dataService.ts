@@ -675,6 +675,30 @@ export async function updateExpense(id: string, patch: Partial<Omit<Expense, 'id
   return data as Expense
 }
 
+// Move a despesa pra outro evento — separado de updateExpense de propósito,
+// pra não deixar o formulário de edição comum trocar isso sem querer.
+export async function moveExpenseToEvent(id: string, newEventId: string): Promise<void> {
+  if (isDemoMode) {
+    const idx = demoState.expenses.findIndex((e) => e.id === id)
+    if (idx >= 0) demoState.expenses[idx] = { ...demoState.expenses[idx], event_id: newEventId }
+    return
+  }
+  const { error } = await supabase.from('expenses').update({ event_id: newEventId }).eq('id', id)
+  if (error) throw error
+}
+
+// Exclusão definitiva — diferente de status='Cancelado' (que mantém o
+// registro no histórico). Usada pra corrigir despesa lançada por engano.
+export async function deleteExpense(id: string): Promise<void> {
+  if (isDemoMode) {
+    const idx = demoState.expenses.findIndex((e) => e.id === id)
+    if (idx >= 0) demoState.expenses.splice(idx, 1)
+    return
+  }
+  const { error } = await supabase.from('expenses').delete().eq('id', id)
+  if (error) throw error
+}
+
 // ---------- Recebimentos (caixas) ----------
 export type NewCashierSettlementInput = Omit<CashierSettlement, 'id' | 'created_at' | 'total' | 'commission_amount' | 'status'>
 
