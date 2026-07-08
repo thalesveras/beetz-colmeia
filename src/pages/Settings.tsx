@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react'
 import Papa from 'papaparse'
-import { AlertTriangle, Plus, RefreshCw, Search, Upload, X, Save, Settings as SettingsIcon, Trash2 } from 'lucide-react'
+import { AlertTriangle, Image, Plus, RefreshCw, Search, Upload, X, Save, Settings as SettingsIcon, ShieldAlert, Trash2 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useConfig } from '../contexts/ConfigContext'
 import { ACCESS_ROLE_LABELS, canManageUsers, departmentToAccessRole, type AccessRole } from '../lib/permissions'
 import {
   createExpenseCategory, createPaymentMethod, createServiceModality, deleteExpenseCategory,
-  deletePaymentMethod, deleteServiceModality, getZohoPendingProfilesStats, importZohoPendingProfiles,
-  inspectZohoCreatorFields, listBadgeDefsConfig, listDepartments, listExpenseCategories,
-  listHiveLevelsConfig, listPaymentMethods, listRolePermissions, listServiceModalities, syncZohoCreator,
-  updateAppSettings, updateBadgeDef, updateHiveLevel, updateRolePermission, updateServiceModality
+  deletePaymentMethod, deleteServiceModality, getZohoPendingProfilesStats, importPendingPhotosBatch,
+  importZohoPendingProfiles, inspectZohoCreatorFields, listBadgeDefsConfig, listDepartments,
+  listExpenseCategories, listHiveLevelsConfig, listPaymentMethods, listRolePermissions,
+  listServiceModalities, syncZohoCreator, updateAppSettings, updateBadgeDef, updateHiveLevel,
+  updateRolePermission, updateServiceModality
 } from '../lib/dataService'
 import type { ZohoPendingProfilesStats } from '../lib/dataService'
 import type {
@@ -751,6 +752,33 @@ function ProfileImporterSection() {
   const [inspectError, setInspectError] = useState<string | null>(null)
   const [inspectFields, setInspectFields] = useState<{ link_name: string; display_name: string; type: number }[] | null>(null)
 
+  type PhotoProgress = { running: boolean; succeeded: number; failed: number; remaining: number | null; error: string | null }
+  const [avatarProgress, setAvatarProgress] = useState<PhotoProgress>({ running: false, succeeded: 0, failed: 0, remaining: null, error: null })
+  const [docProgress, setDocProgress] = useState<PhotoProgress>({ running: false, succeeded: 0, failed: 0, remaining: null, error: null })
+
+  // Roda em lotes até acabar (remaining chega a 0), atualizando o progresso na
+  // tela a cada rodada — é isso que dá o efeito "por etapas" pedido, em vez de
+  // um import silencioso de uma vez só.
+  async function runPhotoImport(mode: 'avatar' | 'document') {
+    const setProgress = mode === 'avatar' ? setAvatarProgress : setDocProgress
+    setProgress({ running: true, succeeded: 0, failed: 0, remaining: null, error: null })
+    let totalSucceeded = 0
+    let totalFailed = 0
+    try {
+      while (true) {
+        const res = await importPendingPhotosBatch(mode, 50)
+        totalSucceeded += res.succeeded
+        totalFailed += res.failed
+        setProgress({ running: true, succeeded: totalSucceeded, failed: totalFailed, remaining: res.remaining, error: null })
+        if (res.remaining <= 0 || res.processed === 0) break
+      }
+    } catch (err: any) {
+      setProgress({ running: false, succeeded: totalSucceeded, failed: totalFailed, remaining: null, error: err?.message ?? 'Erro ao importar fotos.' })
+      return
+    }
+    setProgress((p) => ({ ...p, running: false }))
+  }
+
   // Contagem "ao vivo" do banco — não depende do resultado da última
   // sincronização, então dá pra conferir a qualquer momento se está tudo
   // sincronizado (e não só o que a última rodada trouxe).
@@ -881,6 +909,61 @@ function ProfileImporterSection() {
           </div>
         </div>
       )}
+
+      <div className="bg-beetz-gray rounded-xl p-4 mb-5 space-y-4">
+        <div>
+          <p className="text-sm font-semibold mb-1 flex items-center gap-1.5"><Image size={14} /> Fotos de perfil</p>
+          <p className="text-xs text-beetz-dark/60 mb-3">
+            Baixa a foto de cada pré-cadastro (hospedada num sistema externo) e sobe pro nosso Storage, em lotes de 50 até terminar.
+            Fica público, igual foto de perfil de quem já tem conta.
+          </p>
+          <button
+            onClick={() => runPhotoImport('avatar')}
+            disabled={avatarProgress.running}
+            className="flex items-center gap-2 bg-beetz-dark text-white font-semibold px-4 py-2.5 rounded-xl text-sm hover:bg-black transition-colors disabled:opacity-60"
+          >
+            <RefreshCw size={15} className={avatarProgress.running ? 'animate-spin' : ''} />
+            {avatarProgress.running ? `Baixando... (${avatarProgress.succeeded} ok, ${avatarProgress.remaining ?? '?'} restando)` : 'Baixar fotos de perfil'}
+          </button>
+          {avatarProgress.error && (
+            <div className="flex items-start gap-2 bg-red-50 text-red-700 text-sm rounded-xl p-3 mt-3">
+              <AlertTriangle size={16} className="shrink-0 mt-0.5" /> {avatarProgress.error}
+            </div>
+          )}
+          {!avatarProgress.running && avatarProgress.remaining === 0 && (
+            <p className="text-sm text-green-700 mt-3">
+              Concluído: {avatarProgress.succeeded} foto(s) baixada(s){avatarProgress.failed > 0 ? `, ${avatarProgress.failed} falharam (link expirado ou indisponível)` : ''}.
+            </p>
+          )}
+        </div>
+
+        <div className="border-t border-beetz-dark/10 pt-4">
+          <p className="text-sm font-semibold mb-1 flex items-center gap-1.5"><ShieldAlert size={14} /> Fotos de documento (dado sensível)</p>
+          <p className="text-xs text-beetz-dark/60 mb-3">
+            Baixa a foto do documento de identidade de cada pré-cadastro direto da API do Zoho e guarda num Storage
+            <strong> privado</strong> — ninguém consegue abrir por link direto. Só a Diretoria consegue ver, uma pessoa
+            por vez, através de um link temporário que expira em 5 minutos.
+          </p>
+          <button
+            onClick={() => runPhotoImport('document')}
+            disabled={docProgress.running}
+            className="flex items-center gap-2 border border-beetz-dark/20 font-semibold px-4 py-2.5 rounded-xl text-sm hover:bg-white transition-colors disabled:opacity-60"
+          >
+            <RefreshCw size={15} className={docProgress.running ? 'animate-spin' : ''} />
+            {docProgress.running ? `Baixando... (${docProgress.succeeded} ok, ${docProgress.remaining ?? '?'} restando)` : 'Baixar fotos de documento'}
+          </button>
+          {docProgress.error && (
+            <div className="flex items-start gap-2 bg-red-50 text-red-700 text-sm rounded-xl p-3 mt-3">
+              <AlertTriangle size={16} className="shrink-0 mt-0.5" /> {docProgress.error}
+            </div>
+          )}
+          {!docProgress.running && docProgress.remaining === 0 && (
+            <p className="text-sm text-green-700 mt-3">
+              Concluído: {docProgress.succeeded} documento(s) baixado(s){docProgress.failed > 0 ? `, ${docProgress.failed} falharam` : ''}.
+            </p>
+          )}
+        </div>
+      </div>
 
       <div className="bg-beetz-gray rounded-xl p-4 mb-5">
         <p className="text-sm font-semibold mb-1 flex items-center gap-1.5"><RefreshCw size={14} /> Sincronizar direto com o Zoho Creator</p>

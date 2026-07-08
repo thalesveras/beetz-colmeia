@@ -265,6 +265,44 @@ export async function inspectZohoCreatorFields(formLinkName?: string): Promise<{
   return data
 }
 
+export interface ImportPendingPhotosBatchResult {
+  mode: 'avatar' | 'document'
+  processed: number
+  succeeded: number
+  failed: number
+  remaining: number
+}
+
+// Processa um lote de fotos (de perfil ou de documento) do pré-cadastro:
+// baixa da fonte externa e sobe pro nosso Storage (avatars é público,
+// documents é privado — ver import-pending-photos). Chamar repetidas vezes
+// até remaining chegar a 0 é o que dá o efeito "por etapas" na UI.
+export async function importPendingPhotosBatch(
+  mode: 'avatar' | 'document', batchSize = 50
+): Promise<ImportPendingPhotosBatchResult> {
+  if (isDemoMode) {
+    return { mode, processed: 0, succeeded: 0, failed: 0, remaining: 0 }
+  }
+  const { data, error } = await supabase.functions.invoke('import-pending-photos', {
+    body: { mode, batchSize }
+  })
+  if (error) throw new Error(await extractFunctionErrorMessage(error))
+  if (data?.error) throw new Error(data.error)
+  return data
+}
+
+// Link assinado de curta duração (5min) pra foto de documento de UMA pessoa
+// — nunca fica salvo em lugar nenhum, é gerado sob demanda só quando a
+// Diretoria pede pra ver aquela pessoa específica.
+export async function getPendingDocumentSignedUrl(pendingProfileId: string): Promise<{ url: string; expiresInSeconds: number }> {
+  const { data, error } = await supabase.functions.invoke('get-pending-document-url', {
+    body: { id: pendingProfileId }
+  })
+  if (error) throw new Error(await extractFunctionErrorMessage(error))
+  if (data?.error) throw new Error(data.error)
+  return data
+}
+
 export async function upsertProfile(profile: Partial<Profile> & { id: string }): Promise<Profile> {
   if (isDemoMode) {
     const idx = demoState.profiles.findIndex((p) => p.id === profile.id)
