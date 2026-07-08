@@ -773,7 +773,14 @@ function ProfileImporterSection() {
         if (res.remaining <= 0 || res.processed === 0) break
       }
     } catch (err: any) {
-      setProgress({ running: false, succeeded: totalSucceeded, failed: totalFailed, remaining: null, error: err?.message ?? 'Erro ao importar fotos.' })
+      // "Não autenticado" nesse contexto quase sempre é sessão expirada no
+      // meio de um processo longo (várias dezenas de lotes) — deixa isso
+      // explícito em vez do erro seco, pra não parecer que travou.
+      const raw: string = err?.message ?? 'Erro ao importar fotos.'
+      const friendly = raw.toLowerCase().includes('não autenticado') || raw.toLowerCase().includes('nao autenticado')
+        ? 'Sua sessão expirou no meio do processo. Atualize a página, entre de novo e clique no botão pra continuar de onde parou.'
+        : raw
+      setProgress({ running: false, succeeded: totalSucceeded, failed: totalFailed, remaining: null, error: friendly })
       return
     }
     setProgress((p) => ({ ...p, running: false }))
