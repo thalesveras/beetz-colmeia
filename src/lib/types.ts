@@ -53,6 +53,9 @@ export interface ZohoPendingProfile {
   entry_date: string | null
   zoho_record_id: string | null
   department_hint: string | null
+  // Só mês/dia do aniversário — nunca ano (minimização LGPD).
+  birth_month: number | null
+  birth_day: number | null
 }
 
 export interface Department {
@@ -280,6 +283,10 @@ export interface PendingProfileDirectoryItem {
   work_location: string | null
   experience_level: ExperienceLevel | null
   entry_date: string | null
+  // Só mês/dia — nunca ano (minimização: não expõe idade de quem ainda nem
+  // se cadastrou de verdade). Ver birth_date em Profile pra quem já tem conta.
+  birth_month: number | null
+  birth_day: number | null
 }
 
 export interface Supplier {

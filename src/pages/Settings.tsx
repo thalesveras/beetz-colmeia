@@ -9,10 +9,10 @@ import {
   deletePaymentMethod, deleteServiceModality, getZohoPendingProfilesStats, importPendingPhotosBatch,
   importZohoPendingProfiles, inspectZohoCreatorFields, listBadgeDefsConfig, listDepartments,
   listExpenseCategories, listHiveLevelsConfig, listPaymentMethods, listRolePermissions,
-  listServiceModalities, syncZohoCreator, updateAppSettings, updateBadgeDef, updateHiveLevel,
+  listServiceModalities, listZohoMeta, syncZohoCreator, updateAppSettings, updateBadgeDef, updateHiveLevel,
   updateRolePermission, updateServiceModality
 } from '../lib/dataService'
-import type { ZohoPendingProfilesStats } from '../lib/dataService'
+import type { ZohoMetaItem, ZohoPendingProfilesStats } from '../lib/dataService'
 import type {
   AppSettings, BadgeDefConfig, Department, ExperienceLevel, ExpenseCategory, HiveLevelConfig,
   PaymentMethodOption, RolePermissions, ServiceModality, ZohoPendingProfile
@@ -752,6 +752,10 @@ function ProfileImporterSection() {
   const [inspectError, setInspectError] = useState<string | null>(null)
   const [inspectFields, setInspectFields] = useState<{ link_name: string; display_name: string; type: number }[] | null>(null)
 
+  const [listingMeta, setListingMeta] = useState(false)
+  const [metaError, setMetaError] = useState<string | null>(null)
+  const [meta, setMeta] = useState<{ forms: ZohoMetaItem[]; reports: ZohoMetaItem[] } | null>(null)
+
   type PhotoProgress = { running: boolean; succeeded: number; failed: number; remaining: number | null; error: string | null }
   const [avatarProgress, setAvatarProgress] = useState<PhotoProgress>({ running: false, succeeded: 0, failed: 0, remaining: null, error: null })
   const [docProgress, setDocProgress] = useState<PhotoProgress>({ running: false, succeeded: 0, failed: 0, remaining: null, error: null })
@@ -832,6 +836,20 @@ function ProfileImporterSection() {
       setInspectError(err?.message ?? 'Erro ao consultar os campos do Zoho Creator.')
     } finally {
       setInspecting(false)
+    }
+  }
+
+  async function handleListMeta() {
+    setListingMeta(true)
+    setMetaError(null)
+    setMeta(null)
+    try {
+      const res = await listZohoMeta()
+      setMeta(res)
+    } catch (err: any) {
+      setMetaError(err?.message ?? 'Erro ao listar formulários e relatórios do Zoho.')
+    } finally {
+      setListingMeta(false)
     }
   }
 
@@ -995,6 +1013,14 @@ function ProfileImporterSection() {
           >
             <Search size={15} /> {inspecting ? 'Consultando...' : 'Ver campos do formulário (diagnóstico)'}
           </button>
+          <button
+            onClick={handleListMeta}
+            disabled={listingMeta}
+            className="flex items-center gap-2 border border-beetz-dark/15 font-semibold px-4 py-2.5 rounded-xl text-sm hover:bg-white transition-colors disabled:opacity-60"
+            title="Lista todos os formulários e relatórios que existem no app do Zoho, com o link_name de cada um — útil pra descobrir nomes antes de configurar uma nova importação (eventos, despesas etc)."
+          >
+            <Search size={15} /> {listingMeta ? 'Consultando...' : 'Ver formulários e relatórios (descoberta)'}
+          </button>
         </div>
         {syncError && (
           <div className="flex items-start gap-2 bg-red-50 text-red-700 text-sm rounded-xl p-3 mt-3">
@@ -1041,6 +1067,54 @@ function ProfileImporterSection() {
                 </table>
               </div>
             )}
+          </div>
+        )}
+        {metaError && (
+          <div className="flex items-start gap-2 bg-red-50 text-red-700 text-sm rounded-xl p-3 mt-3">
+            <AlertTriangle size={16} className="shrink-0 mt-0.5" /> {metaError}
+          </div>
+        )}
+        {meta && (
+          <div className="mt-3 space-y-4">
+            <div>
+              <p className="text-xs font-semibold text-beetz-dark/60 mb-2">
+                {meta.reports.length} relatório(s) — o "link name" é o que precisa ir na configuração de uma nova importação.
+              </p>
+              <div className="overflow-x-auto rounded-xl border border-beetz-dark/10 max-h-56 overflow-y-auto">
+                <table className="w-full text-xs">
+                  <thead className="bg-white text-left sticky top-0">
+                    <tr><th className="p-2">Link name</th><th className="p-2">Nome exibido</th><th className="p-2">Tipo</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-beetz-dark/5 bg-white">
+                    {meta.reports.map((r) => (
+                      <tr key={r.link_name}>
+                        <td className="p-2 font-mono">{r.link_name}</td>
+                        <td className="p-2">{r.display_name}</td>
+                        <td className="p-2">{r.type}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-beetz-dark/60 mb-2">{meta.forms.length} formulário(s)</p>
+              <div className="overflow-x-auto rounded-xl border border-beetz-dark/10 max-h-56 overflow-y-auto">
+                <table className="w-full text-xs">
+                  <thead className="bg-white text-left sticky top-0">
+                    <tr><th className="p-2">Link name</th><th className="p-2">Nome exibido</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-beetz-dark/5 bg-white">
+                    {meta.forms.map((f) => (
+                      <tr key={f.link_name}>
+                        <td className="p-2 font-mono">{f.link_name}</td>
+                        <td className="p-2">{f.display_name}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         )}
       </div>

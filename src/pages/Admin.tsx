@@ -7,7 +7,7 @@ import type { Department, Profile } from '../lib/types'
 import { ACCESS_ROLE_LABELS, canManageUsers, computeAccessRole } from '../lib/permissions'
 import Avatar from '../components/ui/Avatar'
 import EditProfileModal from '../components/admin/EditProfileModal'
-import { Lock, Pencil, Trash2, UserPlus } from 'lucide-react'
+import { Lock, Pencil, Search, Trash2, UserPlus } from 'lucide-react'
 
 const DEPARTMENT_HINTS = ['Garçons', 'Caixas', 'Operacional']
 
@@ -25,6 +25,9 @@ export default function Admin() {
   const [inviting, setInviting] = useState(false)
   const [inviteFeedback, setInviteFeedback] = useState<string | null>(null)
   const [inviteError, setInviteError] = useState<string | null>(null)
+
+  const [search, setSearch] = useState('')
+  const [departmentFilter, setDepartmentFilter] = useState('')
 
   async function load() {
     setLoading(true)
@@ -89,6 +92,12 @@ export default function Admin() {
     }
   }
 
+  const filteredProfiles = profiles.filter((p) => {
+    if (departmentFilter && p.department_id !== departmentFilter) return false
+    if (search && !`${p.first_name} ${p.last_name}`.toLowerCase().includes(search.toLowerCase())) return false
+    return true
+  })
+
   return (
     <div className="space-y-6">
       <div>
@@ -152,11 +161,46 @@ export default function Admin() {
         <p className="text-xs text-beetz-dark/50 mb-3 flex items-center gap-1.5">
           <Lock size={12} /> Contas da Diretoria aparecem travadas — departamento e exclusão delas só direto no banco, pra ninguém perder acesso por engano.
         </p>
+
+        <div className="mb-4 space-y-3">
+          <div className="relative max-w-sm">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-beetz-dark/40" />
+            <input
+              value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por nome"
+              className="w-full pl-9 pr-3 py-2 rounded-xl border border-beetz-dark/15 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow"
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setDepartmentFilter('')}
+              className={`text-sm font-semibold px-3.5 py-2 rounded-xl transition-colors ${
+                departmentFilter === '' ? 'bg-beetz-dark text-white' : 'bg-beetz-gray text-beetz-dark/70 hover:bg-beetz-dark/10'
+              }`}
+            >
+              Todas as funções
+            </button>
+            {departments.map((d) => (
+              <button
+                key={d.id}
+                onClick={() => setDepartmentFilter(d.id)}
+                className={`text-sm font-semibold px-3.5 py-2 rounded-xl transition-colors ${
+                  departmentFilter === d.id ? 'bg-beetz-dark text-white' : 'bg-beetz-gray text-beetz-dark/70 hover:bg-beetz-dark/10'
+                }`}
+              >
+                {d.icon} {d.name}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-beetz-dark/40">{filteredProfiles.length} de {profiles.length} perfil(s)</p>
+        </div>
+
         {loading ? (
           <p className="text-beetz-dark/50">Carregando...</p>
+        ) : filteredProfiles.length === 0 ? (
+          <p className="text-sm text-beetz-dark/50 bg-white rounded-2xl p-6 text-center border border-beetz-dark/5">Nenhum perfil encontrado com esses filtros.</p>
         ) : (
           <div className="bg-white rounded-2xl shadow-soft border border-beetz-dark/5 divide-y divide-beetz-dark/5">
-            {profiles.map((p) => {
+            {filteredProfiles.map((p) => {
               const role = computeAccessRole(p, departments)
               const isDiretoria = role === 'diretoria'
               return (
@@ -220,7 +264,6 @@ export default function Admin() {
                 </div>
               )
             })}
-            {profiles.length === 0 && <p className="text-sm text-beetz-dark/50 p-4">Nenhum colaborador cadastrado ainda.</p>}
           </div>
         )}
       </div>

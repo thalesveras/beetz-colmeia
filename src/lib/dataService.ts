@@ -318,6 +318,24 @@ export async function inspectZohoCreatorFields(formLinkName?: string): Promise<{
   return data
 }
 
+export interface ZohoMetaItem {
+  display_name: string
+  link_name: string
+  type?: string
+}
+
+// Modo de descoberta: lista todos os formulários e relatórios que existem no
+// app "controle" do Zoho Creator (só leitura, não grava nada). Serve pra
+// descobrir os nomes certos de Eventos/Despesas/etc antes de configurar uma
+// nova importação, sem precisar adivinhar ou pedir pro Zoho na mão.
+export async function listZohoMeta(): Promise<{ forms: ZohoMetaItem[]; reports: ZohoMetaItem[] }> {
+  if (isDemoMode) return { forms: [], reports: [] }
+  const { data, error } = await supabase.functions.invoke('zoho-creator-sync', { body: { list_meta: true } })
+  if (error) throw new Error(await extractFunctionErrorMessage(error))
+  if (data?.error) throw new Error(data.error)
+  return data
+}
+
 export interface ImportPendingPhotosBatchResult {
   mode: 'avatar' | 'document'
   processed: number
