@@ -13,8 +13,8 @@ import type {
   EventItem, EventMember, EventModality, EventProduct, EventStaffingRequirement, Expense,
   ExpenseCategory, HiveLevelConfig, HoneyPoint, MovementType, PaymentMethodOption, Product,
   ProductionConsumption, Producer, Profile, ProfileStats, RolePermissions, ServiceModality,
-  PendingProfilePickerItem, StockBalance, StockLocation, StockMovement, Supplier, TransferRequest,
-  TransferRequestStatus, ZohoPendingProfile
+  PendingProfileDirectoryItem, PendingProfilePickerItem, StockBalance, StockLocation, StockMovement,
+  Supplier, TransferRequest, TransferRequestStatus, ZohoPendingProfile
 } from './types'
 
 // ---------- Estado em memória para o modo demonstração ----------
@@ -522,6 +522,28 @@ export async function listPendingProfilesForPicker(): Promise<PendingProfilePick
   const { data, error } = await supabase.rpc('list_pending_profiles_for_picker')
   if (error) throw error
   return (data ?? []) as PendingProfilePickerItem[]
+}
+
+// Igual ao picker acima, mas com cidade/cargo/departamento/foto — usado pra
+// mostrar pré-cadastro na Turma e no Mapa da Colmeia (qualquer colaborador
+// com perfil pode ver, a function no banco confere is_staff).
+export async function listPendingProfilesForDirectory(): Promise<PendingProfileDirectoryItem[]> {
+  if (isDemoMode) return []
+  const { data, error } = await supabase.rpc('list_pending_profiles_for_directory')
+  if (error) throw error
+  return (data ?? []) as PendingProfileDirectoryItem[]
+}
+
+// Mesma tradução usada pela function claim_pending_profile() no banco — o
+// texto cru do dropdown do Zoho ("Garçons"/"Caixas"/"Operacional") pro slug
+// de departamento da Beetz. Mantém as duas em sincronia se algum dia mudar.
+export function pendingDepartmentHintToSlug(hint: string | null): string | null {
+  switch ((hint ?? '').trim()) {
+    case 'Garçons': return 'garcons'
+    case 'Caixas': return 'caixa'
+    case 'Operacional': return 'bar'
+    default: return null
+  }
 }
 
 export async function createExpense(input: NewExpenseInput): Promise<Expense> {

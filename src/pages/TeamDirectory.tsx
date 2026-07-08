@@ -1,11 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Search } from 'lucide-react'
-import { listDepartments, listEvents, listEventMembers, listProfiles } from '../lib/dataService'
-import type { Department, EventItem, Profile } from '../lib/types'
+import {
+  listDepartments, listEvents, listEventMembers, listPendingProfilesForDirectory, listProfiles,
+  pendingDepartmentHintToSlug
+} from '../lib/dataService'
+import type { Department, EventItem, PendingProfileDirectoryItem, Profile } from '../lib/types'
 import ProfileCard from '../components/ui/ProfileCard'
+import PendingProfileCard from '../components/ui/PendingProfileCard'
 
 export default function TeamDirectory() {
   const [profiles, setProfiles] = useState<Profile[]>([])
+  const [pending, setPending] = useState<PendingProfileDirectoryItem[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [events, setEvents] = useState<EventItem[]>([])
   const [eventProfileIds, setEventProfileIds] = useState<Set<string>>(new Set())
@@ -18,12 +23,15 @@ export default function TeamDirectory() {
   const [eventId, setEventId] = useState('')
 
   useEffect(() => {
-    Promise.all([listProfiles(), listDepartments(), listEvents()]).then(([p, d, e]) => {
-      setProfiles(p)
-      setDepartments(d)
-      setEvents(e)
-      setLoading(false)
-    })
+    Promise.all([listProfiles(), listDepartments(), listEvents(), listPendingProfilesForDirectory()]).then(
+      ([p, d, e, pend]) => {
+        setProfiles(p)
+        setDepartments(d)
+        setEvents(e)
+        setPending(pend)
+        setLoading(false)
+      }
+    )
   }, [])
 
   useEffect(() => {
@@ -44,6 +52,21 @@ export default function TeamDirectory() {
   })
 
   const deptName = (id: string | null) => departments.find((d) => d.id === id)?.name
+
+  // Pré-cadastro não tem histórico de evento nem nível de experiência (nunca
+  // fez login), então esses dois filtros simplesmente escondem essa seção —
+  // busca, departamento e cidade continuam funcionando normalmente.
+  const filteredPending = eventId || experience ? [] : pending.filter((p) => {
+    const name = `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim()
+    if (search && !name.toLowerCase().includes(search.toLowerCase())) return false
+    if (department) {
+      const slug = pendingDepartmentHintToSlug(p.department_hint)
+      const dept = departments.find((d) => d.slug === slug)
+      if (dept?.id !== department) return false
+    }
+    if (city && p.city !== city) return false
+    return true
+  })
 
   return (
     <div className="space-y-6">
@@ -80,12 +103,30 @@ export default function TeamDirectory() {
 
       {loading ? (
         <p className="text-beetz-dark/50">Carregando...</p>
-      ) : filtered.length === 0 ? (
+      ) : filtered.length === 0 && filteredPending.length === 0 ? (
         <p className="text-beetz-dark/50 bg-white rounded-2xl p-8 text-center border border-beetz-dark/5">Nenhuma abelha encontrada com esses filtros.</p>
       ) : (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {filtered.map((p) => <ProfileCard key={p.id} profile={p} departmentName={deptName(p.department_id)} />)}
-        </div>
+        <>
+          {filtered.length > 0 && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {filtered.map((p) => <ProfileCard key={p.id} profile={p} departmentName={deptName(p.department_id)} />)}
+            </div>
+          )}
+
+          {filteredPending.length > 0 && (
+            <div className="space-y-3">
+              <div>
+                <h2 className="font-bold text-lg">Pré-cadastro</h2>
+                <p className="text-sm text-beetz-dark/50">
+                  Já fazem parte da Beetz, mas ainda não criaram conta no app — quando se cadastrarem, viram perfil completo automaticamente.
+                </p>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {filteredPending.map((p) => <PendingProfileCard key={p.id} profile={p} />)}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

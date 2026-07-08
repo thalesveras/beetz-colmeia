@@ -258,6 +258,18 @@ export interface PendingProfilePickerItem {
   email: string
 }
 
+// Versão pra exibição pública (Turma, Mapa da Colmeia) — ainda minimizada
+// (sem CPF/telefone/pais/e-mail), mas com os campos que um card precisa.
+export interface PendingProfileDirectoryItem {
+  id: string
+  first_name: string | null
+  last_name: string | null
+  city: string | null
+  role_hint: string | null
+  department_hint: string | null
+  avatar_url: string | null
+}
+
 export interface Supplier {
   id: string
   name: string
