@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import { Home, Users, UserCircle, Hexagon, CalendarDays, Trophy, Package, ShieldCheck, Settings, Wallet } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
-import { canApproveUsers, canManageUsers, canViewFinancialSummary, canViewStockTab } from '../../lib/permissions'
+import { canApproveUsers, canManageUsers, canViewFinancialSummary, canViewRanking, canViewStockTab } from '../../lib/permissions'
 
 const baseLinks = [
   { to: '/dashboard', label: 'Início', icon: Home },
@@ -10,18 +10,14 @@ const baseLinks = [
   { to: '/eventos', label: 'Eventos', icon: CalendarDays }
 ]
 
-const endLinks = [
-  { to: '/ranking', label: 'Ranking', icon: Trophy },
-  { to: '/perfil/me', label: 'Perfil', icon: UserCircle }
-]
-
 export default function MobileNav() {
   const { accessRole } = useAuth()
 
   const links = [
     ...baseLinks,
     ...(canViewStockTab(accessRole) ? [{ to: '/estoque', label: 'Estoque', icon: Package }] : []),
-    ...endLinks,
+    ...(canViewRanking(accessRole) ? [{ to: '/ranking', label: 'Ranking', icon: Trophy }] : []),
+    { to: '/perfil/me', label: 'Perfil', icon: UserCircle },
     ...(canViewFinancialSummary(accessRole) ? [{ to: '/financeiro', label: 'Financeiro', icon: Wallet }] : []),
     ...(canManageUsers(accessRole) || canApproveUsers(accessRole) ? [{ to: '/admin', label: 'Admin', icon: ShieldCheck }] : []),
     ...(canManageUsers(accessRole) ? [{ to: '/configuracoes', label: 'Config', icon: Settings }] : [])

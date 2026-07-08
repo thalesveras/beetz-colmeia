@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getRanking, type RankingEntry } from '../lib/dataService'
+import { useAuth } from '../contexts/AuthContext'
+import { canViewRanking } from '../lib/permissions'
 import Avatar from '../components/ui/Avatar'
 import LevelPill from '../components/ui/LevelPill'
 import { getHiveLevel } from '../lib/levels'
@@ -8,10 +10,21 @@ import { getHiveLevel } from '../lib/levels'
 const medals = ['🥇', '🥈', '🥉']
 
 export default function Ranking() {
+  const { accessRole } = useAuth()
   const [ranking, setRanking] = useState<RankingEntry[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => { getRanking().then((r) => { setRanking(r); setLoading(false) }) }, [])
+
+  if (!canViewRanking(accessRole)) {
+    return (
+      <div className="bg-white rounded-2xl p-8 shadow-soft border border-beetz-dark/5 text-center">
+        <p className="text-4xl mb-3">🔒</p>
+        <h1 className="text-xl font-bold mb-1">Acesso restrito</h1>
+        <p className="text-sm text-beetz-dark/60">Seu perfil de acesso não tem permissão pra ver o ranking.</p>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6 max-w-3xl">

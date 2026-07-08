@@ -64,6 +64,15 @@ const PERMISSION_GROUPS: { title: string; fields: { key: PermissionKey; label: s
       { key: 'can_manage_users', label: 'Gerenciar departamentos e perfis', description: 'Trocar o departamento de qualquer colaborador (e, com isso, seu papel de acesso).' },
       { key: 'can_view_financial_summary', label: 'Ver fechamento — visão diretoria', description: 'Ver vendas, percentual, custos e lucro/perda de um evento.' }
     ]
+  },
+  {
+    title: 'Comunidade (Turma, Mapa da Colmeia, Ranking, Aniversariantes)',
+    fields: [
+      { key: 'can_view_pending_details', label: 'Ver detalhes de pré-cadastro', description: 'Clicar num card de pré-cadastro (Turma, Mapa da Colmeia, Aniversariantes) e ver o modal com mais informações da pessoa.' },
+      { key: 'can_give_recognition', label: 'Dar Mel e elogiar', description: 'Enviar reconhecimento (mel) e elogios pra outros colaboradores.' },
+      { key: 'can_view_ranking', label: 'Ver o Ranking', description: 'Acessar a página de ranking/colocação dos colaboradores.' },
+      { key: 'can_edit_hive_map', label: 'Editar o Mapa da Colmeia', description: 'Alterar nome, ícone e descrição dos departamentos no Mapa da Colmeia.' }
+    ]
   }
 ]
 

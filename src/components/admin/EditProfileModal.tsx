@@ -6,6 +6,7 @@ import type { ExperienceLevel, Profile } from '../../lib/types'
 const inputClass = 'w-full border border-beetz-dark/15 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
 const EXPERIENCE_LEVELS: ExperienceLevel[] = ['Nova abelha', 'Em treinamento', 'Colaborador frequente', 'Líder de bar']
 const ufs = ['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO']
+const PIX_KEY_TYPES = ['CPF', 'Telefone', 'Email', 'Chave aleatória']
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <div><label className="text-xs font-medium block mb-1 text-beetz-dark/70">{label}</label>{children}</div>
@@ -42,7 +43,10 @@ export default function EditProfileModal({ profile, onClose, onSaved }: Props) {
     fun_fact: profile.fun_fact || '',
     favorite_events: profile.favorite_events || '',
     instagram: profile.instagram || '',
-    personal_quote: profile.personal_quote || ''
+    personal_quote: profile.personal_quote || '',
+    pix_key: profile.pix_key || '',
+    pix_key_type: profile.pix_key_type || '',
+    pix_owner_name: profile.pix_owner_name || ''
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -79,7 +83,10 @@ export default function EditProfileModal({ profile, onClose, onSaved }: Props) {
         fun_fact: form.fun_fact.trim() || null,
         favorite_events: form.favorite_events.trim() || null,
         instagram: form.instagram.trim() || null,
-        personal_quote: form.personal_quote.trim() || null
+        personal_quote: form.personal_quote.trim() || null,
+        pix_key: form.pix_key.trim() || null,
+        pix_key_type: form.pix_key_type || null,
+        pix_owner_name: form.pix_owner_name.trim() || null
       })
       onSaved()
       onClose()
@@ -128,6 +135,21 @@ export default function EditProfileModal({ profile, onClose, onSaved }: Props) {
             <Field label="Nome do pai"><input className={inputClass} value={form.father_name} onChange={(e) => set('father_name', e.target.value)} /></Field>
             <Field label="Contato de emergência (nome)"><input className={inputClass} value={form.emergency_contact_name} onChange={(e) => set('emergency_contact_name', e.target.value)} /></Field>
             <Field label="Contato de emergência (telefone)"><input className={inputClass} value={form.emergency_contact_phone} onChange={(e) => set('emergency_contact_phone', e.target.value)} /></Field>
+          </div>
+
+          <div className="border-t border-beetz-dark/10 pt-4">
+            <p className="text-sm font-semibold mb-1">Dados para pagamento (Pix)</p>
+            <p className="text-xs text-beetz-dark/50 mb-3">Visível só pra Diretoria — usado nos repasses.</p>
+            <div className="grid sm:grid-cols-3 gap-3">
+              <Field label="Tipo de chave">
+                <select className={inputClass} value={form.pix_key_type} onChange={(e) => set('pix_key_type', e.target.value)}>
+                  <option value="">Não definido</option>
+                  {PIX_KEY_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </Field>
+              <Field label="Chave Pix"><input className={inputClass} value={form.pix_key} onChange={(e) => set('pix_key', e.target.value)} /></Field>
+              <Field label="Nome do titular (se não for a própria pessoa)"><input className={inputClass} value={form.pix_owner_name} onChange={(e) => set('pix_owner_name', e.target.value)} /></Field>
+            </div>
           </div>
 
           <div className="border-t border-beetz-dark/10 pt-4 grid sm:grid-cols-2 gap-3">

@@ -4,12 +4,16 @@ import {
   listDepartments, listEvents, listEventMembers, listPendingProfilesForDirectory, listProfiles,
   pendingDepartmentHintToSlug
 } from '../lib/dataService'
+import { useAuth } from '../contexts/AuthContext'
+import { canViewPendingProfileDetails } from '../lib/permissions'
 import type { Department, EventItem, PendingProfileDirectoryItem, Profile } from '../lib/types'
 import ProfileCard from '../components/ui/ProfileCard'
 import PendingProfileCard from '../components/ui/PendingProfileCard'
 import PendingProfileModal from '../components/ui/PendingProfileModal'
 
 export default function TeamDirectory() {
+  const { accessRole } = useAuth()
+  const canViewDetails = canViewPendingProfileDetails(accessRole)
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [pending, setPending] = useState<PendingProfileDirectoryItem[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
@@ -125,7 +129,7 @@ export default function TeamDirectory() {
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {filteredPending.map((p) => (
-                  <PendingProfileCard key={p.id} profile={p} onClick={() => setViewingPending(p)} />
+                  <PendingProfileCard key={p.id} profile={p} onClick={canViewDetails ? () => setViewingPending(p) : undefined} />
                 ))}
               </div>
             </div>
@@ -133,7 +137,7 @@ export default function TeamDirectory() {
         </>
       )}
 
-      {viewingPending && (
+      {canViewDetails && viewingPending && (
         <PendingProfileModal
           profile={viewingPending}
           departmentName={departments.find((d) => d.slug === pendingDepartmentHintToSlug(viewingPending.department_hint))?.name}

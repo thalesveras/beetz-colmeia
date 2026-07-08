@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Cake } from 'lucide-react'
 import { listDepartments, listPendingProfilesForDirectory, listProfiles, pendingDepartmentHintToSlug } from '../lib/dataService'
+import { useAuth } from '../contexts/AuthContext'
+import { canViewPendingProfileDetails } from '../lib/permissions'
 import type { Department, PendingProfileDirectoryItem, Profile } from '../lib/types'
 import Avatar from '../components/ui/Avatar'
 import PendingProfileModal from '../components/ui/PendingProfileModal'
@@ -27,6 +29,8 @@ type BirthdayItem =
   | { kind: 'pending'; day: number; profile: PendingProfileDirectoryItem }
 
 export default function Birthdays() {
+  const { accessRole } = useAuth()
+  const canViewDetails = canViewPendingProfileDetails(accessRole)
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [pending, setPending] = useState<PendingProfileDirectoryItem[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
@@ -119,20 +123,27 @@ export default function Birthdays() {
 
             const profile = item.profile
             const name = `${profile.first_name ?? ''} ${profile.last_name ?? ''}`.trim() || 'Sem nome'
-            return (
-              <button key={profile.id} type="button" onClick={() => setViewingPending(profile)} className={cardClass}>
+            const inner = (
+              <>
                 <Avatar src={profile.avatar_url} name={name} size="lg" />
                 <h3 className="mt-3 font-bold text-base">{name}</h3>
                 <p className="text-xs text-beetz-dark/40 mt-0.5">{pendingDeptName(profile.department_hint) || profile.role_hint || 'Colaborador(a)'}</p>
                 {badge}
                 <span className="mt-2 text-[10px] font-semibold text-beetz-dark/40">Ainda não se cadastrou</span>
+              </>
+            )
+            return canViewDetails ? (
+              <button key={profile.id} type="button" onClick={() => setViewingPending(profile)} className={cardClass}>
+                {inner}
               </button>
+            ) : (
+              <div key={profile.id} className={cardClass}>{inner}</div>
             )
           })}
         </div>
       )}
 
-      {viewingPending && (
+      {canViewDetails && viewingPending && (
         <PendingProfileModal
           profile={viewingPending}
           departmentName={pendingDeptName(viewingPending.department_hint)}

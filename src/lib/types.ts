@@ -56,6 +56,11 @@ export interface ZohoPendingProfile {
   // Só mês/dia do aniversário — nunca ano (minimização LGPD).
   birth_month: number | null
   birth_day: number | null
+  // Chave Pix pra pagamento — dado financeiro sensível, nunca exposto no
+  // diretório público (PendingProfileDirectoryItem não tem esses campos).
+  pix_key: string | null
+  pix_key_type: string | null
+  pix_owner_name: string | null
 }
 
 export interface Department {
@@ -103,6 +108,14 @@ export interface Profile {
   onboarding_completed: boolean
   approval_status: ApprovalStatus
   created_at: string
+  // Chave Pix pra pagamento — dado financeiro sensível. Opcional aqui só
+  // pra não exigir tocar em cada perfil de exemplo do modo demo; trate como
+  // presente em qualquer perfil real vindo do banco. Nunca exibir em telas
+  // públicas (Turma, Mapa da Colmeia, perfil visto por outra pessoa) — só no
+  // próprio cadastro (/cadastro) e na edição da Diretoria (Admin).
+  pix_key?: string | null
+  pix_key_type?: string | null
+  pix_owner_name?: string | null
 }
 
 export type ContractStatus = 'Rascunho' | 'Aguardando assinatura' | 'Assinado' | 'Recusado'
@@ -427,6 +440,11 @@ export interface RolePermissions {
   can_approve_event_requests: boolean
   can_manage_stock_catalog: boolean
   can_edit_own_stock: boolean
+  // Menu Comunidade (Turma, Mapa da Colmeia, Ranking, Aniversariantes)
+  can_view_pending_details: boolean
+  can_give_recognition: boolean
+  can_view_ranking: boolean
+  can_edit_hive_map: boolean
   updated_at: string
 }
 

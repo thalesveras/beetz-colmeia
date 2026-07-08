@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { Instagram, Sparkles } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { canGiveRecognition } from '../lib/permissions'
 import {
   getProfileById, getProfileStats, giveCompliment, giveHoney,
   listDepartments, listEventsForProfile
@@ -16,7 +17,8 @@ import { getLevelProgress } from '../lib/levels'
 export default function ProfilePage() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { userId, profile: myProfile, refreshProfile } = useAuth()
+  const { userId, profile: myProfile, refreshProfile, accessRole } = useAuth()
+  const canRecognize = canGiveRecognition(accessRole)
 
   const [profile, setProfile] = useState<Profile | null>(null)
   const [stats, setStats] = useState<ProfileStats | null>(null)
@@ -87,7 +89,7 @@ export default function ProfilePage() {
             <LevelPill eventsCount={stats.eventsCount} />
           </div>
 
-          {!isOwnProfile && userId && (
+          {!isOwnProfile && userId && canRecognize && (
             <div className="flex flex-wrap gap-3 mt-6">
               <button onClick={handleGiveHoney} className="flex items-center gap-2 honey-gradient text-beetz-dark font-bold px-5 py-2.5 rounded-xl hover:brightness-105 transition">
                 🍯 Dar um Mel

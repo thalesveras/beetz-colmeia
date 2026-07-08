@@ -71,6 +71,24 @@ export async function updateDepartmentAccessRole(departmentId: string, accessRol
   if (error) throw error
 }
 
+// Editar nome/ícone/descrição de um departamento no Mapa da Colmeia — via
+// função no banco (update_department_details) em vez de update direto na
+// tabela, de propósito: quem só tem a permissão "editar mapa" nunca consegue
+// mexer no access_role por aqui (isso continua exclusivo da Diretoria).
+export async function updateDepartmentDetails(
+  departmentId: string, patch: { name: string; icon: string; description: string }
+): Promise<void> {
+  if (isDemoMode) {
+    const idx = demoState.departments.findIndex((d) => d.id === departmentId)
+    if (idx >= 0) demoState.departments[idx] = { ...demoState.departments[idx], ...patch }
+    return
+  }
+  const { error } = await supabase.rpc('update_department_details', {
+    dept_id: departmentId, p_name: patch.name, p_icon: patch.icon, p_description: patch.description
+  })
+  if (error) throw error
+}
+
 // ---------- Perfis ----------
 // A Turma e os seletores de escalação só mostram gente com o perfil completo
 // E já aprovada pela Diretoria — quem está pendente ainda não aparece pra equipe.

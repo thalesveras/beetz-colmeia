@@ -4,6 +4,7 @@ import Avatar from '../../components/ui/Avatar'
 interface Props { data: OnboardingData; update: (patch: Partial<OnboardingData>) => void }
 
 const ufs = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO']
+const PIX_KEY_TYPES = ['CPF', 'Telefone', 'Email', 'Chave aleatória']
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <div><label className="text-sm font-medium block mb-1">{label}</label>{children}</div>
@@ -53,6 +54,25 @@ export default function StepPersonalData({ data, update }: Props) {
             {ufs.map((uf) => <option key={uf} value={uf}>{uf}</option>)}
           </select>
         </Field>
+      </div>
+
+      <div className="border-t border-beetz-dark/10 pt-4">
+        <p className="text-sm font-semibold mb-1">Dados para pagamento (Pix)</p>
+        <p className="text-xs text-beetz-dark/50 mb-3">Usado pela Diretoria pra fazer repasses e pagamentos. Só a Diretoria consegue ver isso.</p>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <Field label="Tipo de chave Pix">
+            <select className={inputClass} value={data.pix_key_type || ''} onChange={(e) => update({ pix_key_type: e.target.value })}>
+              <option value="">Selecionar...</option>
+              {PIX_KEY_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </Field>
+          <Field label="Chave Pix"><input className={inputClass} placeholder="CPF, telefone, e-mail ou chave aleatória" value={data.pix_key || ''} onChange={(e) => update({ pix_key: e.target.value })} /></Field>
+        </div>
+        <div className="mt-4">
+          <Field label="Nome do titular (se a chave não for sua)">
+            <input className={inputClass} placeholder="Deixe em branco se a chave for sua" value={data.pix_owner_name || ''} onChange={(e) => update({ pix_owner_name: e.target.value })} />
+          </Field>
+        </div>
       </div>
     </div>
   )
