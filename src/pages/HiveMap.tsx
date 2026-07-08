@@ -3,6 +3,7 @@ import { listDepartments, listPendingProfilesForDirectory, listProfiles, pending
 import type { Department, PendingProfileDirectoryItem, Profile } from '../lib/types'
 import ProfileCard from '../components/ui/ProfileCard'
 import PendingProfileCard from '../components/ui/PendingProfileCard'
+import PendingProfileModal from '../components/ui/PendingProfileModal'
 
 export default function HiveMap() {
   const [departments, setDepartments] = useState<Department[]>([])
@@ -10,6 +11,7 @@ export default function HiveMap() {
   const [pending, setPending] = useState<PendingProfileDirectoryItem[]>([])
   const [selected, setSelected] = useState<Department | null>(null)
   const [loading, setLoading] = useState(true)
+  const [viewingPending, setViewingPending] = useState<PendingProfileDirectoryItem | null>(null)
 
   useEffect(() => {
     Promise.all([listDepartments(), listProfiles(), listPendingProfilesForDirectory()]).then(([d, p, pend]) => {
@@ -77,11 +79,21 @@ export default function HiveMap() {
                 Já fazem parte da Beetz, mas ainda não criaram conta no app.
               </p>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {pendingOfSelected.map((p) => <PendingProfileCard key={p.id} profile={p} />)}
+                {pendingOfSelected.map((p) => (
+                  <PendingProfileCard key={p.id} profile={p} onClick={() => setViewingPending(p)} />
+                ))}
               </div>
             </div>
           )}
         </section>
+      )}
+
+      {viewingPending && (
+        <PendingProfileModal
+          profile={viewingPending}
+          departmentName={departments.find((d) => d.slug === pendingDepartmentHintToSlug(viewingPending.department_hint))?.name}
+          onClose={() => setViewingPending(null)}
+        />
       )}
     </div>
   )

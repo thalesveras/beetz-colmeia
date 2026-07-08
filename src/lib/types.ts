@@ -259,15 +259,27 @@ export interface PendingProfilePickerItem {
 }
 
 // Versão pra exibição pública (Turma, Mapa da Colmeia) — ainda minimizada
-// (sem CPF/telefone/pais/e-mail), mas com os campos que um card precisa.
+// (sem CPF/telefone/pais/e-mail), mas com os campos "sociais" que também
+// aparecem no perfil de quem já tem conta (ver ProfilePage.tsx), pra dar
+// mais contexto quando alguém clica pra ver detalhes de um pré-cadastro.
 export interface PendingProfileDirectoryItem {
   id: string
   first_name: string | null
   last_name: string | null
   city: string | null
+  state: string | null
   role_hint: string | null
   department_hint: string | null
   avatar_url: string | null
+  about_me: string | null
+  fun_fact: string | null
+  favorite_events: string | null
+  instagram: string | null
+  personal_quote: string | null
+  skills: string[]
+  work_location: string | null
+  experience_level: ExperienceLevel | null
+  entry_date: string | null
 }
 
 export interface Supplier {

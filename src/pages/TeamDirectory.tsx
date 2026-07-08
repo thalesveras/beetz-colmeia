@@ -7,6 +7,7 @@ import {
 import type { Department, EventItem, PendingProfileDirectoryItem, Profile } from '../lib/types'
 import ProfileCard from '../components/ui/ProfileCard'
 import PendingProfileCard from '../components/ui/PendingProfileCard'
+import PendingProfileModal from '../components/ui/PendingProfileModal'
 
 export default function TeamDirectory() {
   const [profiles, setProfiles] = useState<Profile[]>([])
@@ -15,6 +16,7 @@ export default function TeamDirectory() {
   const [events, setEvents] = useState<EventItem[]>([])
   const [eventProfileIds, setEventProfileIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
+  const [viewingPending, setViewingPending] = useState<PendingProfileDirectoryItem | null>(null)
 
   const [search, setSearch] = useState('')
   const [department, setDepartment] = useState('')
@@ -122,11 +124,21 @@ export default function TeamDirectory() {
                 </p>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {filteredPending.map((p) => <PendingProfileCard key={p.id} profile={p} />)}
+                {filteredPending.map((p) => (
+                  <PendingProfileCard key={p.id} profile={p} onClick={() => setViewingPending(p)} />
+                ))}
               </div>
             </div>
           )}
         </>
+      )}
+
+      {viewingPending && (
+        <PendingProfileModal
+          profile={viewingPending}
+          departmentName={departments.find((d) => d.slug === pendingDepartmentHintToSlug(viewingPending.department_hint))?.name}
+          onClose={() => setViewingPending(null)}
+        />
       )}
     </div>
   )
