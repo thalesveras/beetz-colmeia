@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
   Home, Users, UserCircle, Hexagon, CalendarDays, Trophy, Info, LogOut, Package,
-  ShieldCheck, Settings, ChevronDown, Wallet, Cake
+  ShieldCheck, Settings, ChevronDown, Wallet, Cake, Truck, HandCoins, Receipt, ClipboardList
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import {
@@ -53,13 +53,26 @@ export default function Sidebar() {
         ...(canViewStockTab(accessRole) ? [{ to: '/estoque', label: 'Estoque', icon: Package }] : [])
       ]
     },
-    ...(canManageUsers(accessRole) || canApproveUsers(accessRole) || canViewFinancialSummary(accessRole)
+    ...(canViewFinancialSummary(accessRole)
+      ? [{
+          key: 'financeiro',
+          label: 'Financeiro',
+          icon: Wallet,
+          items: [
+            { to: '/financeiro', label: 'Despesas', icon: Wallet },
+            { to: '/financeiro/fornecedores', label: 'Fornecedores', icon: Truck },
+            { to: '/financeiro/repasses', label: 'Repasses', icon: HandCoins },
+            { to: '/financeiro/recebimentos', label: 'Recebimentos', icon: Receipt },
+            { to: '/financeiro/fechamentos', label: 'Todos os fechamentos', icon: ClipboardList }
+          ]
+        }]
+      : []),
+    ...(canManageUsers(accessRole) || canApproveUsers(accessRole)
       ? [{
           key: 'gestao',
           label: 'Gestão',
           icon: ShieldCheck,
           items: [
-            ...(canViewFinancialSummary(accessRole) ? [{ to: '/financeiro', label: 'Financeiro', icon: Wallet }] : []),
             { to: '/admin', label: 'Administração', icon: ShieldCheck },
             ...(canManageUsers(accessRole) ? [{ to: '/configuracoes', label: 'Configurações', icon: Settings }] : [])
           ]
@@ -153,6 +166,7 @@ function NavGroup({ group, currentPath }: { group: NavGroupDef; currentPath: str
               <NavLink
                 key={item.to}
                 to={item.to}
+                end
                 className={({ isActive }) =>
                   `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                     isActive ? 'bg-beetz-yellow text-beetz-dark' : 'text-white/70 hover:bg-white/10'

@@ -1,6 +1,6 @@
 import type {
   AppSettings, Badge, BadgeDefConfig, CashierSettlement, Compliment, Department, EventItem,
-  EventMember, EventModality, EventProduct, EventStaffingRequirement, Expense, ExpenseCategory,
+  EventMember, EventModality, EventProduct, EventRepasse, EventStaffingRequirement, Expense, ExpenseCategory,
   HiveLevelConfig, HoneyPoint, PaymentMethodOption, Product, ProductionConsumption, Producer,
   Profile, RolePermissions, ServiceModality, StockLocation, StockMovement, Supplier, TransferRequest
 } from './types'
@@ -325,6 +325,17 @@ export const mockProductionConsumption: ProductionConsumption[] = [
 export const mockTransferRequests: TransferRequest[] = [
   { id: 'tr1', event_id: 'e1', product_id: 'pr2', quantity: 20, from_location_id: 'sl1', to_location_id: 'sl2', requested_by: 'Rafael Lima (Produção)', status: 'Aprovado', notes: 'Reforço de gelo para o bar', created_at: '2026-01-17T09:00:00Z' },
   { id: 'tr2', event_id: 'e1', product_id: 'pr1', quantity: 200, from_location_id: 'sl1', to_location_id: 'sl2', requested_by: 'Rafael Lima (Produção)', status: 'Pendente', notes: 'Copos extras, previsão de casa cheia', created_at: '2026-01-18T08:00:00Z' }
+]
+
+// ---------- Repasses (ledger de lançamentos por evento) ----------
+// Cada evento com o antigo campo único events.repasses > 0 ganha aqui um
+// lançamento equivalente no ledger — igual ao que a migração de backfill fez
+// no banco de verdade (ver dataService.getEventFinancialSummary).
+export const mockEventRepasses: EventRepasse[] = [
+  { id: 'rep1', event_id: 'e1', amount: 2000, paid_at: '2026-01-10', notes: 'Adiantamento pré-evento', created_by: 'p1', created_at: '2026-01-10T10:00:00Z' },
+  { id: 'rep2', event_id: 'e1', amount: 1000, paid_at: '2026-01-19', notes: 'Complemento pós-evento', created_by: 'p1', created_at: '2026-01-19T09:00:00Z' },
+  { id: 'rep3', event_id: 'e2', amount: 2000, paid_at: '2026-06-20', notes: null, created_by: 'p1', created_at: '2026-06-20T22:00:00Z' },
+  { id: 'rep4', event_id: 'e5', amount: 5000, paid_at: '2025-12-31', notes: 'Repasse integral', created_by: 'p1', created_at: '2025-12-31T22:00:00Z' }
 ]
 
 // ---------- Portal do produtor: contas, modalidades e propostas ----------

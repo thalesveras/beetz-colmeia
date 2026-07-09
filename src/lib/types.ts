@@ -352,6 +352,18 @@ export interface TransferRequest {
   created_at: string
 }
 
+// Ledger de lançamentos individuais de repasse por evento — substitui, como
+// fonte de verdade, o campo único events.repasses (mantido só como histórico).
+export interface EventRepasse {
+  id: string
+  event_id: string
+  amount: number
+  paid_at: string
+  notes: string | null
+  created_by: string | null
+  created_at: string
+}
+
 export interface EventFinancialSummary {
   despesas: number
   custoProdutos: number

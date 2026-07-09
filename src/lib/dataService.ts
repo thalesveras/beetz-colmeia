@@ -1,7 +1,7 @@
 import { isDemoMode, supabase } from './supabaseClient'
 import {
   mockAppSettings, mockBadgeDefConfigs, mockBadges, mockCashierSettlements, mockCompliments,
-  mockDepartments, mockEventMembers, mockEventModalities, mockEventProducts, mockEvents,
+  mockDepartments, mockEventMembers, mockEventModalities, mockEventProducts, mockEventRepasses, mockEvents,
   mockEventStaffingRequirements, mockExpenseCategories, mockExpenses, mockHiveLevelConfigs,
   mockHoneyPoints, mockPaymentMethods, mockProducers, mockProductionConsumption, mockProducts,
   mockProfiles, mockRolePermissions, mockServiceModalities, mockStockLocations, mockStockMovements,
@@ -10,7 +10,7 @@ import {
 import { badgesFromStats, getHiveLevel } from './levels'
 import type {
   AppSettings, Badge, BadgeDefConfig, CashierSettlement, Compliment, Department, EventFinancialSummary,
-  EventItem, EventMember, EventModality, EventProduct, EventStaffingRequirement, Expense,
+  EventItem, EventMember, EventModality, EventProduct, EventRepasse, EventStaffingRequirement, Expense,
   ExpenseCategory, HiveLevelConfig, HoneyPoint, MovementType, PaymentMethodOption, Product,
   ProductionConsumption, Producer, Profile, ProfileStats, RolePermissions, ServiceModality,
   PendingProfileDirectoryItem, PendingProfilePickerItem, StockBalance, StockLocation, StockMovement,
@@ -44,7 +44,8 @@ const demoState = {
   producers: [...mockProducers],
   serviceModalities: [...mockServiceModalities],
   eventModalities: [...mockEventModalities],
-  eventStaffingRequirements: [...mockEventStaffingRequirements]
+  eventStaffingRequirements: [...mockEventStaffingRequirements],
+  eventRepasses: [...mockEventRepasses]
 }
 
 function uid(prefix: string) {
@@ -799,6 +800,18 @@ export async function updateCashierSettlementStatus(id: string, status: CashierS
   if (error) throw error
 }
 
+// Todos os recebimentos (fechamentos de caixa), de todos os eventos — usado
+// na visão financeira global (/financeiro/recebimentos), igual listAllExpenses()
+// faz pra despesas.
+export async function listAllCashierSettlements(): Promise<CashierSettlement[]> {
+  if (isDemoMode) {
+    return [...demoState.cashierSettlements].sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+  }
+  const { data, error } = await supabase.from('cashier_settlements').select('*').order('created_at', { ascending: false })
+  if (error) throw error
+  return data as CashierSettlement[]
+}
+
 // ---------- Estoque multi-almoxarifado ----------
 export async function listStockLocations(): Promise<StockLocation[]> {
   if (isDemoMode) return demoState.stockLocations
@@ -1123,6 +1136,33 @@ export async function createSupplier(name: string, contact: string | null): Prom
   return data as Supplier
 }
 
+export async function updateSupplier(id: string, patch: Partial<Pick<Supplier, 'name' | 'contact'>>): Promise<Supplier> {
+  if (isDemoMode) {
+    const idx = demoState.suppliers.findIndex((s) => s.id === id)
+    if (idx < 0) throw new Error('Fornecedor não encontrado')
+    demoState.suppliers[idx] = { ...demoState.suppliers[idx], ...patch }
+    return demoState.suppliers[idx]
+  }
+  const { data, error } = await supabase.from('suppliers').update(patch).eq('id', id).select().single()
+  if (error) throw error
+  return data as Supplier
+}
+
+// Mesma lógica de guarda das outras exclusões de cadastro (produto/estoque):
+// fornecedor com despesa vinculada não pode ser excluído (edite o cadastro em vez disso).
+export async function deleteSupplier(id: string): Promise<void> {
+  const expenses = await listAllExpenses()
+  if (expenses.some((e) => e.supplier_id === id)) {
+    throw new Error('Não é possível excluir: este fornecedor já tem despesas vinculadas.')
+  }
+  if (isDemoMode) {
+    demoState.suppliers = demoState.suppliers.filter((s) => s.id !== id)
+    return
+  }
+  const { error } = await supabase.from('suppliers').delete().eq('id', id)
+  if (error) throw error
+}
+
 // ---------- Produtos do evento ----------
 export type NewEventProductInput = Omit<EventProduct, 'id' | 'created_at' | 'total'>
 
@@ -1205,13 +1245,64 @@ export async function updateTransferRequestStatus(id: string, status: TransferRe
   if (error) throw error
 }
 
+// ---------- Repasses (ledger de lançamentos por evento) ----------
+// Substitui, como fonte de verdade, o antigo campo único events.repasses
+// (mantido só como histórico/rollback — ver migração de backfill). Cada
+// pagamento de repasse à produtora agora é um lançamento próprio, com data e
+// observação, em vez de um número só editável.
+export type NewEventRepasseInput = Omit<EventRepasse, 'id' | 'created_at'>
+
+export async function listEventRepasses(eventId: string): Promise<EventRepasse[]> {
+  if (isDemoMode) {
+    return demoState.eventRepasses.filter((r) => r.event_id === eventId).sort((a, b) => (a.paid_at < b.paid_at ? 1 : -1))
+  }
+  const { data, error } = await supabase.from('event_repasses').select('*').eq('event_id', eventId).order('paid_at', { ascending: false })
+  if (error) throw error
+  return data as EventRepasse[]
+}
+
+// eventId omitido = todos os lançamentos, de todos os eventos (usado na
+// visão global /financeiro/repasses); informado = só os daquele evento.
+export async function listAllEventRepasses(eventId?: string): Promise<EventRepasse[]> {
+  if (isDemoMode) {
+    const all = [...demoState.eventRepasses].sort((a, b) => (a.paid_at < b.paid_at ? 1 : -1))
+    return eventId ? all.filter((r) => r.event_id === eventId) : all
+  }
+  let query = supabase.from('event_repasses').select('*').order('paid_at', { ascending: false })
+  if (eventId) query = query.eq('event_id', eventId)
+  const { data, error } = await query
+  if (error) throw error
+  return data as EventRepasse[]
+}
+
+export async function createEventRepasse(input: NewEventRepasseInput): Promise<EventRepasse> {
+  if (isDemoMode) {
+    const record: EventRepasse = { ...input, id: uid('rep'), created_at: new Date().toISOString() }
+    demoState.eventRepasses.push(record)
+    return record
+  }
+  const { data, error } = await supabase.from('event_repasses').insert(input).select().single()
+  if (error) throw error
+  return data as EventRepasse
+}
+
+export async function deleteEventRepasse(id: string): Promise<void> {
+  if (isDemoMode) {
+    demoState.eventRepasses = demoState.eventRepasses.filter((r) => r.id !== id)
+    return
+  }
+  const { error } = await supabase.from('event_repasses').delete().eq('id', id)
+  if (error) throw error
+}
+
 // ---------- Fechamento financeiro do evento (visão diretoria) ----------
 export async function getEventFinancialSummary(eventId: string): Promise<EventFinancialSummary> {
-  const [expenses, eventProducts, consumption, event] = await Promise.all([
+  const [expenses, eventProducts, consumption, event, repassesLancamentos] = await Promise.all([
     listExpensesForEvent(eventId),
     listEventProducts(eventId),
     listProductionConsumption(eventId),
-    getEventById(eventId)
+    getEventById(eventId),
+    listEventRepasses(eventId)
   ])
 
   const despesas = expenses.filter((e) => e.status !== 'Cancelado').reduce((sum, e) => sum + e.total, 0)
@@ -1221,7 +1312,9 @@ export async function getEventFinancialSummary(eventId: string): Promise<EventFi
   const vendas = event?.sales_amount ?? 0
   const percentual = event?.commission_percentage ?? 0
   const creditosOuBonificacoes = event?.credits_bonus ?? 0
-  const repasses = event?.repasses ?? 0
+  // Antes lia direto de event.repasses (número único editável); agora é a soma
+  // dos lançamentos do ledger event_repasses.
+  const repasses = repassesLancamentos.reduce((sum, r) => sum + r.amount, 0)
 
   const aReceber = vendas * (percentual / 100)
   const saldoAReceberDaProdutora = aReceber + creditosOuBonificacoes - repasses
