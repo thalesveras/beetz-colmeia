@@ -366,6 +366,25 @@ export async function listZohoMeta(): Promise<{ forms: ZohoMetaItem[]; reports: 
   return data
 }
 
+export interface ZohoReportPeek {
+  reportLinkName: string
+  records: Record<string, unknown>[]
+  fieldNames: string[]
+}
+
+// Pré-visualização de um relatório qualquer do Zoho Creator (poucos registros,
+// sem gravar nada) — usado pra entender o formato de um relatório novo antes
+// de decidir se/como importar (ex: "Lista_de_transferencias").
+export async function peekZohoReport(reportLinkName: string, maxRecords = 5): Promise<ZohoReportPeek> {
+  if (isDemoMode) return { reportLinkName, records: [], fieldNames: [] }
+  const { data, error } = await supabase.functions.invoke('zoho-creator-sync', {
+    body: { peek: true, report_link_name: reportLinkName, max_records: maxRecords }
+  })
+  if (error) throw new Error(await extractFunctionErrorMessage(error))
+  if (data?.error) throw new Error(data.error)
+  return data
+}
+
 export interface ImportPendingPhotosBatchResult {
   mode: 'avatar' | 'document'
   processed: number
@@ -1151,9 +1170,16 @@ export async function createProductionConsumption(input: NewProductionConsumptio
 // ---------- Transferências solicitadas pela produção ----------
 export type NewTransferRequestInput = Omit<TransferRequest, 'id' | 'created_at' | 'status'>
 
-export async function listTransferRequests(eventId: string): Promise<TransferRequest[]> {
-  if (isDemoMode) return demoState.transferRequests.filter((t) => t.event_id === eventId)
-  const { data, error } = await supabase.from('transfer_requests').select('*').eq('event_id', eventId).order('created_at', { ascending: false })
+// eventId omitido = todas as solicitações (usado na visão global da aba Estoque);
+// informado = só as daquele evento (usado dentro do EventDetail).
+export async function listTransferRequests(eventId?: string): Promise<TransferRequest[]> {
+  if (isDemoMode) {
+    const all = [...demoState.transferRequests].sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+    return eventId ? all.filter((t) => t.event_id === eventId) : all
+  }
+  let query = supabase.from('transfer_requests').select('*').order('created_at', { ascending: false })
+  if (eventId) query = query.eq('event_id', eventId)
+  const { data, error } = await query
   if (error) throw error
   return data as TransferRequest[]
 }

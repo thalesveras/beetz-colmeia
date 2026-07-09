@@ -36,21 +36,24 @@ const ROLE_PERMISSIONS: Record<AccessRole, Omit<RolePermissions, 'role' | 'updat
     can_manage_users: true, can_view_financial_summary: true, can_approve_users: true,
     can_review_cashier: true, can_edit_expense: true, can_edit_stock: true, can_approve_event_requests: true,
     can_manage_stock_catalog: true, can_edit_own_stock: true,
-    can_view_pending_details: true, can_give_recognition: true, can_view_ranking: true, can_edit_hive_map: true
+    can_view_pending_details: true, can_give_recognition: true, can_view_ranking: true,
+    can_view_hive_map: true, can_edit_hive_map: true, can_view_team_directory: true
   },
   garcom: {
     can_add_expense: false, can_review_expense: false, can_add_cashier: true, can_add_stock: false,
     can_manage_users: false, can_view_financial_summary: false, can_approve_users: false,
     can_review_cashier: false, can_edit_expense: false, can_edit_stock: false, can_approve_event_requests: false,
     can_manage_stock_catalog: false, can_edit_own_stock: false,
-    can_view_pending_details: true, can_give_recognition: true, can_view_ranking: true, can_edit_hive_map: false
+    can_view_pending_details: true, can_give_recognition: true, can_view_ranking: true,
+    can_view_hive_map: true, can_edit_hive_map: false, can_view_team_directory: true
   },
   caixa: {
     can_add_expense: false, can_review_expense: false, can_add_cashier: true, can_add_stock: false,
     can_manage_users: false, can_view_financial_summary: false, can_approve_users: false,
     can_review_cashier: false, can_edit_expense: false, can_edit_stock: false, can_approve_event_requests: false,
     can_manage_stock_catalog: false, can_edit_own_stock: false,
-    can_view_pending_details: true, can_give_recognition: true, can_view_ranking: true, can_edit_hive_map: false
+    can_view_pending_details: true, can_give_recognition: true, can_view_ranking: true,
+    can_view_hive_map: true, can_edit_hive_map: false, can_view_team_directory: true
   },
   // Operacional cobre o time de bar/produção/segurança/etc — ganham autonomia pra
   // manter o catálogo de produtos/estoques em dia e corrigir os próprios lançamentos.
@@ -59,14 +62,16 @@ const ROLE_PERMISSIONS: Record<AccessRole, Omit<RolePermissions, 'role' | 'updat
     can_manage_users: false, can_view_financial_summary: false, can_approve_users: false,
     can_review_cashier: false, can_edit_expense: false, can_edit_stock: false, can_approve_event_requests: false,
     can_manage_stock_catalog: true, can_edit_own_stock: true,
-    can_view_pending_details: true, can_give_recognition: true, can_view_ranking: true, can_edit_hive_map: false
+    can_view_pending_details: true, can_give_recognition: true, can_view_ranking: true,
+    can_view_hive_map: true, can_edit_hive_map: false, can_view_team_directory: true
   },
   colaborador: {
     can_add_expense: false, can_review_expense: false, can_add_cashier: false, can_add_stock: false,
     can_manage_users: false, can_view_financial_summary: false, can_approve_users: false,
     can_review_cashier: false, can_edit_expense: false, can_edit_stock: false, can_approve_event_requests: false,
     can_manage_stock_catalog: false, can_edit_own_stock: false,
-    can_view_pending_details: true, can_give_recognition: true, can_view_ranking: true, can_edit_hive_map: false
+    can_view_pending_details: true, can_give_recognition: true, can_view_ranking: true,
+    can_view_hive_map: true, can_edit_hive_map: false, can_view_team_directory: true
   }
 }
 
@@ -161,4 +166,12 @@ export function canViewRanking(role: AccessRole) {
 
 export function canEditHiveMap(role: AccessRole) {
   return ROLE_PERMISSIONS[role].can_edit_hive_map
+}
+
+export function canViewHiveMap(role: AccessRole) {
+  return ROLE_PERMISSIONS[role].can_view_hive_map
+}
+
+export function canViewTeamDirectory(role: AccessRole) {
+  return ROLE_PERMISSIONS[role].can_view_team_directory
 }

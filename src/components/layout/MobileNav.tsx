@@ -1,20 +1,19 @@
 import { NavLink } from 'react-router-dom'
 import { Home, Users, UserCircle, Hexagon, CalendarDays, Trophy, Package, ShieldCheck, Settings, Wallet } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
-import { canApproveUsers, canManageUsers, canViewFinancialSummary, canViewRanking, canViewStockTab } from '../../lib/permissions'
-
-const baseLinks = [
-  { to: '/dashboard', label: 'Início', icon: Home },
-  { to: '/turma', label: 'Turma', icon: Users },
-  { to: '/mapa', label: 'Mapa', icon: Hexagon },
-  { to: '/eventos', label: 'Eventos', icon: CalendarDays }
-]
+import {
+  canApproveUsers, canManageUsers, canViewFinancialSummary, canViewHiveMap, canViewRanking,
+  canViewStockTab, canViewTeamDirectory
+} from '../../lib/permissions'
 
 export default function MobileNav() {
   const { accessRole } = useAuth()
 
   const links = [
-    ...baseLinks,
+    { to: '/dashboard', label: 'Início', icon: Home },
+    ...(canViewTeamDirectory(accessRole) ? [{ to: '/turma', label: 'Turma', icon: Users }] : []),
+    ...(canViewHiveMap(accessRole) ? [{ to: '/mapa', label: 'Mapa', icon: Hexagon }] : []),
+    { to: '/eventos', label: 'Eventos', icon: CalendarDays },
     ...(canViewStockTab(accessRole) ? [{ to: '/estoque', label: 'Estoque', icon: Package }] : []),
     ...(canViewRanking(accessRole) ? [{ to: '/ranking', label: 'Ranking', icon: Trophy }] : []),
     { to: '/perfil/me', label: 'Perfil', icon: UserCircle },

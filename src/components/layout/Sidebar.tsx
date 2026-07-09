@@ -5,7 +5,10 @@ import {
   ShieldCheck, Settings, ChevronDown, Wallet, Cake
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
-import { canApproveUsers, canManageUsers, canViewFinancialSummary, canViewRanking, canViewStockTab } from '../../lib/permissions'
+import {
+  canApproveUsers, canManageUsers, canViewFinancialSummary, canViewHiveMap, canViewRanking,
+  canViewStockTab, canViewTeamDirectory
+} from '../../lib/permissions'
 import Avatar from '../ui/Avatar'
 
 interface NavItem {
@@ -34,9 +37,9 @@ export default function Sidebar() {
       label: 'Comunidade',
       icon: Users,
       items: [
-        { to: '/turma', label: 'Conhecer a turma', icon: Users },
+        ...(canViewTeamDirectory(accessRole) ? [{ to: '/turma', label: 'Conhecer a turma', icon: Users }] : []),
         { to: '/perfil/me', label: 'Meu perfil', icon: UserCircle },
-        { to: '/mapa', label: 'Mapa da colmeia', icon: Hexagon },
+        ...(canViewHiveMap(accessRole) ? [{ to: '/mapa', label: 'Mapa da colmeia', icon: Hexagon }] : []),
         { to: '/aniversariantes', label: 'Aniversariantes do mês', icon: Cake },
         ...(canViewRanking(accessRole) ? [{ to: '/ranking', label: 'Ranking', icon: Trophy }] : [])
       ]

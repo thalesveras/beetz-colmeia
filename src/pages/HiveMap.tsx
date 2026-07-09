@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Pencil } from 'lucide-react'
 import { listDepartments, listPendingProfilesForDirectory, listProfiles, pendingDepartmentHintToSlug, updateDepartmentDetails } from '../lib/dataService'
 import { useAuth } from '../contexts/AuthContext'
-import { canEditHiveMap, canViewPendingProfileDetails } from '../lib/permissions'
+import { canEditHiveMap, canViewHiveMap, canViewPendingProfileDetails } from '../lib/permissions'
 import type { Department, PendingProfileDirectoryItem, Profile } from '../lib/types'
 import ProfileCard from '../components/ui/ProfileCard'
 import PendingProfileCard from '../components/ui/PendingProfileCard'
@@ -37,6 +37,16 @@ export default function HiveMap() {
   const countFor = (dept: Department) => profiles.filter((p) => p.department_id === dept.id).length + pendingForDept(dept.slug).length
   const membersOfSelected = selected ? profiles.filter((p) => p.department_id === selected.id) : []
   const pendingOfSelected = selected ? pendingForDept(selected.slug) : []
+
+  if (!canViewHiveMap(accessRole)) {
+    return (
+      <div className="bg-white rounded-2xl p-8 shadow-soft border border-beetz-dark/5 text-center">
+        <p className="text-4xl mb-3">🔒</p>
+        <h1 className="text-xl font-bold mb-1">Acesso restrito</h1>
+        <p className="text-sm text-beetz-dark/60">Seu perfil de acesso não tem permissão pra ver o Mapa da Colmeia.</p>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">

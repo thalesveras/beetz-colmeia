@@ -5,7 +5,7 @@ import {
   pendingDepartmentHintToSlug
 } from '../lib/dataService'
 import { useAuth } from '../contexts/AuthContext'
-import { canViewPendingProfileDetails } from '../lib/permissions'
+import { canViewPendingProfileDetails, canViewTeamDirectory } from '../lib/permissions'
 import type { Department, EventItem, PendingProfileDirectoryItem, Profile } from '../lib/types'
 import ProfileCard from '../components/ui/ProfileCard'
 import PendingProfileCard from '../components/ui/PendingProfileCard'
@@ -73,6 +73,16 @@ export default function TeamDirectory() {
     if (city && p.city !== city) return false
     return true
   })
+
+  if (!canViewTeamDirectory(accessRole)) {
+    return (
+      <div className="bg-white rounded-2xl p-8 shadow-soft border border-beetz-dark/5 text-center">
+        <p className="text-4xl mb-3">🔒</p>
+        <h1 className="text-xl font-bold mb-1">Acesso restrito</h1>
+        <p className="text-sm text-beetz-dark/60">Seu perfil de acesso não tem permissão pra ver a turma.</p>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">

@@ -1,17 +1,27 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, Pencil, Ban, RotateCcw, Check, X, Trash2, ChevronDown, ChevronUp, Package, Warehouse, AlertTriangle, Clock3 } from 'lucide-react'
 import {
-  createProduct, createStockLocation, deleteProduct, deleteStockLocation, getStockBalances, listProducts,
-  listProfiles, listStockLocations, listStockMovements, updateProduct, updateStockLocation, updateStockMovement
+  Plus, Pencil, Ban, RotateCcw, Check, X, Trash2, ChevronDown, ChevronUp, Package, Warehouse, AlertTriangle,
+  Clock3, ArrowLeftRight
+} from 'lucide-react'
+import {
+  createProduct, createStockLocation, createTransferRequest, deleteProduct, deleteStockLocation, getStockBalances,
+  listEvents, listProducts, listProfiles, listStockLocations, listStockMovements, listTransferRequests,
+  updateProduct, updateStockLocation, updateStockMovement, updateTransferRequestStatus
 } from '../lib/dataService'
-import type { Product, Profile, StockBalance, StockLocation, StockMovement } from '../lib/types'
+import type { EventItem, Product, Profile, StockBalance, StockLocation, StockMovement, TransferRequest, TransferRequestStatus } from '../lib/types'
 import StockMovementForm from '../components/stock/StockMovementForm'
 import { useAuth } from '../contexts/AuthContext'
-import { canEditOwnStock, canEditStock, canManageStockCatalog } from '../lib/permissions'
+import { canEditOwnStock, canEditStock, canManageStockCatalog, canManageUsers } from '../lib/permissions'
 
 const inputClass = 'flex-1 border border-beetz-dark/15 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
 const COMMON_UNITS = ['un', 'kg', 'g', 'L', 'ml', 'caixa', 'pacote', 'saco', 'garrafa', 'fardo', 'dúzia']
 const LOW_STOCK_THRESHOLD = 5
+const transferStatuses: TransferRequestStatus[] = ['Pendente', 'Aprovado', 'Negado']
+const transferStatusColors: Record<TransferRequestStatus, string> = {
+  Pendente: 'bg-beetz-yellow/30 text-beetz-dark',
+  Aprovado: 'bg-green-100 text-green-700',
+  Negado: 'bg-red-100 text-red-700'
+}
 
 export default function Stock() {
   const { userId, accessRole } = useAuth()
@@ -32,6 +42,22 @@ export default function Stock() {
   const [newLocationName, setNewLocationName] = useState('')
 
   const canManageCatalog = canManageStockCatalog(accessRole)
+  const canApproveTransfers = canManageUsers(accessRole)
+
+  // Transferências entre estoques — mesma tabela usada dentro do evento
+  // (aba "Transferências solicitadas pela produção"), aqui numa visão global
+  // pra quem cuida do estoque não precisar entrar em cada evento pra ver/aprovar.
+  const [events, setEvents] = useState<EventItem[]>([])
+  const [transfers, setTransfers] = useState<TransferRequest[]>([])
+  const [showTransferForm, setShowTransferForm] = useState(false)
+  const [savingTransfer, setSavingTransfer] = useState(false)
+  const [transferEventId, setTransferEventId] = useState('')
+  const [transferProductId, setTransferProductId] = useState('')
+  const [transferQuantity, setTransferQuantity] = useState(1)
+  const [transferFromId, setTransferFromId] = useState('')
+  const [transferToId, setTransferToId] = useState('')
+  const [transferRequestedBy, setTransferRequestedBy] = useState('')
+  const [transferNotes, setTransferNotes] = useState('')
 
   // Produto/estoque em edição inline (cadastro rápido)
   const [editingProductId, setEditingProductId] = useState<string | null>(null)
@@ -43,14 +69,17 @@ export default function Stock() {
 
   async function load() {
     setLoading(true)
-    const [b, l, p, m, pr] = await Promise.all([
-      getStockBalances(), listStockLocations(), listProducts(), listStockMovements(), listProfiles()
+    const [b, l, p, m, pr, ev, tr] = await Promise.all([
+      getStockBalances(), listStockLocations(), listProducts(), listStockMovements(), listProfiles(),
+      listEvents(), listTransferRequests()
     ])
     setBalances(b)
     setLocations(l)
     setProducts(p)
     setMovements(m)
     setProfiles(pr)
+    setEvents(ev)
+    setTransfers(tr)
     setLoading(false)
   }
 
@@ -58,9 +87,32 @@ export default function Stock() {
 
   const productName = (id: string) => products.find((p) => p.id === id)?.name ?? '—'
   const locationName = (id: string) => locations.find((l) => l.id === id)?.name ?? '—'
+  const locationNameOrDash = (id: string | null) => (id ? locationName(id) : '—')
+  const eventName = (id: string) => events.find((e) => e.id === id)?.name ?? '—'
   const creatorName = (id: string | null) => {
     const p = profiles.find((pr) => pr.id === id)
     return p ? `${p.first_name} ${p.last_name}` : 'Desconhecido(a)'
+  }
+
+  async function handleAddTransfer(e: React.FormEvent) {
+    e.preventDefault()
+    if (!transferEventId || !transferProductId) return
+    setSavingTransfer(true)
+    await createTransferRequest({
+      event_id: transferEventId, product_id: transferProductId, quantity: transferQuantity,
+      from_location_id: transferFromId || null, to_location_id: transferToId || null,
+      requested_by: transferRequestedBy || null, notes: transferNotes || null
+    })
+    setSavingTransfer(false)
+    setTransferEventId(''); setTransferProductId(''); setTransferQuantity(1)
+    setTransferFromId(''); setTransferToId(''); setTransferRequestedBy(''); setTransferNotes('')
+    setShowTransferForm(false)
+    load()
+  }
+
+  async function handleTransferStatusChange(id: string, status: TransferRequestStatus) {
+    await updateTransferRequestStatus(id, status)
+    load()
   }
 
   function formatDateTime(iso: string) {
@@ -389,6 +441,103 @@ export default function Stock() {
                 </div>
               ))}
               {movements.length === 0 && <p className="text-sm text-beetz-dark/50 p-4">Nenhuma movimentação ainda.</p>}
+            </div>
+          </section>
+
+          <section>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-bold flex items-center gap-2"><ArrowLeftRight size={18} /> Transferências entre estoques</h2>
+                <p className="text-sm text-beetz-dark/50 mt-0.5">Pedidos de mudança de produto entre almoxarifados, vinculados a um evento.</p>
+              </div>
+              <button
+                onClick={() => setShowTransferForm((v) => !v)}
+                className="flex items-center gap-1.5 text-sm font-semibold bg-beetz-dark text-white px-3 py-2 rounded-xl hover:bg-black transition-colors shrink-0"
+              >
+                <Plus size={16} /> Nova solicitação
+              </button>
+            </div>
+
+            {showTransferForm && (
+              <form onSubmit={handleAddTransfer} className="bg-beetz-gray rounded-2xl p-5 space-y-4 mb-4">
+                <div>
+                  <label className="text-sm font-medium block mb-1">Evento</label>
+                  <select required className={inputClass + ' w-full'} value={transferEventId} onChange={(e) => setTransferEventId(e.target.value)}>
+                    <option value="">Selecionar...</option>
+                    {events.map((ev) => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
+                  </select>
+                </div>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium block mb-1">Produto</label>
+                    <select required className={inputClass + ' w-full'} value={transferProductId} onChange={(e) => setTransferProductId(e.target.value)}>
+                      <option value="">Selecionar...</option>
+                      {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium block mb-1">Quantidade</label>
+                    <input type="number" min={0} step="1" className={inputClass + ' w-full'} value={transferQuantity} onChange={(e) => setTransferQuantity(Number(e.target.value))} />
+                  </div>
+                </div>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium block mb-1">De (estoque de origem)</label>
+                    <select className={inputClass + ' w-full'} value={transferFromId} onChange={(e) => setTransferFromId(e.target.value)}>
+                      <option value="">Selecionar...</option>
+                      {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium block mb-1">Para (estoque de destino)</label>
+                    <select className={inputClass + ' w-full'} value={transferToId} onChange={(e) => setTransferToId(e.target.value)}>
+                      <option value="">Selecionar...</option>
+                      {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-sm font-medium block mb-1">Solicitado por</label>
+                  <input className={inputClass + ' w-full'} placeholder="Nome de quem está pedindo" value={transferRequestedBy} onChange={(e) => setTransferRequestedBy(e.target.value)} />
+                </div>
+                <div>
+                  <label className="text-sm font-medium block mb-1">Observações</label>
+                  <input className={inputClass + ' w-full'} value={transferNotes} onChange={(e) => setTransferNotes(e.target.value)} />
+                </div>
+                <div className="flex justify-end gap-2 pt-1">
+                  <button type="button" onClick={() => setShowTransferForm(false)} className="text-sm font-semibold text-beetz-dark/50 px-4 py-2">Cancelar</button>
+                  <button type="submit" disabled={savingTransfer || !transferEventId || !transferProductId} className="honey-gradient text-beetz-dark font-bold px-5 py-2 rounded-xl text-sm disabled:opacity-60">
+                    {savingTransfer ? 'Salvando...' : 'Enviar solicitação'}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            <div className="bg-white rounded-2xl shadow-soft border border-beetz-dark/5 divide-y divide-beetz-dark/5">
+              {transfers.map((t) => (
+                <div key={t.id} className="flex flex-wrap items-center gap-3 p-4">
+                  {canApproveTransfers ? (
+                    <select
+                      value={t.status}
+                      onChange={(e) => handleTransferStatusChange(t.id, e.target.value as TransferRequestStatus)}
+                      className={`text-xs font-semibold px-2.5 py-1 rounded-full border-0 ${transferStatusColors[t.status]}`}
+                    >
+                      {transferStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  ) : (
+                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${transferStatusColors[t.status]}`}>{t.status}</span>
+                  )}
+                  <div className="flex-1 min-w-[200px]">
+                    <p className="font-semibold text-sm">{productName(t.product_id)} · {t.quantity}</p>
+                    <p className="text-xs text-beetz-dark/50">
+                      {locationNameOrDash(t.from_location_id)} → {locationNameOrDash(t.to_location_id)} · {eventName(t.event_id)}
+                      {t.requested_by ? ` · Pedido por: ${t.requested_by}` : ''}
+                      {t.notes ? ` · ${t.notes}` : ''}
+                    </p>
+                  </div>
+                </div>
+              ))}
+              {transfers.length === 0 && <p className="text-sm text-beetz-dark/50 p-4">Nenhuma transferência solicitada ainda.</p>}
             </div>
           </section>
         </>

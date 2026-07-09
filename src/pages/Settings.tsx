@@ -12,10 +12,10 @@ import {
   deletePaymentMethod, deleteServiceModality, getZohoPendingProfilesStats, importPendingPhotosBatch,
   importZohoPendingProfiles, inspectZohoCreatorFields, listBadgeDefsConfig, listDepartments,
   listExpenseCategories, listHiveLevelsConfig, listPaymentMethods, listRolePermissions,
-  listServiceModalities, listZohoMeta, syncZohoCreator, updateAppSettings, updateBadgeDef,
+  listServiceModalities, listZohoMeta, peekZohoReport, syncZohoCreator, updateAppSettings, updateBadgeDef,
   updateDepartmentAccessRole, updateHiveLevel, updateRolePermission, updateServiceModality
 } from '../lib/dataService'
-import type { ZohoMetaItem, ZohoPendingProfilesStats } from '../lib/dataService'
+import type { ZohoMetaItem, ZohoPendingProfilesStats, ZohoReportPeek } from '../lib/dataService'
 import type {
   AppSettings, BadgeDefConfig, Department, ExperienceLevel, ExpenseCategory, HiveLevelConfig,
   PaymentMethodOption, RolePermissions, ServiceModality, ZohoPendingProfile
@@ -68,6 +68,8 @@ const PERMISSION_GROUPS: { title: string; fields: { key: PermissionKey; label: s
   {
     title: 'Comunidade (Turma, Mapa da Colmeia, Ranking, Aniversariantes)',
     fields: [
+      { key: 'can_view_team_directory', label: 'Ver Conhecer a turma', description: 'Acessar a página com a lista de todos os colaboradores da Beetz.' },
+      { key: 'can_view_hive_map', label: 'Ver o Mapa da Colmeia', description: 'Acessar a página com os departamentos e quem faz parte de cada um.' },
       { key: 'can_view_pending_details', label: 'Ver detalhes de pré-cadastro', description: 'Clicar num card de pré-cadastro (Turma, Mapa da Colmeia, Aniversariantes) e ver o modal com mais informações da pessoa.' },
       { key: 'can_give_recognition', label: 'Dar Mel e elogiar', description: 'Enviar reconhecimento (mel) e elogios pra outros colaboradores.' },
       { key: 'can_view_ranking', label: 'Ver o Ranking', description: 'Acessar a página de ranking/colocação dos colaboradores.' },
@@ -839,6 +841,11 @@ function DataImporterSection() {
   const [metaError, setMetaError] = useState<string | null>(null)
   const [meta, setMeta] = useState<{ forms: ZohoMetaItem[]; reports: ZohoMetaItem[] } | null>(null)
 
+  const [peekReportLinkName, setPeekReportLinkName] = useState('')
+  const [peeking, setPeeking] = useState(false)
+  const [peekError, setPeekError] = useState<string | null>(null)
+  const [peekResult, setPeekResult] = useState<ZohoReportPeek | null>(null)
+
   type PhotoProgress = { running: boolean; succeeded: number; failed: number; remaining: number | null; error: string | null }
   const [avatarProgress, setAvatarProgress] = useState<PhotoProgress>({ running: false, succeeded: 0, failed: 0, remaining: null, error: null })
   const [docProgress, setDocProgress] = useState<PhotoProgress>({ running: false, succeeded: 0, failed: 0, remaining: null, error: null })
@@ -933,6 +940,22 @@ function DataImporterSection() {
       setMetaError(err?.message ?? 'Erro ao listar formulários e relatórios do Zoho.')
     } finally {
       setListingMeta(false)
+    }
+  }
+
+  async function handlePeek(e: React.FormEvent) {
+    e.preventDefault()
+    if (!peekReportLinkName.trim()) return
+    setPeeking(true)
+    setPeekError(null)
+    setPeekResult(null)
+    try {
+      const res = await peekZohoReport(peekReportLinkName.trim())
+      setPeekResult(res)
+    } catch (err: any) {
+      setPeekError(err?.message ?? 'Erro ao pré-visualizar o relatório.')
+    } finally {
+      setPeeking(false)
     }
   }
 
@@ -1229,6 +1252,49 @@ function DataImporterSection() {
                 </table>
               </div>
             </div>
+          </div>
+        )}
+      </div>
+
+      <div className="bg-beetz-gray rounded-xl p-4 mb-5">
+        <p className="text-sm font-semibold mb-1 flex items-center gap-1.5"><Search size={14} /> Pré-visualizar um relatório qualquer</p>
+        <p className="text-xs text-beetz-dark/60 mb-3">
+          Cole o "link name" de qualquer relatório do app do Zoho (descoberto no botão acima) e veja uma amostra
+          de até 5 registros brutos — sem gravar nada no banco. Serve pra entender o formato de um relatório novo
+          antes de decidir se/como importar (ex: eventos, fechamento, repasses às produtoras).
+        </p>
+        <form onSubmit={handlePeek} className="flex flex-wrap gap-2">
+          <input
+            className="flex-1 min-w-[220px] border border-beetz-dark/15 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow"
+            placeholder="Ex: Lista_de_transferencias"
+            value={peekReportLinkName}
+            onChange={(e) => setPeekReportLinkName(e.target.value)}
+          />
+          <button
+            type="submit"
+            disabled={peeking || !peekReportLinkName.trim()}
+            className="flex items-center gap-2 border border-beetz-dark/15 font-semibold px-4 py-2.5 rounded-xl text-sm hover:bg-white transition-colors disabled:opacity-60"
+          >
+            <Search size={15} /> {peeking ? 'Consultando...' : 'Ver amostra'}
+          </button>
+        </form>
+        {peekError && (
+          <div className="flex items-start gap-2 bg-red-50 text-red-700 text-sm rounded-xl p-3 mt-3">
+            <AlertTriangle size={16} className="shrink-0 mt-0.5" /> {peekError}
+          </div>
+        )}
+        {peekResult && (
+          <div className="mt-3">
+            <p className="text-xs text-beetz-dark/60 mb-2">
+              {peekResult.records.length === 0
+                ? 'Nenhum registro encontrado nesse relatório.'
+                : `${peekResult.records.length} registro(s) de amostra · campos: ${peekResult.fieldNames.join(', ')}`}
+            </p>
+            {peekResult.records.length > 0 && (
+              <pre className="overflow-auto rounded-xl border border-beetz-dark/10 bg-white text-xs p-3 max-h-72">
+                {JSON.stringify(peekResult.records, null, 2)}
+              </pre>
+            )}
           </div>
         )}
       </div>

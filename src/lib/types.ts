@@ -441,9 +441,11 @@ export interface RolePermissions {
   can_manage_stock_catalog: boolean
   can_edit_own_stock: boolean
   // Menu Comunidade (Turma, Mapa da Colmeia, Ranking, Aniversariantes)
+  can_view_team_directory: boolean
   can_view_pending_details: boolean
   can_give_recognition: boolean
   can_view_ranking: boolean
+  can_view_hive_map: boolean
   can_edit_hive_map: boolean
   updated_at: string
 }
