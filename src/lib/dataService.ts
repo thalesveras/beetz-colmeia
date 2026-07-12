@@ -1773,3 +1773,23 @@ export async function deleteDnsSubdomain(record: DnsSubdomain): Promise<void> {
   if (error) throw new Error(await extractFunctionErrorMessage(error))
   if (data?.error) throw new Error(data.error)
 }
+
+// Publica (ou atualiza) o Cloudflare Worker que faz os redirecionamentos
+// valerem de verdade no beetz.bar (que hoje é WordPress — por isso o
+// redirecionamento precisa acontecer na borda do Cloudflare, não no site).
+// Só precisa ser clicado uma vez (ou de novo se o mecanismo mudar); depois
+// disso as regras da tabela link_redirects já valem na hora.
+export interface DeployRedirectWorkerResult {
+  success: boolean
+  pattern?: string
+  script?: string
+  route_action?: 'created' | 'updated'
+}
+
+export async function deployRedirectWorker(): Promise<DeployRedirectWorkerResult> {
+  if (isDemoMode) return { success: true, pattern: 'beetz.bar/*', script: 'beetz-bar-redirects', route_action: 'created' }
+  const { data, error } = await supabase.functions.invoke('deploy-redirect-worker', { body: {} })
+  if (error) throw new Error(await extractFunctionErrorMessage(error))
+  if (data?.error) throw new Error(data.error)
+  return data as DeployRedirectWorkerResult
+}
