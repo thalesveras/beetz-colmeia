@@ -9,9 +9,10 @@ import {
 } from './mockData'
 import { badgesFromStats, getHiveLevel } from './levels'
 import type {
-  AppSettings, Badge, BadgeDefConfig, CashierSettlement, Compliment, Department, EventFinancialSummary,
+  AppSettings, Badge, BadgeDefConfig, CashierSettlement, Compliment, Department, DnsSubdomain, DnsRecordType,
+  EventFinancialSummary,
   EventItem, EventMember, EventModality, EventProduct, EventRepasse, EventStaffingRequirement, Expense,
-  ExpenseCategory, HiveLevelConfig, HoneyPoint, MovementType, PaymentMethodOption, Product,
+  ExpenseCategory, HiveLevelConfig, HoneyPoint, LinkRedirect, MovementType, PaymentMethodOption, Product,
   ProductionConsumption, Producer, Profile, ProfileStats, RolePermissions, ServiceModality,
   PendingProfileDirectoryItem, PendingProfilePickerItem, PendingProfileSensitive, StockBalance, StockLocation, StockMovement,
   Supplier, TransferRequest, TransferRequestStatus, ZohoPendingProfile, EmailKind, EmailLogEntry
@@ -45,7 +46,9 @@ const demoState = {
   serviceModalities: [...mockServiceModalities],
   eventModalities: [...mockEventModalities],
   eventStaffingRequirements: [...mockEventStaffingRequirements],
-  eventRepasses: [...mockEventRepasses]
+  eventRepasses: [...mockEventRepasses],
+  linkRedirects: [] as LinkRedirect[],
+  dnsSubdomains: [] as DnsSubdomain[]
 }
 
 function uid(prefix: string) {
@@ -1660,4 +1663,113 @@ export async function listEmailLog(limit = 30): Promise<EmailLogEntry[]> {
     .limit(limit)
   if (error) throw error
   return data as EmailLogEntry[]
+}
+
+// ---------- Redirecionadores do site beetz.bar ----------
+// CRUD simples numa tabela lida em tempo real pela Netlify Edge Function do
+// site estático (ver netlify/edge-functions/redirects.ts no projeto Beetz
+// Bar Site) — qualquer mudança aqui já vale no próximo acesso ao site, sem
+// precisar reimplantar nada.
+export type NewLinkRedirectInput = Pick<LinkRedirect, 'path' | 'destination_url' | 'notes'> & { created_by: string | null }
+
+function normalizeRedirectPath(path: string): string {
+  const trimmed = path.trim()
+  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`
+}
+
+export async function listLinkRedirects(): Promise<LinkRedirect[]> {
+  if (isDemoMode) return [...demoState.linkRedirects].sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+  const { data, error } = await supabase.from('link_redirects').select('*').order('created_at', { ascending: false })
+  if (error) throw error
+  return data as LinkRedirect[]
+}
+
+export async function createLinkRedirect(input: NewLinkRedirectInput): Promise<LinkRedirect> {
+  const path = normalizeRedirectPath(input.path)
+  if (isDemoMode) {
+    const record: LinkRedirect = {
+      id: uid('lr'), path, destination_url: input.destination_url, notes: input.notes,
+      is_active: true, created_by: input.created_by, created_at: new Date().toISOString()
+    }
+    demoState.linkRedirects.push(record)
+    return record
+  }
+  const { data, error } = await supabase
+    .from('link_redirects')
+    .insert({ path, destination_url: input.destination_url, notes: input.notes, created_by: input.created_by })
+    .select().single()
+  if (error) throw error
+  return data as LinkRedirect
+}
+
+export async function updateLinkRedirect(
+  id: string, patch: Partial<Pick<LinkRedirect, 'path' | 'destination_url' | 'notes' | 'is_active'>>
+): Promise<LinkRedirect> {
+  const normalizedPatch = patch.path ? { ...patch, path: normalizeRedirectPath(patch.path) } : patch
+  if (isDemoMode) {
+    const idx = demoState.linkRedirects.findIndex((r) => r.id === id)
+    if (idx < 0) throw new Error('Redirecionador não encontrado')
+    demoState.linkRedirects[idx] = { ...demoState.linkRedirects[idx], ...normalizedPatch }
+    return demoState.linkRedirects[idx]
+  }
+  const { data, error } = await supabase.from('link_redirects').update(normalizedPatch).eq('id', id).select().single()
+  if (error) throw error
+  return data as LinkRedirect
+}
+
+export async function deleteLinkRedirect(id: string): Promise<void> {
+  if (isDemoMode) {
+    demoState.linkRedirects = demoState.linkRedirects.filter((r) => r.id !== id)
+    return
+  }
+  const { error } = await supabase.from('link_redirects').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ---------- Subdomínios (registros DNS via Cloudflare) ----------
+// Cria/apaga o registro de verdade no Cloudflare através da edge function
+// manage-subdomain (que segura o token e o zone id como secrets — nunca
+// tocamos nisso aqui no front). O front só manda a intenção e recebe de
+// volta o resultado (sucesso com o id do registro, ou erro).
+export interface CreateSubdomainInput {
+  subdomain: string
+  target_type: DnsRecordType
+  target_value: string
+  proxied: boolean
+}
+
+export async function listDnsSubdomains(): Promise<DnsSubdomain[]> {
+  if (isDemoMode) return [...demoState.dnsSubdomains].sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+  const { data, error } = await supabase.from('dns_subdomains').select('*').order('created_at', { ascending: false })
+  if (error) throw error
+  return data as DnsSubdomain[]
+}
+
+export async function createDnsSubdomain(input: CreateSubdomainInput): Promise<DnsSubdomain> {
+  if (isDemoMode) {
+    const record: DnsSubdomain = {
+      id: uid('dns'), ...input, status: 'Ativo', cloudflare_record_id: 'demo-record', error_message: null,
+      created_by: null, created_at: new Date().toISOString()
+    }
+    demoState.dnsSubdomains.push(record)
+    return record
+  }
+  const { data, error } = await supabase.functions.invoke('manage-subdomain', {
+    body: { action: 'create', ...input }
+  })
+  if (error) throw new Error(await extractFunctionErrorMessage(error))
+  if (data?.error) throw new Error(data.error)
+  return data as DnsSubdomain
+}
+
+export async function deleteDnsSubdomain(record: DnsSubdomain): Promise<void> {
+  if (isDemoMode) {
+    demoState.dnsSubdomains = demoState.dnsSubdomains.filter((r) => r.id !== record.id)
+    return
+  }
+  const { data, error } = await supabase.functions.invoke('manage-subdomain', {
+    body: { action: 'delete', id: record.id, cloudflare_record_id: record.cloudflare_record_id }
+  })
+  if (error) throw new Error(await extractFunctionErrorMessage(error))
+  if (data?.error) throw new Error(data.error)
 }

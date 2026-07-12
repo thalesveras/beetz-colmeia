@@ -323,6 +323,38 @@ export interface PendingProfileSensitive {
   pix_owner_name: string | null
 }
 
+// Redirecionador de caminho pro site público beetz.bar (ex: /cardapio -> um
+// link externo). Lido em tempo real por uma Netlify Edge Function no site
+// estático — mudanças aqui valem na hora, sem precisar reimplantar o site.
+export interface LinkRedirect {
+  id: string
+  path: string
+  destination_url: string
+  is_active: boolean
+  notes: string | null
+  created_by: string | null
+  created_at: string
+}
+
+export type DnsSubdomainStatus = 'Ativo' | 'Erro' | 'Removido'
+export type DnsRecordType = 'CNAME' | 'A'
+
+// Registro de DNS de subdomínio (ex: app.beetz.bar) criado via API do
+// Cloudflare pela edge function manage-subdomain. cloudflare_record_id
+// guarda o ID do registro lá no Cloudflare, necessário pra apagar depois.
+export interface DnsSubdomain {
+  id: string
+  subdomain: string
+  target_type: DnsRecordType
+  target_value: string
+  proxied: boolean
+  status: DnsSubdomainStatus
+  cloudflare_record_id: string | null
+  error_message: string | null
+  created_by: string | null
+  created_at: string
+}
+
 export interface Supplier {
   id: string
   name: string

@@ -1,0 +1,158 @@
+import { useEffect, useState } from 'react'
+import { ExternalLink, Link2, Pencil, Trash2, X, Check } from 'lucide-react'
+import { useAuth } from '../../contexts/AuthContext'
+import { createLinkRedirect, deleteLinkRedirect, listLinkRedirects, updateLinkRedirect } from '../../lib/dataService'
+import type { LinkRedirect } from '../../lib/types'
+
+const inputClass = 'rounded-xl border border-beetz-dark/15 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
+
+// Redirecionadores do site público beetz.bar (ex: /cardapio -> um link
+// externo). Isso aqui só cadastra a regra no banco — quem de fato redireciona
+// é a Netlify Edge Function do site estático, que consulta essa tabela em
+// tempo real a cada visita. Uma vez que a edge function esteja no ar (um
+// deploy só, feito uma vez), qualquer regra criada/editada/apagada aqui já
+// vale na hora — não precisa reimplantar o site de novo.
+export default function RedirectsSection() {
+  const { userId } = useAuth()
+  const [redirects, setRedirects] = useState<LinkRedirect[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const [newPath, setNewPath] = useState('')
+  const [newDestination, setNewDestination] = useState('')
+  const [newNotes, setNewNotes] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editPath, setEditPath] = useState('')
+  const [editDestination, setEditDestination] = useState('')
+  const [editNotes, setEditNotes] = useState('')
+
+  async function load() {
+    setLoading(true)
+    setRedirects(await listLinkRedirects())
+    setLoading(false)
+  }
+
+  useEffect(() => { load() }, [])
+
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault()
+    if (!newPath.trim() || !newDestination.trim()) return
+    setSaving(true)
+    setFormError(null)
+    try {
+      await createLinkRedirect({ path: newPath, destination_url: newDestination.trim(), notes: newNotes.trim() || null, created_by: userId ?? null })
+      setNewPath(''); setNewDestination(''); setNewNotes('')
+      load()
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Erro ao criar redirecionador (o caminho já pode estar em uso).')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function startEdit(r: LinkRedirect) {
+    setEditingId(r.id); setEditPath(r.path); setEditDestination(r.destination_url); setEditNotes(r.notes ?? '')
+  }
+
+  async function saveEdit(id: string) {
+    if (!editPath.trim() || !editDestination.trim()) return
+    await updateLinkRedirect(id, { path: editPath, destination_url: editDestination.trim(), notes: editNotes.trim() || null })
+    setEditingId(null)
+    load()
+  }
+
+  async function toggleActive(r: LinkRedirect) {
+    await updateLinkRedirect(r.id, { is_active: !r.is_active })
+    load()
+  }
+
+  async function handleDelete(id: string) {
+    await deleteLinkRedirect(id)
+    load()
+  }
+
+  return (
+    <div>
+      <h2 className="font-bold mb-1 flex items-center gap-2"><Link2 size={18} /> Redirecionadores (beetz.bar)</h2>
+      <p className="text-xs text-beetz-dark/50 mb-3">
+        Ex: <code className="bg-beetz-gray px-1.5 py-0.5 rounded">/cardapio</code> → um link do iFood, WhatsApp, formulário etc.
+        Vale na hora, sem precisar reimplantar o site.
+      </p>
+
+      <form onSubmit={handleCreate} className="bg-white rounded-2xl shadow-soft border border-beetz-dark/5 p-5 space-y-3 mb-4">
+        <div className="grid sm:grid-cols-2 gap-3">
+          <input
+            placeholder="/cardapio" value={newPath} onChange={(e) => setNewPath(e.target.value)}
+            className={inputClass}
+          />
+          <input
+            placeholder="https://destino.com/..." value={newDestination} onChange={(e) => setNewDestination(e.target.value)}
+            className={inputClass}
+          />
+        </div>
+        <input
+          placeholder="Observações (opcional)" value={newNotes} onChange={(e) => setNewNotes(e.target.value)}
+          className={`${inputClass} w-full`}
+        />
+        {formError && <p className="text-sm text-red-600">{formError}</p>}
+        <button
+          type="submit" disabled={saving || !newPath.trim() || !newDestination.trim()}
+          className="honey-gradient text-beetz-dark font-bold px-4 py-2 rounded-xl text-sm disabled:opacity-60"
+        >
+          {saving ? 'Salvando...' : 'Criar redirecionador'}
+        </button>
+      </form>
+
+      {loading ? (
+        <p className="text-beetz-dark/50 text-sm">Carregando...</p>
+      ) : redirects.length === 0 ? (
+        <p className="text-sm text-beetz-dark/50 bg-white rounded-2xl p-6 text-center border border-beetz-dark/5">Nenhum redirecionador cadastrado ainda.</p>
+      ) : (
+        <div className="bg-white rounded-2xl shadow-soft border border-beetz-dark/5 divide-y divide-beetz-dark/5">
+          {redirects.map((r) => (
+            <div key={r.id} className="p-4">
+              {editingId === r.id ? (
+                <div className="space-y-2">
+                  <div className="grid sm:grid-cols-2 gap-2">
+                    <input className={`${inputClass} w-full`} value={editPath} onChange={(e) => setEditPath(e.target.value)} />
+                    <input className={`${inputClass} w-full`} value={editDestination} onChange={(e) => setEditDestination(e.target.value)} />
+                  </div>
+                  <input className={`${inputClass} w-full`} placeholder="Observações" value={editNotes} onChange={(e) => setEditNotes(e.target.value)} />
+                  <div className="flex gap-2">
+                    <button onClick={() => saveEdit(r.id)} className="flex items-center gap-1 text-xs font-semibold bg-beetz-dark text-white px-3 py-1.5 rounded-lg">
+                      <Check size={13} /> Salvar
+                    </button>
+                    <button onClick={() => setEditingId(null)} className="text-xs font-semibold text-beetz-dark/50 px-3 py-1.5 rounded-lg hover:bg-beetz-gray">Cancelar</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    onClick={() => toggleActive(r)}
+                    className={`text-xs font-semibold px-2.5 py-1 rounded-full ${r.is_active ? 'bg-green-100 text-green-700' : 'bg-beetz-dark/10 text-beetz-dark/50'}`}
+                    title={r.is_active ? 'Clique pra desativar' : 'Clique pra ativar'}
+                  >
+                    {r.is_active ? 'Ativo' : 'Inativo'}
+                  </button>
+                  <div className="flex-1 min-w-[220px]">
+                    <p className="font-semibold text-sm flex items-center gap-1.5">
+                      beetz.bar<span className="text-beetz-dark/80">{r.path}</span>
+                      <ExternalLink size={12} className="text-beetz-dark/30" />
+                    </p>
+                    <p className="text-xs text-beetz-dark/50 truncate">
+                      → {r.destination_url}{r.notes ? ` · ${r.notes}` : ''}
+                    </p>
+                  </div>
+                  <button onClick={() => startEdit(r)} className="text-beetz-dark/40 hover:text-beetz-dark p-1.5 rounded-lg hover:bg-beetz-gray"><Pencil size={14} /></button>
+                  <button onClick={() => handleDelete(r.id)} className="text-beetz-dark/40 hover:text-red-600 p-1.5 rounded-lg hover:bg-beetz-gray"><Trash2 size={14} /></button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}

@@ -7,6 +7,8 @@ import type { Department, Profile } from '../lib/types'
 import { ACCESS_ROLE_LABELS, canManageUsers, computeAccessRole } from '../lib/permissions'
 import Avatar from '../components/ui/Avatar'
 import EditProfileModal from '../components/admin/EditProfileModal'
+import RedirectsSection from '../components/admin/RedirectsSection'
+import SubdomainsSection from '../components/admin/SubdomainsSection'
 import { Lock, Pencil, Search, Trash2, UserPlus } from 'lucide-react'
 
 const DEPARTMENT_HINTS = ['Garçons', 'Caixas', 'Operacional']
@@ -267,6 +269,10 @@ export default function Admin() {
           </div>
         )}
       </div>
+
+      <RedirectsSection />
+
+      <SubdomainsSection />
 
       {editingProfile && (
         <EditProfileModal
