@@ -14,7 +14,7 @@ import type {
   ExpenseCategory, HiveLevelConfig, HoneyPoint, MovementType, PaymentMethodOption, Product,
   ProductionConsumption, Producer, Profile, ProfileStats, RolePermissions, ServiceModality,
   PendingProfileDirectoryItem, PendingProfilePickerItem, StockBalance, StockLocation, StockMovement,
-  Supplier, TransferRequest, TransferRequestStatus, ZohoPendingProfile
+  Supplier, TransferRequest, TransferRequestStatus, ZohoPendingProfile, EmailKind, EmailLogEntry
 } from './types'
 
 // ---------- Estado em memória para o modo demonstração ----------
@@ -813,6 +813,15 @@ export async function listAllCashierSettlements(): Promise<CashierSettlement[]> 
 }
 
 // ---------- Estoque multi-almoxarifado ----------
+// Espelha o sinal de cada tipo de movimentação usado na view stock_balances
+// (banco) — mantém os dois lugares em sincronia. 'Entrada'/'Saída' seguem
+// como legado; os 6 tipos novos refletem o fluxo real (compra → envio pro
+// evento → devolução, com ajuste e perda à parte).
+const POSITIVE_MOVEMENT_TYPES: MovementType[] = ['Entrada', 'Compra', 'Devolução do Evento', 'Ajuste (entrada)']
+export function isPositiveMovementType(type: MovementType): boolean {
+  return POSITIVE_MOVEMENT_TYPES.includes(type)
+}
+
 export async function listStockLocations(): Promise<StockLocation[]> {
   if (isDemoMode) return demoState.stockLocations
   const { data, error } = await supabase.from('stock_locations').select('*').order('name')
@@ -958,7 +967,7 @@ export async function getStockBalances(): Promise<StockBalance[]> {
         const movements = demoState.stockMovements.filter(
           (m) => m.product_id === product.id && m.stock_location_id === loc.id && m.status !== 'Cancelado'
         )
-        const balance = movements.reduce((sum, m) => sum + (m.movement_type === 'Entrada' ? m.quantity : -m.quantity), 0)
+        const balance = movements.reduce((sum, m) => sum + (isPositiveMovementType(m.movement_type) ? m.quantity : -m.quantity), 0)
         balances.push({
           product_id: product.id, product_name: product.name, product_unit: product.unit,
           stock_location_id: loc.id, stock_location_name: loc.name, balance
@@ -1208,7 +1217,7 @@ export async function createProductionConsumption(input: NewProductionConsumptio
 }
 
 // ---------- Transferências solicitadas pela produção ----------
-export type NewTransferRequestInput = Omit<TransferRequest, 'id' | 'created_at' | 'status'>
+export type NewTransferRequestInput = Omit<TransferRequest, 'id' | 'created_at' | 'status' | 'returned_quantity'>
 
 // eventId omitido = todas as solicitações (usado na visão global da aba Estoque);
 // informado = só as daquele evento (usado dentro do EventDetail).
@@ -1226,7 +1235,7 @@ export async function listTransferRequests(eventId?: string): Promise<TransferRe
 
 export async function createTransferRequest(input: NewTransferRequestInput): Promise<TransferRequest> {
   if (isDemoMode) {
-    const record: TransferRequest = { ...input, id: uid('tr'), status: 'Pendente', created_at: new Date().toISOString() }
+    const record: TransferRequest = { ...input, id: uid('tr'), status: 'Pendente', returned_quantity: null, created_at: new Date().toISOString() }
     demoState.transferRequests.push(record)
     return record
   }
@@ -1243,6 +1252,64 @@ export async function updateTransferRequestStatus(id: string, status: TransferRe
   }
   const { error } = await supabase.from('transfer_requests').update({ status }).eq('id', id)
   if (error) throw error
+}
+
+// Aprovar uma transferência agora GERA a movimentação real de estoque (saída
+// do estoque central, tipo 'Envio para Evento') — antes o pedido só mudava de
+// status sem mexer no saldo de verdade. userId é quem está aprovando
+// (registrado como autor da movimentação).
+export async function approveTransferRequest(request: TransferRequest, approvedBy: string | null): Promise<void> {
+  if (!request.from_location_id) {
+    throw new Error('Esse pedido não tem estoque de origem definido — não dá pra gerar a movimentação.')
+  }
+  if (isDemoMode) {
+    const idx = demoState.transferRequests.findIndex((t) => t.id === request.id)
+    if (idx >= 0) demoState.transferRequests[idx] = { ...demoState.transferRequests[idx], status: 'Aprovado' }
+    demoState.stockMovements.push({
+      id: uid('sm'), product_id: request.product_id, stock_location_id: request.from_location_id,
+      event_id: request.event_id, movement_type: 'Envio para Evento', quantity: request.quantity,
+      notes: `Transferência aprovada (#${request.id.slice(0, 8)})`, created_by: approvedBy,
+      status: 'Ativo', created_at: new Date().toISOString()
+    })
+    return
+  }
+  const { error: moveErr } = await supabase.from('stock_movements').insert({
+    product_id: request.product_id, stock_location_id: request.from_location_id, event_id: request.event_id,
+    movement_type: 'Envio para Evento', quantity: request.quantity,
+    notes: `Transferência aprovada (#${request.id.slice(0, 8)})`, created_by: approvedBy, status: 'Ativo'
+  })
+  if (moveErr) throw moveErr
+  const { error: statusErr } = await supabase.from('transfer_requests').update({ status: 'Aprovado' }).eq('id', request.id)
+  if (statusErr) throw statusErr
+}
+
+// Registra o quanto voltou pro estoque central depois do evento (sobra física)
+// — gera uma movimentação 'Devolução do Evento' e marca o pedido com o total
+// já devolvido, pra não deixar registrar duas vezes por engano.
+export async function registerTransferReturn(request: TransferRequest, returnedQuantity: number, returnedBy: string | null): Promise<void> {
+  if (!request.from_location_id) {
+    throw new Error('Esse pedido não tem estoque de origem definido — não dá pra registrar a devolução.')
+  }
+  if (returnedQuantity <= 0) throw new Error('Informe uma quantidade de devolução maior que zero.')
+  if (isDemoMode) {
+    const idx = demoState.transferRequests.findIndex((t) => t.id === request.id)
+    if (idx >= 0) demoState.transferRequests[idx] = { ...demoState.transferRequests[idx], returned_quantity: returnedQuantity }
+    demoState.stockMovements.push({
+      id: uid('sm'), product_id: request.product_id, stock_location_id: request.from_location_id,
+      event_id: request.event_id, movement_type: 'Devolução do Evento', quantity: returnedQuantity,
+      notes: `Sobra devolvida (#${request.id.slice(0, 8)})`, created_by: returnedBy,
+      status: 'Ativo', created_at: new Date().toISOString()
+    })
+    return
+  }
+  const { error: moveErr } = await supabase.from('stock_movements').insert({
+    product_id: request.product_id, stock_location_id: request.from_location_id, event_id: request.event_id,
+    movement_type: 'Devolução do Evento', quantity: returnedQuantity,
+    notes: `Sobra devolvida (#${request.id.slice(0, 8)})`, created_by: returnedBy, status: 'Ativo'
+  })
+  if (moveErr) throw moveErr
+  const { error: returnErr } = await supabase.from('transfer_requests').update({ returned_quantity: returnedQuantity }).eq('id', request.id)
+  if (returnErr) throw returnErr
 }
 
 // ---------- Repasses (ledger de lançamentos por evento) ----------
@@ -1503,4 +1570,77 @@ export async function markContractSigned(eventId: string): Promise<void> {
   }
   const { error } = await supabase.from('events').update(patch).eq('id', eventId)
   if (error) throw error
+}
+
+// ---------- Disparador de e-mails (SMTP via Edge Function send-email) ----------
+export interface SendEmailBatchResult {
+  sent: number
+  failed: number
+  results: { to: string; status: 'sent' | 'failed'; error?: string }[]
+}
+
+// A própria Edge Function limita a 40 destinatários por chamada (ver
+// MAX_RECIPIENTS_PER_CALL lá) — esse valor espelha isso pro loop de lotes.
+const EMAIL_BATCH_SIZE = 40
+
+async function sendEmailBatch(recipients: string[], subject: string, html: string, kind: EmailKind): Promise<SendEmailBatchResult> {
+  if (isDemoMode) {
+    return { sent: recipients.length, failed: 0, results: recipients.map((to) => ({ to, status: 'sent' as const })) }
+  }
+  const { data, error } = await supabase.functions.invoke('send-email', {
+    body: { recipients, subject, html, kind }
+  })
+  if (error) throw new Error(await extractFunctionErrorMessage(error))
+  if (data?.error) throw new Error(data.error)
+  return data
+}
+
+// Envia pra um único destinatário (avisos automáticos do sistema).
+export async function sendEmail(to: string, subject: string, html: string): Promise<void> {
+  const res = await sendEmailBatch([to], subject, html, 'transactional')
+  if (res.failed > 0) throw new Error(res.results[0]?.error ?? 'Falha ao enviar e-mail.')
+}
+
+// Envia em massa, em lotes de EMAIL_BATCH_SIZE, chamando onProgress a cada
+// lote concluído — mesmo padrão de "roda até acabar, mostrando progresso" já
+// usado pra importação de fotos do pré-cadastro em Settings.tsx.
+export async function sendCampaignEmail(
+  recipients: string[],
+  subject: string,
+  html: string,
+  onProgress?: (sent: number, failed: number, remaining: number) => void
+): Promise<SendEmailBatchResult> {
+  let totalSent = 0
+  let totalFailed = 0
+  const allResults: SendEmailBatchResult['results'] = []
+  for (let i = 0; i < recipients.length; i += EMAIL_BATCH_SIZE) {
+    const batch = recipients.slice(i, i + EMAIL_BATCH_SIZE)
+    const res = await sendEmailBatch(batch, subject, html, 'campaign')
+    totalSent += res.sent
+    totalFailed += res.failed
+    allResults.push(...res.results)
+    const remaining = Math.max(0, recipients.length - (i + batch.length))
+    onProgress?.(totalSent, totalFailed, remaining)
+  }
+  return { sent: totalSent, failed: totalFailed, results: allResults }
+}
+
+// Lista de e-mails do time (perfis já cadastrados na Colmeia) — usada como
+// "toda a equipe" no disparador. Só e-mails preenchidos, sem duplicar.
+export async function listTeamEmails(): Promise<string[]> {
+  if (isDemoMode) return Array.from(new Set(demoState.profiles.map((p) => p.email).filter(Boolean)))
+  const { data, error } = await supabase.from('profiles').select('email').not('email', 'is', null)
+  if (error) throw error
+  return Array.from(new Set((data as { email: string }[]).map((p) => p.email).filter(Boolean)))
+}
+
+export async function listEmailLog(limit = 30): Promise<EmailLogEntry[]> {
+  if (isDemoMode) return []
+  const { data, error } = await supabase
+    .from('email_log')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  if (error) throw error
+  return data as EmailLogEntry[]
 }

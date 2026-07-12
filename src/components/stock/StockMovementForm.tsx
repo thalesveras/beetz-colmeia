@@ -4,7 +4,12 @@ import { createStockMovement, listEvents, listProducts, listStockLocations } fro
 import type { EventItem, MovementType, Product, StockLocation } from '../../lib/types'
 
 const inputClass = 'w-full border border-beetz-dark/15 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
-const movementTypes: MovementType[] = ['Entrada', 'Saída']
+// 'Entrada'/'Saída' genéricos seguem válidos no banco (dados antigos), mas o
+// formulário de nova movimentação só oferece os tipos que refletem o fluxo
+// real: compra entra, ajuste pode ir pros dois lados, perda sai. "Envio pro
+// evento" e "Devolução do evento" não aparecem aqui de propósito — nascem
+// automaticamente ao aprovar/devolver uma transferência (aba Transferências).
+const movementTypes: MovementType[] = ['Compra', 'Ajuste (entrada)', 'Ajuste (saída)', 'Perda']
 
 interface Props {
   fixedEventId?: string
@@ -21,7 +26,7 @@ export default function StockMovementForm({ fixedEventId, onSaved }: Props) {
   const [productId, setProductId] = useState('')
   const [locationId, setLocationId] = useState('')
   const [eventId, setEventId] = useState(fixedEventId || '')
-  const [movementType, setMovementType] = useState<MovementType>('Saída')
+  const [movementType, setMovementType] = useState<MovementType>('Compra')
   const [quantity, setQuantity] = useState(1)
   const [notes, setNotes] = useState('')
 
@@ -69,26 +74,25 @@ export default function StockMovementForm({ fixedEventId, onSaved }: Props) {
         </div>
       </div>
 
-      <div className="grid sm:grid-cols-2 gap-4">
-        <div>
-          <label className="text-sm font-medium block mb-1">Tipo</label>
-          <div className="grid grid-cols-2 gap-2">
-            {movementTypes.map((t) => (
-              <button
-                type="button" key={t} onClick={() => setMovementType(t)}
-                className={`text-sm font-medium px-3 py-2.5 rounded-xl border transition-colors ${
-                  movementType === t ? 'bg-beetz-yellow border-beetz-yellow text-beetz-dark' : 'border-beetz-dark/15 text-beetz-dark/70 bg-white'
-                }`}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
+      <div>
+        <label className="text-sm font-medium block mb-1">Tipo</label>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {movementTypes.map((t) => (
+            <button
+              type="button" key={t} onClick={() => setMovementType(t)}
+              className={`text-sm font-medium px-3 py-2.5 rounded-xl border transition-colors ${
+                movementType === t ? 'bg-beetz-yellow border-beetz-yellow text-beetz-dark' : 'border-beetz-dark/15 text-beetz-dark/70 bg-white'
+              }`}
+            >
+              {t}
+            </button>
+          ))}
         </div>
-        <div>
-          <label className="text-sm font-medium block mb-1">Quantidade</label>
-          <input type="number" min={0.01} step="0.01" required className={inputClass} value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} />
-        </div>
+      </div>
+
+      <div>
+        <label className="text-sm font-medium block mb-1">Quantidade</label>
+        <input type="number" min={0.01} step="0.01" required className={inputClass} value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} />
       </div>
 
       {!fixedEventId && (

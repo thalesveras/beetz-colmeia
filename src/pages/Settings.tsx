@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import Papa from 'papaparse'
 import {
   AlertTriangle, Image, Plus, RefreshCw, Search, Upload, X, Save, Settings as SettingsIcon, ShieldAlert, Trash2,
-  Users, ListChecks, Layers, Trophy, Palette, Database
+  Users, ListChecks, Layers, Trophy, Palette, Database, Mail, Send
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useConfig } from '../contexts/ConfigContext'
@@ -11,13 +11,14 @@ import {
   createExpenseCategory, createPaymentMethod, createServiceModality, deleteExpenseCategory,
   deletePaymentMethod, deleteServiceModality, getZohoPendingProfilesStats, importPendingPhotosBatch,
   importZohoPendingProfiles, inspectZohoCreatorFields, listBadgeDefsConfig, listDepartments,
-  listExpenseCategories, listHiveLevelsConfig, listPaymentMethods, listRolePermissions,
-  listServiceModalities, listZohoMeta, peekZohoReport, syncZohoCreator, updateAppSettings, updateBadgeDef,
-  updateDepartmentAccessRole, updateHiveLevel, updateRolePermission, updateServiceModality
+  listExpenseCategories, listEmailLog, listHiveLevelsConfig, listPaymentMethods, listRolePermissions,
+  listServiceModalities, listTeamEmails, listZohoMeta, peekZohoReport, sendCampaignEmail, sendEmail,
+  syncZohoCreator, updateAppSettings, updateBadgeDef, updateDepartmentAccessRole, updateHiveLevel,
+  updateRolePermission, updateServiceModality
 } from '../lib/dataService'
 import type { ZohoMetaItem, ZohoPendingProfilesStats, ZohoReportPeek } from '../lib/dataService'
 import type {
-  AppSettings, BadgeDefConfig, Department, ExperienceLevel, ExpenseCategory, HiveLevelConfig,
+  AppSettings, BadgeDefConfig, Department, EmailLogEntry, ExperienceLevel, ExpenseCategory, HiveLevelConfig,
   PaymentMethodOption, RolePermissions, ServiceModality, ZohoPendingProfile
 } from '../lib/types'
 
@@ -80,7 +81,7 @@ const PERMISSION_GROUPS: { title: string; fields: { key: PermissionKey; label: s
 
 const ROLE_ORDER: AccessRole[] = ['diretoria', 'garcom', 'caixa', 'operacional', 'colaborador']
 
-type SettingsTabKey = 'perfis' | 'listas' | 'modalidades' | 'gamificacao' | 'marca' | 'dados'
+type SettingsTabKey = 'perfis' | 'listas' | 'modalidades' | 'gamificacao' | 'marca' | 'dados' | 'comunicacao'
 
 const SETTINGS_TABS: { key: SettingsTabKey; label: string; icon: typeof Users }[] = [
   { key: 'perfis', label: 'Perfis de acesso', icon: Users },
@@ -88,7 +89,8 @@ const SETTINGS_TABS: { key: SettingsTabKey; label: string; icon: typeof Users }[
   { key: 'modalidades', label: 'Modalidades de serviço', icon: Layers },
   { key: 'gamificacao', label: 'Gamificação', icon: Trophy },
   { key: 'marca', label: 'Dados gerais da marca', icon: Palette },
-  { key: 'dados', label: 'Importador de dados', icon: Database }
+  { key: 'dados', label: 'Importador de dados', icon: Database },
+  { key: 'comunicacao', label: 'Comunicação', icon: Mail }
 ]
 
 export default function Settings() {
@@ -135,6 +137,7 @@ export default function Settings() {
       {tab === 'gamificacao' && <GamificationSection onSaved={refreshConfig} />}
       {tab === 'marca' && <BrandSection />}
       {tab === 'dados' && <DataImporterSection />}
+      {tab === 'comunicacao' && <EmailDispatcherSection />}
     </div>
   )
 }
@@ -1418,6 +1421,195 @@ function DataImporterSection() {
           </button>
         </div>
       )}
+    </section>
+  )
+}
+
+// ---------- Disparador de e-mails ----------
+// Compõe e envia um e-mail avulso ou pra toda a equipe, via Edge Function
+// send-email (SMTP). Depende dos secrets SMTP_HOST/SMTP_PORT/SMTP_USER/
+// SMTP_PASS/SMTP_FROM cadastrados na Edge Function — sem eles o envio falha
+// com uma mensagem de erro clara, mas a tela funciona normalmente.
+function EmailDispatcherSection() {
+  const [audience, setAudience] = useState<'single' | 'team'>('single')
+  const [singleEmail, setSingleEmail] = useState('')
+  const [subject, setSubject] = useState('')
+  const [body, setBody] = useState('')
+  const [sending, setSending] = useState(false)
+  const [progress, setProgress] = useState<{ sent: number; failed: number; remaining: number } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [result, setResult] = useState<{ sent: number; failed: number } | null>(null)
+  const [teamCount, setTeamCount] = useState<number | null>(null)
+
+  const [log, setLog] = useState<EmailLogEntry[]>([])
+  const [loadingLog, setLoadingLog] = useState(true)
+
+  async function loadLog() {
+    setLoadingLog(true)
+    try {
+      setLog(await listEmailLog())
+    } catch {
+      // Histórico é só informativo — não trava a tela se falhar.
+    }
+    setLoadingLog(false)
+  }
+
+  useEffect(() => { loadLog() }, [])
+  useEffect(() => {
+    if (audience === 'team' && teamCount === null) {
+      listTeamEmails().then((emails) => setTeamCount(emails.length)).catch(() => setTeamCount(0))
+    }
+  }, [audience, teamCount])
+
+  function htmlFromPlainText(text: string): string {
+    return text
+      .split('\n\n')
+      .map((p) => `<p style="margin:0 0 14px;">${p.replace(/\n/g, '<br>')}</p>`)
+      .join('')
+  }
+
+  async function handleSend(e: React.FormEvent) {
+    e.preventDefault()
+    if (!subject.trim() || !body.trim()) return
+    setSending(true)
+    setError(null)
+    setResult(null)
+    setProgress(null)
+    const html = htmlFromPlainText(body.trim())
+    try {
+      if (audience === 'single') {
+        if (!singleEmail.trim()) throw new Error('Informe o e-mail do destinatário.')
+        await sendEmail(singleEmail.trim(), subject.trim(), html)
+        setResult({ sent: 1, failed: 0 })
+      } else {
+        const emails = await listTeamEmails()
+        setTeamCount(emails.length)
+        const res = await sendCampaignEmail(emails, subject.trim(), html, (sent, failed, remaining) =>
+          setProgress({ sent, failed, remaining })
+        )
+        setResult({ sent: res.sent, failed: res.failed })
+      }
+      setSubject('')
+      setBody('')
+      setSingleEmail('')
+      await loadLog()
+    } catch (err: any) {
+      setError(err?.message ?? 'Erro ao enviar e-mail.')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  function formatDateTime(iso: string) {
+    return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
+  }
+
+  return (
+    <section className={cardClass}>
+      <h2 className="font-bold text-lg mb-1 flex items-center gap-2"><Mail size={18} /> Disparador de e-mails</h2>
+      <p className="text-sm text-beetz-dark/60 mb-5">
+        Envia e-mails a partir do endereço padrão da Beetz (configurado nos secrets da Edge Function
+        <code className="bg-beetz-gray px-1 py-0.5 rounded mx-1">send-email</code>). Pra um destinatário
+        específico ou pra toda a equipe de uma vez.
+      </p>
+
+      <form onSubmit={handleSend} className="bg-beetz-gray rounded-xl p-4 space-y-4">
+        <div>
+          <label className="text-sm font-medium block mb-1.5">Destinatário</label>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button" onClick={() => setAudience('single')}
+              className={`text-sm font-medium px-3 py-2.5 rounded-xl border transition-colors ${
+                audience === 'single' ? 'bg-beetz-yellow border-beetz-yellow text-beetz-dark' : 'border-beetz-dark/15 text-beetz-dark/70 bg-white'
+              }`}
+            >
+              Um e-mail específico
+            </button>
+            <button
+              type="button" onClick={() => setAudience('team')}
+              className={`text-sm font-medium px-3 py-2.5 rounded-xl border transition-colors ${
+                audience === 'team' ? 'bg-beetz-yellow border-beetz-yellow text-beetz-dark' : 'border-beetz-dark/15 text-beetz-dark/70 bg-white'
+              }`}
+            >
+              Toda a equipe{teamCount !== null ? ` (${teamCount})` : ''}
+            </button>
+          </div>
+        </div>
+
+        {audience === 'single' && (
+          <div>
+            <label className="text-sm font-medium block mb-1">E-mail do destinatário</label>
+            <input type="email" required className={inputClass} placeholder="alguem@exemplo.com" value={singleEmail} onChange={(e) => setSingleEmail(e.target.value)} />
+          </div>
+        )}
+
+        <div>
+          <label className="text-sm font-medium block mb-1">Assunto</label>
+          <input required className={inputClass} value={subject} onChange={(e) => setSubject(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-sm font-medium block mb-1">Mensagem</label>
+          <textarea required rows={6} className={inputClass} placeholder="Escreva o corpo do e-mail — parágrafos separados por linha em branco viram parágrafos no e-mail." value={body} onChange={(e) => setBody(e.target.value)} />
+        </div>
+
+        <button type="submit" disabled={sending} className="flex items-center gap-2 honey-gradient text-beetz-dark font-bold px-5 py-2.5 rounded-xl text-sm disabled:opacity-60">
+          <Send size={15} /> {sending ? 'Enviando...' : audience === 'team' ? 'Enviar pra toda a equipe' : 'Enviar'}
+        </button>
+
+        {sending && progress && (
+          <p className="text-sm text-beetz-dark/60">
+            Enviando... {progress.sent} ok, {progress.failed} falharam, {progress.remaining} restando.
+          </p>
+        )}
+        {error && (
+          <div className="flex items-start gap-2 bg-red-50 text-red-700 text-sm rounded-xl p-3">
+            <AlertTriangle size={16} className="shrink-0 mt-0.5" /> {error}
+          </div>
+        )}
+        {result && !sending && (
+          <div className="bg-green-50 text-green-700 rounded-xl p-3 text-sm">
+            {result.sent} e-mail(s) enviado(s){result.failed > 0 ? `, ${result.failed} falharam (veja o histórico abaixo)` : ''}.
+          </div>
+        )}
+      </form>
+
+      <div className="mt-6">
+        <h3 className="font-bold text-sm mb-3">Histórico recente</h3>
+        {loadingLog ? (
+          <p className="text-sm text-beetz-dark/50">Carregando...</p>
+        ) : log.length === 0 ? (
+          <p className="text-sm text-beetz-dark/50">Nenhum e-mail enviado ainda.</p>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-beetz-dark/10">
+            <table className="w-full text-xs">
+              <thead className="bg-beetz-gray text-left">
+                <tr>
+                  <th className="p-2.5">Status</th>
+                  <th className="p-2.5">Destinatário</th>
+                  <th className="p-2.5">Assunto</th>
+                  <th className="p-2.5">Tipo</th>
+                  <th className="p-2.5">Data</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-beetz-dark/5 bg-white">
+                {log.map((entry) => (
+                  <tr key={entry.id}>
+                    <td className="p-2.5">
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${entry.status === 'sent' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                        {entry.status === 'sent' ? 'Enviado' : 'Falhou'}
+                      </span>
+                    </td>
+                    <td className="p-2.5">{entry.to_email}</td>
+                    <td className="p-2.5">{entry.subject}</td>
+                    <td className="p-2.5">{entry.kind === 'campaign' ? 'Campanha' : 'Automático'}</td>
+                    <td className="p-2.5 text-beetz-dark/50">{formatDateTime(entry.created_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </section>
   )
 }

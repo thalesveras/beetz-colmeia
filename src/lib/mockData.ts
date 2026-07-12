@@ -323,8 +323,8 @@ export const mockProductionConsumption: ProductionConsumption[] = [
 ]
 
 export const mockTransferRequests: TransferRequest[] = [
-  { id: 'tr1', event_id: 'e1', product_id: 'pr2', quantity: 20, from_location_id: 'sl1', to_location_id: 'sl2', requested_by: 'Rafael Lima (Produção)', status: 'Aprovado', notes: 'Reforço de gelo para o bar', created_at: '2026-01-17T09:00:00Z' },
-  { id: 'tr2', event_id: 'e1', product_id: 'pr1', quantity: 200, from_location_id: 'sl1', to_location_id: 'sl2', requested_by: 'Rafael Lima (Produção)', status: 'Pendente', notes: 'Copos extras, previsão de casa cheia', created_at: '2026-01-18T08:00:00Z' }
+  { id: 'tr1', event_id: 'e1', product_id: 'pr2', quantity: 20, from_location_id: 'sl1', to_location_id: 'sl2', requested_by: 'Rafael Lima (Produção)', status: 'Aprovado', notes: 'Reforço de gelo para o bar', created_at: '2026-01-17T09:00:00Z', returned_quantity: null },
+  { id: 'tr2', event_id: 'e1', product_id: 'pr1', quantity: 200, from_location_id: 'sl1', to_location_id: 'sl2', requested_by: 'Rafael Lima (Produção)', status: 'Pendente', notes: 'Copos extras, previsão de casa cheia', created_at: '2026-01-18T08:00:00Z', returned_quantity: null }
 ]
 
 // ---------- Repasses (ledger de lançamentos por evento) ----------

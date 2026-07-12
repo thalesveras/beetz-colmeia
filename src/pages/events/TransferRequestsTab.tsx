@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Plus } from 'lucide-react'
 import {
-  createTransferRequest, listProducts, listStockLocations, listTransferRequests, updateTransferRequestStatus
+  approveTransferRequest, createTransferRequest, listProducts, listStockLocations, listTransferRequests,
+  registerTransferReturn, updateTransferRequestStatus
 } from '../../lib/dataService'
 import type { Product, StockLocation, TransferRequest, TransferRequestStatus } from '../../lib/types'
+import { useAuth } from '../../contexts/AuthContext'
 
 const inputClass = 'w-full border border-beetz-dark/15 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
 
@@ -16,6 +18,7 @@ const statusColors: Record<TransferRequestStatus, string> = {
 }
 
 export default function TransferRequestsTab({ eventId, canApprove }: { eventId: string; canApprove: boolean }) {
+  const { userId } = useAuth()
   const [items, setItems] = useState<TransferRequest[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [locations, setLocations] = useState<StockLocation[]>([])
@@ -61,8 +64,27 @@ export default function TransferRequestsTab({ eventId, canApprove }: { eventId: 
     load()
   }
 
-  async function handleStatusChange(id: string, status: TransferRequestStatus) {
-    await updateTransferRequestStatus(id, status)
+  // Aprovar gera a movimentação real de saída do estoque central (ver
+  // approveTransferRequest) — negar só muda o status, sem mexer no saldo.
+  async function handleStatusChange(t: TransferRequest, status: TransferRequestStatus) {
+    if (status === 'Aprovado') {
+      await approveTransferRequest(t, userId)
+    } else {
+      await updateTransferRequestStatus(t.id, status)
+    }
+    load()
+  }
+
+  const [returnQtyById, setReturnQtyById] = useState<Record<string, number>>({})
+  const [savingReturnId, setSavingReturnId] = useState<string | null>(null)
+
+  async function handleRegisterReturn(t: TransferRequest) {
+    const qty = returnQtyById[t.id] ?? 0
+    if (qty <= 0) return
+    setSavingReturnId(t.id)
+    await registerTransferReturn(t, qty, userId)
+    setSavingReturnId(null)
+    setReturnQtyById((prev) => ({ ...prev, [t.id]: 0 }))
     load()
   }
 
@@ -135,7 +157,7 @@ export default function TransferRequestsTab({ eventId, canApprove }: { eventId: 
               {canApprove ? (
                 <select
                   value={item.status}
-                  onChange={(e) => handleStatusChange(item.id, e.target.value as TransferRequestStatus)}
+                  onChange={(e) => handleStatusChange(item, e.target.value as TransferRequestStatus)}
                   className={`text-xs font-semibold px-2.5 py-1 rounded-full border-0 ${statusColors[item.status]}`}
                 >
                   {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -151,6 +173,29 @@ export default function TransferRequestsTab({ eventId, canApprove }: { eventId: 
                   {item.notes ? ` · ${item.notes}` : ''}
                 </p>
               </div>
+              {item.status === 'Aprovado' && canApprove && (
+                item.returned_quantity != null ? (
+                  <span className="text-xs font-semibold text-green-700 bg-green-50 px-2.5 py-1.5 rounded-lg shrink-0">
+                    Devolvido: {item.returned_quantity}
+                  </span>
+                ) : (
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <input
+                      type="number" min={0} step="0.01" placeholder="Sobra"
+                      className="w-20 border border-beetz-dark/15 rounded-lg px-2 py-1.5 text-xs"
+                      value={returnQtyById[item.id] || ''}
+                      onChange={(e) => setReturnQtyById((prev) => ({ ...prev, [item.id]: Number(e.target.value) }))}
+                    />
+                    <button
+                      onClick={() => handleRegisterReturn(item)}
+                      disabled={savingReturnId === item.id || !(returnQtyById[item.id] > 0)}
+                      className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-beetz-dark text-white hover:bg-black transition-colors disabled:opacity-50"
+                    >
+                      {savingReturnId === item.id ? 'Salvando...' : 'Registrar devolução'}
+                    </button>
+                  </div>
+                )
+              )}
             </div>
           ))}
           {items.length === 0 && <p className="text-sm text-beetz-dark/50">Registros não encontrados.</p>}

@@ -4,9 +4,10 @@ import {
   Clock3, ArrowLeftRight
 } from 'lucide-react'
 import {
-  createProduct, createStockLocation, createTransferRequest, deleteProduct, deleteStockLocation, getStockBalances,
-  listEvents, listProducts, listProfiles, listStockLocations, listStockMovements, listTransferRequests,
-  updateProduct, updateStockLocation, updateStockMovement, updateTransferRequestStatus
+  approveTransferRequest, createProduct, createStockLocation, createTransferRequest, deleteProduct,
+  deleteStockLocation, getStockBalances, isPositiveMovementType, listEvents, listProducts, listProfiles,
+  listStockLocations, listStockMovements, listTransferRequests, registerTransferReturn, updateProduct,
+  updateStockLocation, updateStockMovement, updateTransferRequestStatus
 } from '../lib/dataService'
 import type { EventItem, Product, Profile, StockBalance, StockLocation, StockMovement, TransferRequest, TransferRequestStatus } from '../lib/types'
 import StockMovementForm from '../components/stock/StockMovementForm'
@@ -110,8 +111,27 @@ export default function Stock() {
     load()
   }
 
-  async function handleTransferStatusChange(id: string, status: TransferRequestStatus) {
-    await updateTransferRequestStatus(id, status)
+  // Aprovar gera a movimentação real de saída do estoque central (ver
+  // approveTransferRequest) — negar só muda o status, sem mexer no saldo.
+  async function handleTransferStatusChange(t: TransferRequest, status: TransferRequestStatus) {
+    if (status === 'Aprovado') {
+      await approveTransferRequest(t, userId)
+    } else {
+      await updateTransferRequestStatus(t.id, status)
+    }
+    load()
+  }
+
+  const [returnQtyById, setReturnQtyById] = useState<Record<string, number>>({})
+  const [savingReturnId, setSavingReturnId] = useState<string | null>(null)
+
+  async function handleRegisterReturn(t: TransferRequest) {
+    const qty = returnQtyById[t.id] ?? 0
+    if (qty <= 0) return
+    setSavingReturnId(t.id)
+    await registerTransferReturn(t, qty, userId)
+    setSavingReturnId(null)
+    setReturnQtyById((prev) => ({ ...prev, [t.id]: 0 }))
     load()
   }
 
@@ -395,7 +415,7 @@ export default function Stock() {
                     className="flex items-center gap-3 p-4 cursor-pointer hover:bg-beetz-gray/40 transition-colors"
                     onClick={() => setExpandedId((cur) => (cur === m.id ? null : m.id))}
                   >
-                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${m.movement_type === 'Entrada' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${isPositiveMovementType(m.movement_type) ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                       {m.movement_type}
                     </span>
                     <div className="flex-1 min-w-0">
@@ -519,7 +539,7 @@ export default function Stock() {
                   {canApproveTransfers ? (
                     <select
                       value={t.status}
-                      onChange={(e) => handleTransferStatusChange(t.id, e.target.value as TransferRequestStatus)}
+                      onChange={(e) => handleTransferStatusChange(t, e.target.value as TransferRequestStatus)}
                       className={`text-xs font-semibold px-2.5 py-1 rounded-full border-0 ${transferStatusColors[t.status]}`}
                     >
                       {transferStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -535,6 +555,29 @@ export default function Stock() {
                       {t.notes ? ` · ${t.notes}` : ''}
                     </p>
                   </div>
+                  {t.status === 'Aprovado' && canApproveTransfers && (
+                    t.returned_quantity != null ? (
+                      <span className="text-xs font-semibold text-green-700 bg-green-50 px-2.5 py-1.5 rounded-lg shrink-0">
+                        Devolvido: {t.returned_quantity}
+                      </span>
+                    ) : (
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <input
+                          type="number" min={0} step="0.01" placeholder="Sobra"
+                          className="w-20 border border-beetz-dark/15 rounded-lg px-2 py-1.5 text-xs"
+                          value={returnQtyById[t.id] || ''}
+                          onChange={(e) => setReturnQtyById((prev) => ({ ...prev, [t.id]: Number(e.target.value) }))}
+                        />
+                        <button
+                          onClick={() => handleRegisterReturn(t)}
+                          disabled={savingReturnId === t.id || !(returnQtyById[t.id] > 0)}
+                          className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-beetz-dark text-white hover:bg-black transition-colors disabled:opacity-50"
+                        >
+                          {savingReturnId === t.id ? 'Salvando...' : 'Registrar devolução'}
+                        </button>
+                      </div>
+                    )
+                  )}
                 </div>
               ))}
               {transfers.length === 0 && <p className="text-sm text-beetz-dark/50 p-4">Nenhuma transferência solicitada ainda.</p>}

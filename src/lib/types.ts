@@ -350,6 +350,9 @@ export interface TransferRequest {
   status: TransferRequestStatus
   notes: string | null
   created_at: string
+  // Quanto já retornou ao estoque central pra esse pedido (null = ainda não
+  // devolvido). Só faz sentido depois que o pedido está Aprovado.
+  returned_quantity: number | null
 }
 
 // Ledger de lançamentos individuais de repasse por evento — substitui, como
@@ -411,7 +414,15 @@ export interface Product {
   created_at: string
 }
 
-export type MovementType = 'Entrada' | 'Saída'
+// 'Entrada'/'Saída' seguem válidos como legado (dados antigos e lançamentos
+// avulsos que não se encaixem nos tipos específicos) — mas o formulário de
+// nova movimentação só oferece os 6 tipos que refletem o fluxo real da
+// operação de bar em eventos (compra → envio → devolução, com perda e ajuste
+// à parte). Ver stock_balances (view no banco) pro sinal de cada tipo.
+export type MovementType =
+  | 'Entrada' | 'Saída'
+  | 'Compra' | 'Envio para Evento' | 'Devolução do Evento'
+  | 'Ajuste (entrada)' | 'Ajuste (saída)' | 'Perda'
 
 export interface StockMovement {
   id: string
@@ -496,4 +507,17 @@ export interface AppSettings {
   welcome_title: string
   welcome_subtitle: string
   updated_at: string
+}
+
+export type EmailKind = 'transactional' | 'campaign'
+
+export interface EmailLogEntry {
+  id: string
+  to_email: string
+  subject: string
+  kind: EmailKind
+  status: 'sent' | 'failed'
+  error: string | null
+  sent_by: string | null
+  created_at: string
 }

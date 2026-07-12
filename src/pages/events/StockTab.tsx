@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Plus, Pencil, Ban, RotateCcw, Check, ChevronDown, ChevronUp } from 'lucide-react'
-import { listProducts, listProfiles, listStockLocations, listStockMovements, updateStockMovement } from '../../lib/dataService'
+import { isPositiveMovementType, listProducts, listProfiles, listStockLocations, listStockMovements, updateStockMovement } from '../../lib/dataService'
 import type { Product, Profile, StockLocation, StockMovement } from '../../lib/types'
 import StockMovementForm from '../../components/stock/StockMovementForm'
 import { useAuth } from '../../contexts/AuthContext'
@@ -83,7 +83,7 @@ export default function StockTab({ eventId }: { eventId: string }) {
                 className="flex items-center gap-3 p-4 cursor-pointer"
                 onClick={() => setExpandedId((cur) => (cur === m.id ? null : m.id))}
               >
-                <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${m.movement_type === 'Entrada' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${isPositiveMovementType(m.movement_type) ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                   {m.movement_type}
                 </span>
                 <div className="flex-1 min-w-0">
