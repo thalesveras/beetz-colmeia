@@ -428,6 +428,10 @@ export interface Product {
   unit: string
   category: string | null
   created_at: string
+  // Limite de saldo baixo específico desse produto — null usa o padrão da
+  // tela de Estoque (5). Cada produto tem sua própria noção de "pouco":
+  // cerveja em latas e guardanapo em pacotes não deveriam alertar no mesmo número.
+  low_stock_threshold: number | null
 }
 
 // 'Entrada'/'Saída' seguem válidos como legado (dados antigos e lançamentos

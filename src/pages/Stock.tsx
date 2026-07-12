@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Plus, Pencil, Ban, RotateCcw, Check, X, Trash2, ChevronDown, ChevronUp, Package, Warehouse, AlertTriangle,
-  Clock3, ArrowLeftRight
+  Clock3, ArrowLeftRight, ChevronLeft, ChevronRight, Filter
 } from 'lucide-react'
 import {
   approveTransferRequest, createProduct, createStockLocation, createTransferRequest, deleteProduct,
@@ -17,6 +17,22 @@ import { canEditOwnStock, canEditStock, canManageStockCatalog, canManageUsers } 
 const inputClass = 'flex-1 border border-beetz-dark/15 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
 const COMMON_UNITS = ['un', 'kg', 'g', 'L', 'ml', 'caixa', 'pacote', 'saco', 'garrafa', 'fardo', 'dúzia']
 const LOW_STOCK_THRESHOLD = 5
+const MOVEMENTS_PAGE_SIZE = 20
+
+// Mesma lógica de paginação "inteligente" usada na Turma — primeira, última
+// e vizinhança da página atual, com "..." nos intervalos.
+function getPageNumbers(current: number, total: number): (number | 'ellipsis')[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
+  const pages: (number | 'ellipsis')[] = [1]
+  if (current > 3) pages.push('ellipsis')
+  const start = Math.max(2, current - 1)
+  const end = Math.min(total - 1, current + 1)
+  for (let i = start; i <= end; i++) pages.push(i)
+  if (current < total - 2) pages.push('ellipsis')
+  pages.push(total)
+  return pages
+}
+
 const transferStatuses: TransferRequestStatus[] = ['Pendente', 'Aprovado', 'Negado']
 const transferStatusColors: Record<TransferRequestStatus, string> = {
   Pendente: 'bg-beetz-yellow/30 text-beetz-dark',
@@ -37,9 +53,20 @@ export default function Stock() {
   const [editQuantity, setEditQuantity] = useState(0)
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
+  // Filtros + paginação do histórico de movimentações — necessário assim que
+  // o volume passa de umas duas dezenas de lançamentos.
+  const [showMovementFilters, setShowMovementFilters] = useState(false)
+  const [movementFilterProduct, setMovementFilterProduct] = useState('')
+  const [movementFilterLocation, setMovementFilterLocation] = useState('')
+  const [movementFilterType, setMovementFilterType] = useState('')
+  const [movementFilterFrom, setMovementFilterFrom] = useState('')
+  const [movementFilterTo, setMovementFilterTo] = useState('')
+  const [movementPage, setMovementPage] = useState(1)
+
   const [newProductName, setNewProductName] = useState('')
   const [newProductUnit, setNewProductUnit] = useState('un')
   const [newProductCustomUnit, setNewProductCustomUnit] = useState('')
+  const [newProductThreshold, setNewProductThreshold] = useState('')
   const [newLocationName, setNewLocationName] = useState('')
 
   const canManageCatalog = canManageStockCatalog(accessRole)
@@ -64,6 +91,7 @@ export default function Stock() {
   const [editingProductId, setEditingProductId] = useState<string | null>(null)
   const [editProductName, setEditProductName] = useState('')
   const [editProductUnit, setEditProductUnit] = useState('')
+  const [editProductThreshold, setEditProductThreshold] = useState('')
   const [editingLocationId, setEditingLocationId] = useState<string | null>(null)
   const [editLocationName, setEditLocationName] = useState('')
   const [catalogError, setCatalogError] = useState<string | null>(null)
@@ -143,9 +171,17 @@ export default function Stock() {
     e.preventDefault()
     if (!newProductName.trim()) return
     const unit = newProductUnit === 'outro' ? (newProductCustomUnit.trim() || 'un') : newProductUnit
-    await createProduct(newProductName.trim(), unit, null)
-    setNewProductName(''); setNewProductUnit('un'); setNewProductCustomUnit('')
+    const threshold = newProductThreshold.trim() ? Number(newProductThreshold) : null
+    await createProduct(newProductName.trim(), unit, null, threshold)
+    setNewProductName(''); setNewProductUnit('un'); setNewProductCustomUnit(''); setNewProductThreshold('')
     load()
+  }
+
+  // Cada produto pode ter seu próprio limite de "saldo baixo" — null usa o
+  // padrão (LOW_STOCK_THRESHOLD). Latas de cerveja e pacotes de guardanapo
+  // não deveriam alertar no mesmo número.
+  function effectiveThreshold(productId: string): number {
+    return products.find((p) => p.id === productId)?.low_stock_threshold ?? LOW_STOCK_THRESHOLD
   }
 
   async function handleAddLocation(e: React.FormEvent) {
@@ -162,14 +198,44 @@ export default function Stock() {
   }))
 
   const lowStockItems = useMemo(
-    () => balances.filter((b) => b.balance > 0 && b.balance <= LOW_STOCK_THRESHOLD),
-    [balances]
+    () => balances.filter((b) => b.balance > 0 && b.balance <= effectiveThreshold(b.product_id)),
+    [balances, products]
   )
 
   const movementsToday = useMemo(() => {
     const today = new Date().toDateString()
     return movements.filter((m) => m.status === 'Ativo' && new Date(m.created_at).toDateString() === today)
   }, [movements])
+
+  const movementTypeOptions = useMemo(
+    () => Array.from(new Set(movements.map((m) => m.movement_type))).sort(),
+    [movements]
+  )
+
+  const filteredMovements = useMemo(() => movements.filter((m) => {
+    if (movementFilterProduct && m.product_id !== movementFilterProduct) return false
+    if (movementFilterLocation && m.stock_location_id !== movementFilterLocation) return false
+    if (movementFilterType && m.movement_type !== movementFilterType) return false
+    const day = m.created_at.slice(0, 10)
+    if (movementFilterFrom && day < movementFilterFrom) return false
+    if (movementFilterTo && day > movementFilterTo) return false
+    return true
+  }), [movements, movementFilterProduct, movementFilterLocation, movementFilterType, movementFilterFrom, movementFilterTo])
+
+  useEffect(() => {
+    setMovementPage(1)
+  }, [movementFilterProduct, movementFilterLocation, movementFilterType, movementFilterFrom, movementFilterTo])
+
+  const movementTotalPages = Math.max(1, Math.ceil(filteredMovements.length / MOVEMENTS_PAGE_SIZE))
+  const movementPageSafe = Math.min(movementPage, movementTotalPages)
+  const movementPageStart = (movementPageSafe - 1) * MOVEMENTS_PAGE_SIZE
+  const movementPageItems = filteredMovements.slice(movementPageStart, movementPageStart + MOVEMENTS_PAGE_SIZE)
+  const movementFiltersActive = !!(movementFilterProduct || movementFilterLocation || movementFilterType || movementFilterFrom || movementFilterTo)
+
+  function clearMovementFilters() {
+    setMovementFilterProduct(''); setMovementFilterLocation(''); setMovementFilterType('')
+    setMovementFilterFrom(''); setMovementFilterTo('')
+  }
 
   function startEdit(m: StockMovement) {
     setEditingId(m.id)
@@ -192,12 +258,15 @@ export default function Stock() {
   }
 
   function startEditProduct(p: Product) {
-    setEditingProductId(p.id); setEditProductName(p.name); setEditProductUnit(p.unit); setCatalogError(null)
+    setEditingProductId(p.id); setEditProductName(p.name); setEditProductUnit(p.unit)
+    setEditProductThreshold(p.low_stock_threshold != null ? String(p.low_stock_threshold) : '')
+    setCatalogError(null)
   }
 
   async function saveProductEdit(id: string) {
     if (!editProductName.trim()) return
-    await updateProduct(id, { name: editProductName.trim(), unit: editProductUnit.trim() || 'un' })
+    const threshold = editProductThreshold.trim() ? Number(editProductThreshold) : null
+    await updateProduct(id, { name: editProductName.trim(), unit: editProductUnit.trim() || 'un', low_stock_threshold: threshold })
     setEditingProductId(null)
     load()
   }
@@ -287,7 +356,7 @@ export default function Stock() {
 
           {lowStockItems.length > 0 && (
             <section className="bg-red-50 border border-red-100 rounded-2xl p-4">
-              <h3 className="text-sm font-bold text-red-700 mb-2 flex items-center gap-1.5"><AlertTriangle size={15} /> Saldo baixo (≤ {LOW_STOCK_THRESHOLD})</h3>
+              <h3 className="text-sm font-bold text-red-700 mb-2 flex items-center gap-1.5"><AlertTriangle size={15} /> Saldo baixo</h3>
               <div className="flex flex-wrap gap-2">
                 {lowStockItems.map((item) => (
                   <span key={`${item.product_id}-${item.stock_location_id}`} className="text-xs font-semibold bg-white text-red-700 border border-red-200 px-3 py-1.5 rounded-full">
@@ -311,7 +380,7 @@ export default function Stock() {
                       {items.map((item) => (
                         <li key={item.product_id} className="flex justify-between text-sm">
                           <span className="text-beetz-dark/70">{item.product_name}</span>
-                          <span className={`font-semibold ${item.balance <= LOW_STOCK_THRESHOLD ? 'text-red-600' : ''}`}>{item.balance} {item.product_unit}</span>
+                          <span className={`font-semibold ${item.balance <= effectiveThreshold(item.product_id) ? 'text-red-600' : ''}`}>{item.balance} {item.product_unit}</span>
                         </li>
                       ))}
                     </ul>
@@ -334,6 +403,10 @@ export default function Stock() {
                   {newProductUnit === 'outro' && (
                     <input className="w-24 border border-beetz-dark/15 rounded-xl px-2 py-2 text-sm" placeholder="unidade" value={newProductCustomUnit} onChange={(e) => setNewProductCustomUnit(e.target.value)} />
                   )}
+                  <input
+                    type="number" min={0} step="1" className="w-32 border border-beetz-dark/15 rounded-xl px-2 py-2 text-sm"
+                    placeholder="Alerta (padrão 5)" value={newProductThreshold} onChange={(e) => setNewProductThreshold(e.target.value)}
+                  />
                   <button className="bg-beetz-dark text-white text-sm font-semibold px-3 rounded-xl">+</button>
                 </form>
               )}
@@ -351,12 +424,18 @@ export default function Stock() {
                         {!COMMON_UNITS.includes(editProductUnit) && (
                           <input className="w-16 border border-beetz-dark/15 rounded-lg px-2 py-1 text-xs" placeholder="unidade" value={editProductUnit} onChange={(e) => setEditProductUnit(e.target.value)} />
                         )}
+                        <input
+                          type="number" min={0} step="1" className="w-20 border border-beetz-dark/15 rounded-lg px-2 py-1 text-xs"
+                          placeholder="Alerta" value={editProductThreshold} onChange={(e) => setEditProductThreshold(e.target.value)}
+                        />
                         <button onClick={() => saveProductEdit(p.id)} className="text-green-600 p-1 rounded hover:bg-green-50"><Check size={14} /></button>
                         <button onClick={() => setEditingProductId(null)} className="text-beetz-dark/40 p-1 rounded hover:bg-beetz-gray"><X size={14} /></button>
                       </>
                     ) : (
                       <>
-                        <span className="text-xs font-medium bg-beetz-gray px-3 py-1.5 rounded-full flex-1">{p.name} ({p.unit})</span>
+                        <span className="text-xs font-medium bg-beetz-gray px-3 py-1.5 rounded-full flex-1">
+                          {p.name} ({p.unit}) <span className="text-beetz-dark/40">· alerta ≤ {p.low_stock_threshold ?? LOW_STOCK_THRESHOLD}</span>
+                        </span>
                         {canManageCatalog && (
                           <>
                             <button onClick={() => startEditProduct(p)} className="text-beetz-dark/40 hover:text-beetz-dark p-1 rounded hover:bg-beetz-gray"><Pencil size={13} /></button>
@@ -407,9 +486,61 @@ export default function Stock() {
           </section>
 
           <section>
-            <h2 className="text-lg font-bold mb-4">Movimentações recentes</h2>
+            <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
+              <h2 className="text-lg font-bold">Movimentações recentes</h2>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowMovementFilters((v) => !v)}
+                  className={`flex items-center gap-1.5 text-sm font-semibold px-3 py-2 rounded-xl border transition-colors ${
+                    showMovementFilters || movementFiltersActive
+                      ? 'bg-beetz-dark text-white border-beetz-dark' : 'border-beetz-dark/15 text-beetz-dark/70 hover:bg-beetz-gray'
+                  }`}
+                >
+                  <Filter size={15} /> Filtros
+                </button>
+                {movementFiltersActive && (
+                  <button
+                    type="button" onClick={clearMovementFilters}
+                    className="flex items-center justify-center px-3 py-2 rounded-xl border border-beetz-dark/15 text-beetz-dark/50 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-colors"
+                  >
+                    <X size={15} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {showMovementFilters && (
+              <div className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5 grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+                <select value={movementFilterProduct} onChange={(e) => setMovementFilterProduct(e.target.value)} className="rounded-xl border border-beetz-dark/15 text-sm px-3 py-2">
+                  <option value="">Todos os produtos</option>
+                  {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+                <select value={movementFilterLocation} onChange={(e) => setMovementFilterLocation(e.target.value)} className="rounded-xl border border-beetz-dark/15 text-sm px-3 py-2">
+                  <option value="">Todos os estoques</option>
+                  {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                </select>
+                <select value={movementFilterType} onChange={(e) => setMovementFilterType(e.target.value)} className="rounded-xl border border-beetz-dark/15 text-sm px-3 py-2">
+                  <option value="">Todos os tipos</option>
+                  {movementTypeOptions.map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <input
+                  type="date" value={movementFilterFrom} onChange={(e) => setMovementFilterFrom(e.target.value)}
+                  className="rounded-xl border border-beetz-dark/15 text-sm px-3 py-2"
+                />
+                <input
+                  type="date" value={movementFilterTo} onChange={(e) => setMovementFilterTo(e.target.value)}
+                  className="rounded-xl border border-beetz-dark/15 text-sm px-3 py-2"
+                />
+              </div>
+            )}
+
+            <p className="text-sm text-beetz-dark/50 mb-2">
+              Mostrando {filteredMovements.length === 0 ? 0 : movementPageStart + 1}–{Math.min(movementPageStart + MOVEMENTS_PAGE_SIZE, filteredMovements.length)} de {filteredMovements.length}
+            </p>
+
             <div className="bg-white rounded-2xl shadow-soft border border-beetz-dark/5 divide-y divide-beetz-dark/5">
-              {movements.slice(0, 20).map((m) => (
+              {movementPageItems.map((m) => (
                 <div key={m.id} className={m.status === 'Cancelado' ? 'opacity-50' : ''}>
                   <div
                     className="flex items-center gap-3 p-4 cursor-pointer hover:bg-beetz-gray/40 transition-colors"
@@ -460,8 +591,46 @@ export default function Stock() {
                   )}
                 </div>
               ))}
-              {movements.length === 0 && <p className="text-sm text-beetz-dark/50 p-4">Nenhuma movimentação ainda.</p>}
+              {filteredMovements.length === 0 && (
+                <p className="text-sm text-beetz-dark/50 p-4">
+                  {movements.length === 0 ? 'Nenhuma movimentação ainda.' : 'Nenhuma movimentação encontrada com esses filtros.'}
+                </p>
+              )}
             </div>
+
+            {movementTotalPages > 1 && (
+              <div className="flex items-center justify-center gap-1.5 pt-4">
+                <button
+                  onClick={() => setMovementPage((p) => Math.max(1, p - 1))}
+                  disabled={movementPageSafe === 1}
+                  className="p-2 rounded-xl border border-beetz-dark/15 text-beetz-dark/60 hover:bg-beetz-gray disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                {getPageNumbers(movementPageSafe, movementTotalPages).map((p, i) =>
+                  p === 'ellipsis' ? (
+                    <span key={`e-${i}`} className="px-2 text-beetz-dark/30 text-sm">…</span>
+                  ) : (
+                    <button
+                      key={p}
+                      onClick={() => setMovementPage(p)}
+                      className={`min-w-[2.25rem] h-9 px-2 rounded-xl text-sm font-semibold transition-colors ${
+                        p === movementPageSafe ? 'bg-beetz-dark text-white' : 'text-beetz-dark/60 hover:bg-beetz-gray'
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  )
+                )}
+                <button
+                  onClick={() => setMovementPage((p) => Math.min(movementTotalPages, p + 1))}
+                  disabled={movementPageSafe === movementTotalPages}
+                  className="p-2 rounded-xl border border-beetz-dark/15 text-beetz-dark/60 hover:bg-beetz-gray disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            )}
           </section>
 
           <section>

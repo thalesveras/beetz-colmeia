@@ -14,6 +14,7 @@ import ProductsTab from './ProductsTab'
 import ProductionConsumptionTab from './ProductionConsumptionTab'
 import TransferRequestsTab from './TransferRequestsTab'
 import RepassesTab from './RepassesTab'
+import StockReconciliationCard from './StockReconciliationCard'
 import EventSummaryCard from './EventSummaryCard'
 import FinancialSummaryCard from './FinancialSummaryCard'
 import ContractCard from './ContractCard'
@@ -258,6 +259,7 @@ export default function EventDetail() {
 
       {activeTab === 'estoque' && canViewStockTab(accessRole) && (
         <div className="space-y-6">
+          <StockReconciliationCard eventId={id} />
           <div className="bg-white rounded-2xl p-6 shadow-soft border border-beetz-dark/5">
             <StockTab eventId={id} />
           </div>

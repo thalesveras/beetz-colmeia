@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
+import { AlertTriangle } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
-import { createStockMovement, listEvents, listProducts, listStockLocations } from '../../lib/dataService'
-import type { EventItem, MovementType, Product, StockLocation } from '../../lib/types'
+import { createStockMovement, getStockBalances, isPositiveMovementType, listEvents, listProducts, listStockLocations } from '../../lib/dataService'
+import type { EventItem, MovementType, Product, StockBalance, StockLocation } from '../../lib/types'
 
 const inputClass = 'w-full border border-beetz-dark/15 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
 // 'Entrada'/'Saída' genéricos seguem válidos no banco (dados antigos), mas o
@@ -21,6 +22,7 @@ export default function StockMovementForm({ fixedEventId, onSaved }: Props) {
   const [products, setProducts] = useState<Product[]>([])
   const [locations, setLocations] = useState<StockLocation[]>([])
   const [events, setEvents] = useState<EventItem[]>([])
+  const [balances, setBalances] = useState<StockBalance[]>([])
   const [saving, setSaving] = useState(false)
 
   const [productId, setProductId] = useState('')
@@ -33,8 +35,18 @@ export default function StockMovementForm({ fixedEventId, onSaved }: Props) {
   useEffect(() => {
     listProducts().then(setProducts)
     listStockLocations().then(setLocations)
+    getStockBalances().then(setBalances)
     if (!fixedEventId) listEvents().then(setEvents)
   }, [fixedEventId])
+
+  // Aviso não-bloqueante: mostra o saldo atual quando o tipo escolhido é de
+  // saída e a quantidade vai deixar esse produto/estoque negativo. Não
+  // impede o registro — às vezes o saldo real já está errado e a
+  // movimentação é justamente pra corrigir isso.
+  const currentBalance = balances.find((b) => b.product_id === productId && b.stock_location_id === locationId)?.balance ?? 0
+  const isOutgoing = !isPositiveMovementType(movementType)
+  const resultingBalance = isOutgoing ? currentBalance - quantity : currentBalance + quantity
+  const showNegativeWarning = !!(productId && locationId && isOutgoing && quantity > 0 && resultingBalance < 0)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -93,6 +105,12 @@ export default function StockMovementForm({ fixedEventId, onSaved }: Props) {
       <div>
         <label className="text-sm font-medium block mb-1">Quantidade</label>
         <input type="number" min={0.01} step="0.01" required className={inputClass} value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} />
+        {showNegativeWarning && (
+          <p className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2">
+            <AlertTriangle size={13} className="shrink-0" />
+            Saldo atual aqui: {currentBalance}. Essa saída vai deixar {resultingBalance} — negativo.
+          </p>
+        )}
       </div>
 
       {!fixedEventId && (

@@ -300,9 +300,9 @@ export const mockStockLocations: StockLocation[] = [
 ]
 
 export const mockProducts: Product[] = [
-  { id: 'pr1', name: 'Copo descartável 300ml', unit: 'un', category: 'Bar', created_at: '2025-01-01T10:00:00Z' },
-  { id: 'pr2', name: 'Gelo (saco 5kg)', unit: 'saco', category: 'Bar', created_at: '2025-01-01T10:00:00Z' },
-  { id: 'pr3', name: 'Guardanapo', unit: 'pacote', category: 'Cozinha', created_at: '2025-01-01T10:00:00Z' }
+  { id: 'pr1', name: 'Copo descartável 300ml', unit: 'un', category: 'Bar', low_stock_threshold: 50, created_at: '2025-01-01T10:00:00Z' },
+  { id: 'pr2', name: 'Gelo (saco 5kg)', unit: 'saco', category: 'Bar', low_stock_threshold: null, created_at: '2025-01-01T10:00:00Z' },
+  { id: 'pr3', name: 'Guardanapo', unit: 'pacote', category: 'Cozinha', low_stock_threshold: null, created_at: '2025-01-01T10:00:00Z' }
 ]
 
 export const mockStockMovements: StockMovement[] = [
