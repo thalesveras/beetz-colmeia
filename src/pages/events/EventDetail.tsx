@@ -6,13 +6,14 @@ import {
 } from '../../lib/dataService'
 import type { EventItem, EventMember, Profile } from '../../lib/types'
 import Avatar from '../../components/ui/Avatar'
-import { Check, Clock, X } from 'lucide-react'
+import { ArrowLeftRight, Check, Clock, X } from 'lucide-react'
 import ExpensesTab from './ExpensesTab'
 import CashierTab from './CashierTab'
 import StockTab from './StockTab'
 import ProductsTab from './ProductsTab'
 import ProductionConsumptionTab from './ProductionConsumptionTab'
 import TransferRequestsTab from './TransferRequestsTab'
+import RepassesTab from './RepassesTab'
 import EventSummaryCard from './EventSummaryCard'
 import FinancialSummaryCard from './FinancialSummaryCard'
 import ContractCard from './ContractCard'
@@ -22,7 +23,7 @@ import {
   canViewFinancialSummary, canViewStockTab
 } from '../../lib/permissions'
 
-type TabKey = 'equipe' | 'despesas' | 'recebimentos' | 'estoque' | 'produtos' | 'consumo' | 'transferencias' | 'fechamentos'
+type TabKey = 'equipe' | 'despesas' | 'recebimentos' | 'estoque' | 'produtos' | 'consumo' | 'repasses' | 'fechamentos'
 
 export default function EventDetail() {
   const { id } = useParams()
@@ -35,7 +36,10 @@ export default function EventDetail() {
     ...(canViewStockTab(accessRole) ? [{ key: 'produtos' as TabKey, label: 'Produtos' }] : []),
     ...(canViewStockTab(accessRole) ? [{ key: 'estoque' as TabKey, label: 'Estoque' }] : []),
     ...(canViewStockTab(accessRole) ? [{ key: 'consumo' as TabKey, label: 'Consumo da produção' }] : []),
-    ...(canViewStockTab(accessRole) ? [{ key: 'transferencias' as TabKey, label: 'Transferências' }] : []),
+    // Repasses = pagamentos à produtora do evento (financeiro), não tem nada a
+    // ver com transferência de estoque — essa saiu daqui e foi pra dentro da
+    // aba Estoque, junto do resto do controle de almoxarifado.
+    ...(canViewFinancialSummary(accessRole) ? [{ key: 'repasses' as TabKey, label: 'Repasses' }] : []),
     ...(canViewFinancialSummary(accessRole) ? [{ key: 'fechamentos' as TabKey, label: 'Fechamentos' }] : [])
   ]
   const [event, setEvent] = useState<EventItem | null>(null)
@@ -253,8 +257,15 @@ export default function EventDetail() {
       )}
 
       {activeTab === 'estoque' && canViewStockTab(accessRole) && (
-        <div className="bg-white rounded-2xl p-6 shadow-soft border border-beetz-dark/5">
-          <StockTab eventId={id} />
+        <div className="space-y-6">
+          <div className="bg-white rounded-2xl p-6 shadow-soft border border-beetz-dark/5">
+            <StockTab eventId={id} />
+          </div>
+          <div className="bg-white rounded-2xl p-6 shadow-soft border border-beetz-dark/5">
+            <h2 className="font-bold text-lg flex items-center gap-2 mb-1"><ArrowLeftRight size={18} /> Transferências entre estoques</h2>
+            <p className="text-sm text-beetz-dark/50 mb-4">Pedidos de mudança de produto entre almoxarifados pra este evento.</p>
+            <TransferRequestsTab eventId={id} canApprove={canManageUsers(accessRole)} />
+          </div>
         </div>
       )}
 
@@ -264,9 +275,9 @@ export default function EventDetail() {
         </div>
       )}
 
-      {activeTab === 'transferencias' && canViewStockTab(accessRole) && (
+      {activeTab === 'repasses' && canViewFinancialSummary(accessRole) && (
         <div className="bg-white rounded-2xl p-6 shadow-soft border border-beetz-dark/5">
-          <TransferRequestsTab eventId={id} canApprove={canManageUsers(accessRole)} />
+          <RepassesTab eventId={id} canManage={canManageUsers(accessRole)} />
         </div>
       )}
 
