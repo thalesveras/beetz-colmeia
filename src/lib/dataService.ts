@@ -13,7 +13,7 @@ import type {
   EventItem, EventMember, EventModality, EventProduct, EventRepasse, EventStaffingRequirement, Expense,
   ExpenseCategory, HiveLevelConfig, HoneyPoint, MovementType, PaymentMethodOption, Product,
   ProductionConsumption, Producer, Profile, ProfileStats, RolePermissions, ServiceModality,
-  PendingProfileDirectoryItem, PendingProfilePickerItem, StockBalance, StockLocation, StockMovement,
+  PendingProfileDirectoryItem, PendingProfilePickerItem, PendingProfileSensitive, StockBalance, StockLocation, StockMovement,
   Supplier, TransferRequest, TransferRequestStatus, ZohoPendingProfile, EmailKind, EmailLogEntry
 } from './types'
 
@@ -691,6 +691,18 @@ export async function listPendingProfilesForDirectory(): Promise<PendingProfileD
   const { data, error } = await supabase.rpc('list_pending_profiles_for_directory')
   if (error) throw error
   return (data ?? []) as PendingProfileDirectoryItem[]
+}
+
+// Busca sob demanda (um perfil por vez) os campos sensíveis do pré-cadastro
+// que listPendingProfilesForDirectory nunca traz. A function no banco só
+// devolve linha se quem chamou for Diretoria — pra qualquer outra pessoa
+// vem vazio, então o caller sempre trata null como "sem acesso/sem dado".
+export async function getPendingProfileSensitiveDetails(pendingId: string): Promise<PendingProfileSensitive | null> {
+  if (isDemoMode) return null
+  const { data, error } = await supabase.rpc('get_pending_profile_sensitive', { pending_id: pendingId })
+  if (error) throw error
+  const row = Array.isArray(data) ? data[0] : data
+  return (row ?? null) as PendingProfileSensitive | null
 }
 
 // Mesma tradução usada pela function claim_pending_profile() no banco — o

@@ -1,6 +1,9 @@
-import { Cake, Clock3, Instagram, MapPin, Sparkles, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Cake, Clock3, FileText, Instagram, MapPin, ShieldAlert, Sparkles, X } from 'lucide-react'
 import Avatar from './Avatar'
-import type { PendingProfileDirectoryItem } from '../../lib/types'
+import type { PendingProfileDirectoryItem, PendingProfileSensitive } from '../../lib/types'
+import { useAuth } from '../../contexts/AuthContext'
+import { getPendingDocumentSignedUrl, getPendingProfileSensitiveDetails } from '../../lib/dataService'
 
 interface Props {
   profile: PendingProfileDirectoryItem
@@ -46,12 +49,42 @@ function Empty({ children }: { children: React.ReactNode }) {
 // ProfilePage.tsx. Toda seção aparece sempre, preenchida ou com um estado
 // vazio explicando que a pessoa completa isso no cadastro — assim o modal
 // mostra o "formato" inteiro do perfil, não só o que já veio do Zoho/CSV.
-// CPF, telefone e nome dos pais continuam de fora daqui por design: são
-// dados sensíveis usados só internamente na migração de conta, nunca numa
-// tela que qualquer colaborador pode abrir — ver nota no rodapé.
+// CPF, telefone, nome dos pais, Pix e documento são dados sensíveis — só
+// aparecem pra Diretoria, numa seção separada abaixo, buscada sob demanda
+// (get_pending_profile_sensitive confere isso de novo no banco).
 export default function PendingProfileModal({ profile, departmentName, onClose }: Props) {
+  const { accessRole } = useAuth()
+  const isDiretoria = accessRole === 'diretoria'
   const name = `${profile.first_name ?? ''} ${profile.last_name ?? ''}`.trim() || 'Sem nome'
   const birthday = formatBirthday(profile.birth_month, profile.birth_day)
+
+  const [sensitive, setSensitive] = useState<PendingProfileSensitive | null>(null)
+  const [loadingSensitive, setLoadingSensitive] = useState(false)
+  const [loadingDocument, setLoadingDocument] = useState(false)
+  const [documentError, setDocumentError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!isDiretoria) return
+    let active = true
+    setLoadingSensitive(true)
+    getPendingProfileSensitiveDetails(profile.id)
+      .then((data) => { if (active) setSensitive(data) })
+      .finally(() => { if (active) setLoadingSensitive(false) })
+    return () => { active = false }
+  }, [profile.id, isDiretoria])
+
+  async function handleViewDocument() {
+    setDocumentError(null)
+    setLoadingDocument(true)
+    try {
+      const { url } = await getPendingDocumentSignedUrl(profile.id)
+      window.open(url, '_blank', 'noreferrer')
+    } catch (err) {
+      setDocumentError(err instanceof Error ? err.message : 'Nenhum documento encontrado pra essa pessoa.')
+    } finally {
+      setLoadingDocument(false)
+    }
+  }
 
   return (
     <div
@@ -62,9 +95,8 @@ export default function PendingProfileModal({ profile, departmentName, onClose }
         className="bg-white rounded-[28px] w-full max-w-xl max-h-[90vh] overflow-y-auto shadow-glow"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="h-28 dark-gradient relative rounded-t-[28px] overflow-hidden">
-          <div className="absolute -top-6 -right-6 w-28 h-28 bg-beetz-yellow/20 rounded-full blur-2xl" />
-          <div className="absolute top-8 left-8 w-16 h-16 bg-beetz-yellow/10 hex-clip" />
+        <div className="h-24 dark-gradient relative rounded-t-[28px] overflow-hidden">
+          <div className="absolute -top-12 -right-10 w-44 h-44 bg-beetz-yellow/25 rounded-full blur-3xl" />
           <button
             onClick={onClose}
             className="absolute top-4 right-4 text-white/80 hover:text-white bg-white/10 hover:bg-white/20 rounded-full p-2 transition-colors"
@@ -73,8 +105,8 @@ export default function PendingProfileModal({ profile, departmentName, onClose }
           </button>
         </div>
 
-        <div className="px-6 pb-6 -mt-14">
-          <Avatar src={profile.avatar_url} name={name} size="xl" />
+        <div className="px-6 pb-6 -mt-10">
+          <Avatar src={profile.avatar_url} name={name} size="lg" />
 
           <div className="mt-3 flex items-start justify-between gap-3 flex-wrap">
             <div>
@@ -170,12 +202,61 @@ export default function PendingProfileModal({ profile, departmentName, onClose }
             </Section>
           </div>
 
+          {isDiretoria && (
+            <div className="mt-6 bg-beetz-dark rounded-2xl p-4">
+              <h3 className="font-bold text-sm text-white flex items-center gap-1.5 mb-3">
+                <ShieldAlert size={15} className="text-beetz-yellow" /> Dados internos (só Diretoria)
+              </h3>
+
+              {loadingSensitive ? (
+                <p className="text-sm text-white/50">Carregando...</p>
+              ) : sensitive ? (
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <p className="text-xs text-white/40">CPF</p>
+                    <p className="font-semibold text-white">{sensitive.cpf || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-white/40">Telefone</p>
+                    <p className="font-semibold text-white">{sensitive.phone || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-white/40">Nome da mãe</p>
+                    <p className="font-semibold text-white">{sensitive.mother_name || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-white/40">Nome do pai</p>
+                    <p className="font-semibold text-white">{sensitive.father_name || '—'}</p>
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-xs text-white/40">Chave Pix</p>
+                    <p className="font-semibold text-white">
+                      {sensitive.pix_key ? `${sensitive.pix_key} (${sensitive.pix_key_type || 'tipo não informado'})` : '—'}
+                      {sensitive.pix_owner_name ? ` · Titular: ${sensitive.pix_owner_name}` : ''}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-white/50">Sem dados internos disponíveis.</p>
+              )}
+
+              <button
+                onClick={handleViewDocument}
+                disabled={loadingDocument}
+                className="mt-4 flex items-center gap-1.5 text-xs font-semibold bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-lg transition-colors disabled:opacity-50"
+              >
+                <FileText size={14} /> {loadingDocument ? 'Abrindo...' : 'Ver documento enviado'}
+              </button>
+              {documentError && <p className="text-xs text-red-300 mt-2">{documentError}</p>}
+            </div>
+          )}
+
           <div className="mt-6 pt-4 border-t border-beetz-dark/10 flex gap-2 text-xs text-beetz-dark/50">
             <Sparkles size={14} className="shrink-0 mt-0.5 text-beetz-yellow" />
             <p>
-              Quando {profile.first_name || 'essa pessoa'} criar conta no app, o perfil completo também passa a ter
-              telefone, contato de emergência, CPF e histórico de eventos — dados que só existem depois do cadastro
-              de verdade, por isso não aparecem aqui no pré-cadastro.
+              {isDiretoria
+                ? `Essa seção de dados internos só aparece pra Diretoria. Quando ${profile.first_name || 'essa pessoa'} criar conta no app, esses dados migram pro perfil de verdade.`
+                : `Quando ${profile.first_name || 'essa pessoa'} criar conta no app, o perfil completo também passa a ter telefone, contato de emergência, CPF e histórico de eventos — dados que só existem depois do cadastro de verdade, por isso não aparecem aqui no pré-cadastro.`}
             </p>
           </div>
         </div>

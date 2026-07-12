@@ -307,6 +307,22 @@ export interface PendingProfileDirectoryItem {
   birth_day: number | null
 }
 
+// Campos sensíveis do pré-cadastro (vieram do Zoho junto com o resto, mas
+// list_pending_profiles_for_directory nunca devolve isso pra ninguém). Só a
+// função get_pending_profile_sensitive() no banco expõe — e ela mesma só
+// devolve linha se quem chamou for Diretoria (ver is_diretoria na migração).
+// Buscado sob demanda, um perfil por vez, quando a Diretoria abre o popup.
+export interface PendingProfileSensitive {
+  id: string
+  cpf: string | null
+  phone: string | null
+  mother_name: string | null
+  father_name: string | null
+  pix_key: string | null
+  pix_key_type: string | null
+  pix_owner_name: string | null
+}
+
 export interface Supplier {
   id: string
   name: string
