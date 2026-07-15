@@ -105,6 +105,9 @@ export interface Profile {
   instagram: string | null
   personal_quote: string | null
   avatar_url: string | null
+  // Fundo do perfil. Sempre URL do Storage — nunca base64 (ver
+  // uploadProfileCover no dataService pra saber por quê).
+  cover_url?: string | null
   onboarding_completed: boolean
   approval_status: ApprovalStatus
   created_at: string

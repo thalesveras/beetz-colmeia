@@ -105,7 +105,11 @@ export default function PendingProfileModal({ profile, departmentName, onClose }
           </button>
         </div>
 
-        <div className="px-6 pb-6 -mt-10">
+        {/* relative z-10: o header acima é position:relative (precisa disso pro
+            brilho e pro X), e pelas regras de pintura do CSS um elemento
+            posicionado sobe por cima de irmãos estáticos — mesmo vindo antes no
+            HTML. Sem isso a capa cobria a foto. */}
+        <div className="px-6 pb-6 -mt-10 relative z-10">
           <Avatar src={profile.avatar_url} name={name} size="lg" />
 
           <div className="mt-3 flex items-start justify-between gap-3 flex-wrap">

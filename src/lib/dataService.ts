@@ -131,6 +131,59 @@ export async function getProfileById(id: string): Promise<Profile | null> {
   return data as Profile | null
 }
 
+// ---------- Fundo (capa) do perfil ----------
+// Vai pro Storage e guardamos só a URL — diferente do avatar, que hoje é salvo
+// em base64 direto na coluna. Capa é imagem grande, e listProfiles() faz
+// select('*') alimentando Turma/Dashboard/Ranking/Mapa: base64 aqui faria cada
+// uma dessas telas baixar megabytes por pessoa.
+const COVER_MAX_BYTES = 5 * 1024 * 1024 // o bucket avatars recusa acima disso
+const COVER_MIME = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
+
+export async function uploadProfileCover(userId: string, file: File): Promise<string> {
+  if (!COVER_MIME.includes(file.type)) {
+    throw new Error('Formato não aceito. Use JPG, PNG, WEBP ou GIF.')
+  }
+  if (file.size > COVER_MAX_BYTES) {
+    throw new Error(`Imagem muito grande (${(file.size / 1024 / 1024).toFixed(1)} MB). O limite é 5 MB.`)
+  }
+
+  if (isDemoMode) {
+    const idx = demoState.profiles.findIndex((p) => p.id === userId)
+    const fakeUrl = URL.createObjectURL(file)
+    if (idx >= 0) demoState.profiles[idx] = { ...demoState.profiles[idx], cover_url: fakeUrl }
+    return fakeUrl
+  }
+
+  // Caminho fixo + upsert: trocar o fundo sobrescreve o anterior em vez de
+  // acumular arquivo órfão a cada troca. Como a URL não muda, o navegador
+  // serviria a imagem velha do cache — daí o ?v= no final.
+  const path = `${userId}/cover`
+  const { error: uploadError } = await supabase.storage
+    .from('avatars')
+    .upload(path, file, { upsert: true, contentType: file.type, cacheControl: '3600' })
+  if (uploadError) throw uploadError
+
+  const { data: pub } = supabase.storage.from('avatars').getPublicUrl(path)
+  const url = `${pub.publicUrl}?v=${Date.now()}`
+
+  const { error } = await supabase.from('profiles').update({ cover_url: url }).eq('id', userId)
+  if (error) throw error
+  return url
+}
+
+export async function removeProfileCover(userId: string): Promise<void> {
+  if (isDemoMode) {
+    const idx = demoState.profiles.findIndex((p) => p.id === userId)
+    if (idx >= 0) demoState.profiles[idx] = { ...demoState.profiles[idx], cover_url: null }
+    return
+  }
+  // Apaga o arquivo primeiro; se falhar, ainda assim limpamos a referência pra
+  // a pessoa não ficar presa com um fundo que não consegue tirar.
+  await supabase.storage.from('avatars').remove([`${userId}/cover`])
+  const { error } = await supabase.from('profiles').update({ cover_url: null }).eq('id', userId)
+  if (error) throw error
+}
+
 export async function updateProfileDepartment(profileId: string, departmentId: string): Promise<void> {
   if (isDemoMode) {
     const idx = demoState.profiles.findIndex((p) => p.id === profileId)

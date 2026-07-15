@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { Instagram, Sparkles } from 'lucide-react'
+import { Image, Instagram, Sparkles, Trash2 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { canGiveRecognition } from '../lib/permissions'
 import {
   getProfileById, getProfileStats, giveCompliment, giveHoney,
-  listDepartments, listEventsForProfile
+  listDepartments, listEventsForProfile, removeProfileCover, uploadProfileCover
 } from '../lib/dataService'
 import type { Department, EventItem, Profile, ProfileStats } from '../lib/types'
 import Avatar from '../components/ui/Avatar'
@@ -28,6 +28,9 @@ export default function ProfilePage() {
   const [complimentText, setComplimentText] = useState('')
   const [showComplimentBox, setShowComplimentBox] = useState(false)
   const [feedback, setFeedback] = useState<string | null>(null)
+  const [coverBusy, setCoverBusy] = useState(false)
+  const [coverError, setCoverError] = useState<string | null>(null)
+  const coverInputRef = useRef<HTMLInputElement | null>(null)
 
   const targetId = id === 'me' ? userId : id
 
@@ -63,6 +66,39 @@ export default function ProfilePage() {
     setTimeout(() => setFeedback(null), 3000)
   }
 
+  async function handleCoverChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file || !userId) return
+    setCoverBusy(true)
+    setCoverError(null)
+    try {
+      await uploadProfileCover(userId, file)
+      await load()
+      if (isOwnProfile) refreshProfile()
+    } catch (err) {
+      setCoverError(err instanceof Error ? err.message : 'Erro ao enviar o fundo.')
+    } finally {
+      setCoverBusy(false)
+      // Zera o input pra dar pra reenviar o mesmo arquivo depois de um erro.
+      if (coverInputRef.current) coverInputRef.current.value = ''
+    }
+  }
+
+  async function handleCoverRemove() {
+    if (!userId) return
+    setCoverBusy(true)
+    setCoverError(null)
+    try {
+      await removeProfileCover(userId)
+      await load()
+      refreshProfile()
+    } catch (err) {
+      setCoverError(err instanceof Error ? err.message : 'Erro ao remover o fundo.')
+    } finally {
+      setCoverBusy(false)
+    }
+  }
+
   async function handleSendCompliment() {
     if (!userId || !profile || !complimentText.trim()) return
     if (userId === profile.id) { setFeedback('Você não pode se elogiar por aqui 😄'); return }
@@ -77,9 +113,64 @@ export default function ProfilePage() {
   return (
     <div className="space-y-6 max-w-4xl">
       <div className="bg-white rounded-3xl shadow-soft border border-beetz-dark/5 overflow-hidden">
-        <div className="h-24 dark-gradient" />
-        <div className="p-6 md:p-8 -mt-14">
-          <Avatar src={profile.avatar_url} name={`${profile.first_name} ${profile.last_name}`} size="xl" />
+        {/* Capa: imagem da pessoa se tiver, senão o gradiente escuro padrão.
+            Fica sempre ATRÁS da foto — o bloco de baixo é relative z-10. */}
+        <div className={`h-32 md:h-40 relative group ${profile.cover_url ? 'bg-beetz-dark' : 'dark-gradient'}`}>
+          {profile.cover_url && (
+            <img
+              src={profile.cover_url}
+              alt=""
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+          )}
+          {/* Véu escuro embaixo: a foto e o nome vêm logo abaixo, e sem isso
+              uma capa clara deixaria tudo ilegível. */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+
+          {isOwnProfile && (
+            <div className="absolute bottom-3 right-3 flex gap-2">
+              <label
+                className={`flex items-center gap-1.5 text-xs font-bold bg-white/90 hover:bg-white text-beetz-dark px-3 py-1.5 rounded-lg cursor-pointer transition-colors ${
+                  coverBusy ? 'opacity-60 pointer-events-none' : ''
+                }`}
+              >
+                <Image size={13} />
+                {coverBusy ? 'Enviando...' : profile.cover_url ? 'Trocar fundo' : 'Personalizar fundo'}
+                <input
+                  ref={coverInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  className="hidden"
+                  onChange={handleCoverChange}
+                />
+              </label>
+              {profile.cover_url && (
+                <button
+                  onClick={handleCoverRemove}
+                  disabled={coverBusy}
+                  title="Remover fundo"
+                  className="bg-white/90 hover:bg-white text-beetz-dark/70 hover:text-red-600 p-1.5 rounded-lg transition-colors disabled:opacity-60"
+                >
+                  <Trash2 size={13} />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {coverError && (
+          <p className="text-xs text-red-600 px-6 md:px-8 pt-3">{coverError}</p>
+        )}
+
+        {/* relative z-10 mantém a foto e o conteúdo por cima da capa: a capa é
+            position:relative (pro botão), e no CSS um elemento posicionado
+            pinta por cima de irmãos estáticos mesmo vindo antes no HTML. */}
+        <div className="p-6 md:p-8 -mt-14 relative z-10">
+          {/* Anel branco: destaca a foto contra qualquer capa que a pessoa
+              suba, clara ou escura. */}
+          <div className="inline-block rounded-full ring-4 ring-white">
+            <Avatar src={profile.avatar_url} name={`${profile.first_name} ${profile.last_name}`} size="xl" />
+          </div>
           <div className="mt-4 flex flex-wrap items-start justify-between gap-4">
             <div>
               <h1 className="text-2xl font-extrabold">{profile.first_name} {profile.last_name}</h1>
