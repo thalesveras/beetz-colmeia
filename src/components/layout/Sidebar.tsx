@@ -50,6 +50,7 @@ export default function Sidebar() {
       icon: CalendarDays,
       items: [
         { to: '/eventos', label: 'Eventos', icon: CalendarDays },
+        { to: '/escala', label: 'Escala', icon: ClipboardList },
         ...(canViewStockTab(accessRole) ? [{ to: '/estoque', label: 'Estoque', icon: Package }] : [])
       ]
     },

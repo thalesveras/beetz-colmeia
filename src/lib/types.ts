@@ -207,6 +207,47 @@ export interface EventMember {
   created_at: string
 }
 
+// ---------- Escala ----------
+// A vaga (EventStaffingRequirement) diz "preciso de 10 garçons"; a candidatura
+// é uma pessoa levantando a mão pra uma dessas vagas. Quando o líder confirma,
+// um trigger no banco cria o event_member correspondente automaticamente.
+export type StaffingApplicationStatus = 'Candidatado' | 'Confirmado' | 'Recusado' | 'Cancelado'
+
+export interface EventStaffingApplication {
+  id: string
+  requirement_id: string
+  event_id: string
+  profile_id: string
+  status: StaffingApplicationStatus
+  note: string | null
+  decided_by: string | null
+  decided_at: string | null
+  created_at: string
+}
+
+// Vaga aberta enriquecida com dados do evento e contagem — o que a turma vê
+// na tela /escala.
+export interface OpenStaffingSlot {
+  requirement: EventStaffingRequirement
+  event: EventItem
+  confirmedCount: number
+  myApplication: EventStaffingApplication | null
+}
+
+// ---------- Notificações ----------
+export type NotificationKind = 'Geral' | 'Escala' | 'Despesa' | 'Estoque' | 'Evento' | 'Fechamento'
+
+export interface AppNotification {
+  id: string
+  profile_id: string
+  kind: NotificationKind
+  title: string
+  body: string | null
+  link: string | null
+  read_at: string | null
+  created_at: string
+}
+
 export interface Compliment {
   id: string
   from_profile_id: string

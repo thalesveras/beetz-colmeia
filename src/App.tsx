@@ -6,6 +6,7 @@ import TeamDirectory from './pages/TeamDirectory'
 import ProfilePage from './pages/ProfilePage'
 import HiveMap from './pages/HiveMap'
 import Birthdays from './pages/Birthdays'
+import Escala from './pages/Escala'
 import Stock from './pages/Stock'
 import Admin from './pages/Admin'
 import Settings from './pages/Settings'
@@ -44,6 +45,7 @@ export default function App() {
       <Route path="/perfil/:id" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
       <Route path="/mapa" element={<ProtectedRoute><HiveMap /></ProtectedRoute>} />
       <Route path="/aniversariantes" element={<ProtectedRoute><Birthdays /></ProtectedRoute>} />
+      <Route path="/escala" element={<ProtectedRoute><Escala /></ProtectedRoute>} />
       <Route path="/eventos" element={<ProtectedRoute><EventsList /></ProtectedRoute>} />
       <Route path="/eventos/novo" element={<ProtectedRoute><EventForm /></ProtectedRoute>} />
       <Route path="/eventos/:id" element={<ProtectedRoute><EventDetail /></ProtectedRoute>} />

@@ -9,12 +9,12 @@ import {
 } from './mockData'
 import { badgesFromStats, getHiveLevel } from './levels'
 import type {
-  AppSettings, Badge, BadgeDefConfig, CashierSettlement, Compliment, Department, DnsSubdomain, DnsRecordType,
+  AppNotification, AppSettings, Badge, BadgeDefConfig, CashierSettlement, Compliment, Department, DnsSubdomain, DnsRecordType,
   EventFinancialSummary,
-  EventItem, EventMember, EventModality, EventProduct, EventRepasse, EventStaffingRequirement, Expense,
-  ExpenseCategory, HiveLevelConfig, HoneyPoint, LinkRedirect, MovementType, PaymentMethodOption, Product,
+  EventItem, EventMember, EventModality, EventProduct, EventRepasse, EventStaffingApplication, EventStaffingRequirement, Expense,
+  ExpenseCategory, HiveLevelConfig, HoneyPoint, LinkRedirect, MovementType, OpenStaffingSlot, PaymentMethodOption, Product,
   ProductionConsumption, Producer, Profile, ProfileStats, RolePermissions, ServiceModality,
-  PendingProfileDirectoryItem, PendingProfilePickerItem, PendingProfileSensitive, StockBalance, StockLocation, StockMovement,
+  PendingProfileDirectoryItem, PendingProfilePickerItem, PendingProfileSensitive, StaffingApplicationStatus, StockBalance, StockLocation, StockMovement,
   Supplier, TransferRequest, TransferRequestStatus, ZohoPendingProfile, EmailKind, EmailLogEntry
 } from './types'
 
@@ -48,7 +48,9 @@ const demoState = {
   eventStaffingRequirements: [...mockEventStaffingRequirements],
   eventRepasses: [...mockEventRepasses],
   linkRedirects: [] as LinkRedirect[],
-  dnsSubdomains: [] as DnsSubdomain[]
+  dnsSubdomains: [] as DnsSubdomain[],
+  staffingApplications: [] as EventStaffingApplication[],
+  notifications: [] as AppNotification[]
 }
 
 function uid(prefix: string) {
@@ -1792,4 +1794,170 @@ export async function deployRedirectWorker(): Promise<DeployRedirectWorkerResult
   if (error) throw new Error(await extractFunctionErrorMessage(error))
   if (data?.error) throw new Error(data.error)
   return data as DeployRedirectWorkerResult
+}
+
+// ---------- Escala (candidaturas às vagas dos eventos) ----------
+// Fluxo: a Diretoria cadastra a vaga no evento ("10 garçons"), a turma se
+// candidata aqui, o líder confirma. Ao confirmar, um trigger no banco cria o
+// event_member correspondente — não precisamos fazer isso no front.
+
+export async function listEventStaffingApplications(eventId: string): Promise<EventStaffingApplication[]> {
+  if (isDemoMode) return demoState.staffingApplications.filter((a) => a.event_id === eventId)
+  const { data, error } = await supabase
+    .from('event_staffing_applications').select('*').eq('event_id', eventId).order('created_at')
+  if (error) throw error
+  return data as EventStaffingApplication[]
+}
+
+export async function listMyStaffingApplications(profileId: string): Promise<EventStaffingApplication[]> {
+  if (isDemoMode) return demoState.staffingApplications.filter((a) => a.profile_id === profileId)
+  const { data, error } = await supabase
+    .from('event_staffing_applications').select('*').eq('profile_id', profileId).order('created_at', { ascending: false })
+  if (error) throw error
+  return data as EventStaffingApplication[]
+}
+
+// Vagas de eventos que ainda vão acontecer, já com a contagem de confirmados e
+// a candidatura da própria pessoa (se existir) — é o que alimenta a tela /escala.
+export async function listOpenStaffingSlots(profileId: string | null): Promise<OpenStaffingSlot[]> {
+  const today = new Date().toISOString().slice(0, 10)
+
+  const events = (await listEvents()).filter(
+    (e) => e.event_date >= today && e.status !== 'Cancelado' && e.status !== 'Concluído'
+  )
+  if (!events.length) return []
+  const eventIds = events.map((e) => e.id)
+
+  let requirements: EventStaffingRequirement[]
+  let applications: EventStaffingApplication[]
+
+  if (isDemoMode) {
+    requirements = demoState.eventStaffingRequirements.filter((r) => eventIds.includes(r.event_id))
+    applications = demoState.staffingApplications.filter((a) => eventIds.includes(a.event_id))
+  } else {
+    const [reqRes, appRes] = await Promise.all([
+      supabase.from('event_staffing_requirements').select('*').in('event_id', eventIds),
+      supabase.from('event_staffing_applications').select('*').in('event_id', eventIds)
+    ])
+    if (reqRes.error) throw reqRes.error
+    if (appRes.error) throw appRes.error
+    requirements = reqRes.data as EventStaffingRequirement[]
+    applications = appRes.data as EventStaffingApplication[]
+  }
+
+  return requirements
+    .map((requirement) => {
+      const event = events.find((e) => e.id === requirement.event_id)!
+      const forSlot = applications.filter((a) => a.requirement_id === requirement.id)
+      return {
+        requirement,
+        event,
+        confirmedCount: forSlot.filter((a) => a.status === 'Confirmado').length,
+        myApplication: profileId
+          ? forSlot.find((a) => a.profile_id === profileId && a.status !== 'Cancelado') ?? null
+          : null
+      }
+    })
+    .sort((a, b) => (a.event.event_date < b.event.event_date ? -1 : 1))
+}
+
+export async function applyToStaffingSlot(
+  requirementId: string, eventId: string, profileId: string, note: string | null = null
+): Promise<EventStaffingApplication> {
+  if (isDemoMode) {
+    const existing = demoState.staffingApplications.find(
+      (a) => a.requirement_id === requirementId && a.profile_id === profileId
+    )
+    if (existing) {
+      existing.status = 'Candidatado'
+      existing.note = note
+      return existing
+    }
+    const record: EventStaffingApplication = {
+      id: uid('app'), requirement_id: requirementId, event_id: eventId, profile_id: profileId,
+      status: 'Candidatado', note, decided_by: null, decided_at: null, created_at: new Date().toISOString()
+    }
+    demoState.staffingApplications.push(record)
+    return record
+  }
+  // upsert: se a pessoa já tinha cancelado antes, candidatar de novo reaproveita a linha
+  const { data, error } = await supabase
+    .from('event_staffing_applications')
+    .upsert(
+      { requirement_id: requirementId, event_id: eventId, profile_id: profileId, status: 'Candidatado', note },
+      { onConflict: 'requirement_id,profile_id' }
+    )
+    .select().single()
+  if (error) throw error
+  return data as EventStaffingApplication
+}
+
+export async function updateStaffingApplicationStatus(
+  id: string, status: StaffingApplicationStatus, decidedBy: string | null = null
+): Promise<EventStaffingApplication> {
+  if (isDemoMode) {
+    const app = demoState.staffingApplications.find((a) => a.id === id)
+    if (!app) throw new Error('Candidatura não encontrada')
+    app.status = status
+    app.decided_by = decidedBy
+    app.decided_at = new Date().toISOString()
+    return app
+  }
+  const patch: Record<string, unknown> = { status }
+  // Cancelamento é ação do próprio candidato, não uma decisão de líder.
+  if (status !== 'Cancelado') {
+    patch.decided_by = decidedBy
+    patch.decided_at = new Date().toISOString()
+  }
+  const { data, error } = await supabase
+    .from('event_staffing_applications').update(patch).eq('id', id).select().single()
+  if (error) throw error
+  return data as EventStaffingApplication
+}
+
+// ---------- Notificações ----------
+export async function listNotifications(profileId: string, limit = 30): Promise<AppNotification[]> {
+  if (isDemoMode) {
+    return [...demoState.notifications].filter((n) => n.profile_id === profileId).slice(0, limit)
+  }
+  const { data, error } = await supabase
+    .from('notifications').select('*').eq('profile_id', profileId)
+    .order('created_at', { ascending: false }).limit(limit)
+  if (error) throw error
+  return data as AppNotification[]
+}
+
+export async function countUnreadNotifications(profileId: string): Promise<number> {
+  if (isDemoMode) {
+    return demoState.notifications.filter((n) => n.profile_id === profileId && !n.read_at).length
+  }
+  const { count, error } = await supabase
+    .from('notifications').select('*', { count: 'exact', head: true })
+    .eq('profile_id', profileId).is('read_at', null)
+  if (error) throw error
+  return count ?? 0
+}
+
+export async function markNotificationRead(id: string): Promise<void> {
+  if (isDemoMode) {
+    const n = demoState.notifications.find((x) => x.id === id)
+    if (n) n.read_at = new Date().toISOString()
+    return
+  }
+  const { error } = await supabase
+    .from('notifications').update({ read_at: new Date().toISOString() }).eq('id', id)
+  if (error) throw error
+}
+
+export async function markAllNotificationsRead(profileId: string): Promise<void> {
+  if (isDemoMode) {
+    demoState.notifications.forEach((n) => {
+      if (n.profile_id === profileId && !n.read_at) n.read_at = new Date().toISOString()
+    })
+    return
+  }
+  const { error } = await supabase
+    .from('notifications').update({ read_at: new Date().toISOString() })
+    .eq('profile_id', profileId).is('read_at', null)
+  if (error) throw error
 }

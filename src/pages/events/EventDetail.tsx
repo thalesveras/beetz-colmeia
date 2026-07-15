@@ -14,6 +14,7 @@ import ProductsTab from './ProductsTab'
 import ProductionConsumptionTab from './ProductionConsumptionTab'
 import TransferRequestsTab from './TransferRequestsTab'
 import RepassesTab from './RepassesTab'
+import StaffingTab from './StaffingTab'
 import StockReconciliationCard from './StockReconciliationCard'
 import EventSummaryCard from './EventSummaryCard'
 import FinancialSummaryCard from './FinancialSummaryCard'
@@ -24,7 +25,7 @@ import {
   canViewFinancialSummary, canViewStockTab
 } from '../../lib/permissions'
 
-type TabKey = 'equipe' | 'despesas' | 'recebimentos' | 'estoque' | 'produtos' | 'consumo' | 'repasses' | 'fechamentos'
+type TabKey = 'equipe' | 'escala' | 'despesas' | 'recebimentos' | 'estoque' | 'produtos' | 'consumo' | 'repasses' | 'fechamentos'
 
 export default function EventDetail() {
   const { id } = useParams()
@@ -32,6 +33,9 @@ export default function EventDetail() {
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: 'equipe', label: 'Equipe' },
+    // Escala fica visível pra todo mundo: a turma acompanha quem foi confirmado,
+    // e quem tem permissão de aprovar vê os botões de confirmar/recusar.
+    { key: 'escala', label: 'Escala' },
     ...(canViewExpensesTab(accessRole) ? [{ key: 'despesas' as TabKey, label: 'Despesas' }] : []),
     ...(canViewCashierTab(accessRole) ? [{ key: 'recebimentos' as TabKey, label: 'Recebimentos' }] : []),
     ...(canViewStockTab(accessRole) ? [{ key: 'produtos' as TabKey, label: 'Produtos' }] : []),
@@ -237,6 +241,10 @@ export default function EventDetail() {
             )}
           </div>
         </div>
+      )}
+
+      {activeTab === 'escala' && (
+        <StaffingTab eventId={id} canManage={canApproveEventRequests(accessRole)} />
       )}
 
       {activeTab === 'despesas' && canViewExpensesTab(accessRole) && (
