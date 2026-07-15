@@ -3,6 +3,7 @@ import { Pencil, Link as LinkIcon, MapPin, Music, Save, X } from 'lucide-react'
 import { updateEvent } from '../../lib/dataService'
 import type { EventItem } from '../../lib/types'
 import FileField from '../../components/ui/FileField'
+import StaffingRequirementsEditor from './StaffingRequirementsEditor'
 
 const inputClass = 'w-full border border-beetz-dark/15 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
 
@@ -15,9 +16,12 @@ interface Props {
   event: EventItem
   canEdit: boolean
   onSaved: (updated: EventItem) => void
+  // Mexer nas vagas aqui precisa refletir na aba Equipe (que decide, por
+  // exemplo, se mostra o campo de interesse em texto livre).
+  onStaffingChanged?: () => void
 }
 
-export default function EventSummaryCard({ event, canEdit, onSaved }: Props) {
+export default function EventSummaryCard({ event, canEdit, onSaved, onStaffingChanged }: Props) {
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({
@@ -162,9 +166,16 @@ export default function EventSummaryCard({ event, canEdit, onSaved }: Props) {
           </div>
           <FileField label="Imagem ou flyer" value={form.flyer_url} onChange={(v) => set('flyer_url', v)} />
 
+          {/* Vagas fazem parte da definição do evento, tanto quanto local e
+              horário — mas salvam sozinhas (cada vaga é uma linha própria no
+              banco), então ficam fora do "Salvar resumo". */}
+          <div className="border-t border-beetz-dark/5 pt-4">
+            <StaffingRequirementsEditor eventId={event.id} onChanged={onStaffingChanged} />
+          </div>
+
           <div className="flex justify-end gap-2 pt-1">
             <button onClick={() => setEditing(false)} className="flex items-center gap-1.5 text-sm font-semibold text-beetz-dark/50 px-4 py-2">
-              <X size={14} /> Cancelar
+              <X size={14} /> Fechar edição
             </button>
             <button onClick={handleSave} disabled={saving} className="flex items-center gap-1.5 honey-gradient text-beetz-dark font-bold px-5 py-2 rounded-xl text-sm disabled:opacity-60">
               <Save size={14} /> {saving ? 'Salvando...' : 'Salvar resumo'}

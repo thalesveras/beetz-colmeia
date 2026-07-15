@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import {
-  addEventMember, getEventById, getProfileById, listEventMembers, listProfiles,
+  addEventMember, getEventById, getProfileById, listEventMembers,
+  listEventStaffingRequirements, listProfiles,
   requestEventParticipation, updateEventMemberStatus
 } from '../../lib/dataService'
 import type { EventItem, EventMember, Profile } from '../../lib/types'
@@ -25,7 +26,11 @@ import {
   canViewFinancialSummary, canViewStockTab
 } from '../../lib/permissions'
 
-type TabKey = 'equipe' | 'escala' | 'despesas' | 'recebimentos' | 'estoque' | 'produtos' | 'consumo' | 'repasses' | 'fechamentos'
+// "Escala" já foi uma aba separada de "Equipe" — as duas montavam o time do
+// evento por caminhos paralelos, com duas filas de aprovação, e confirmar numa
+// criava membro na outra. Agora Equipe é o único lugar: vagas, candidatos e
+// time confirmado juntos.
+type TabKey = 'equipe' | 'despesas' | 'recebimentos' | 'estoque' | 'produtos' | 'consumo' | 'repasses' | 'fechamentos'
 
 export default function EventDetail() {
   const { id } = useParams()
@@ -33,9 +38,6 @@ export default function EventDetail() {
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: 'equipe', label: 'Equipe' },
-    // Escala fica visível pra todo mundo: a turma acompanha quem foi confirmado,
-    // e quem tem permissão de aprovar vê os botões de confirmar/recusar.
-    { key: 'escala', label: 'Escala' },
     ...(canViewExpensesTab(accessRole) ? [{ key: 'despesas' as TabKey, label: 'Despesas' }] : []),
     ...(canViewCashierTab(accessRole) ? [{ key: 'recebimentos' as TabKey, label: 'Recebimentos' }] : []),
     ...(canViewStockTab(accessRole) ? [{ key: 'produtos' as TabKey, label: 'Produtos' }] : []),
@@ -58,6 +60,9 @@ export default function EventDetail() {
   const [requestRole, setRequestRole] = useState('')
   const [requesting, setRequesting] = useState(false)
   const [activeTab, setActiveTab] = useState<TabKey>('equipe')
+  // Se o evento tem vagas, o caminho é se candidatar a uma delas; o campo de
+  // interesse em texto livre só aparece quando não há vaga nenhuma.
+  const [hasRequirements, setHasRequirements] = useState(false)
 
   async function load() {
     if (!id) return
@@ -69,6 +74,7 @@ export default function EventDetail() {
     const withProfiles = await Promise.all(rawMembers.map(async (m) => ({ ...m, profile: await getProfileById(m.profile_id) })))
     setMembers(withProfiles)
     setAllProfiles(await listProfiles())
+    setHasRequirements((await listEventStaffingRequirements(id)).length > 0)
     setLoading(false)
   }
 
@@ -108,7 +114,7 @@ export default function EventDetail() {
     <div className="space-y-6 max-w-4xl">
       <Link to="/eventos" className="text-sm text-beetz-dark/50 hover:text-beetz-dark">← Voltar para eventos</Link>
 
-      <EventSummaryCard event={event} canEdit={canManageUsers(accessRole)} onSaved={setEvent} />
+      <EventSummaryCard event={event} canEdit={canManageUsers(accessRole)} onSaved={setEvent} onStaffingChanged={load} />
 
       {leader && (
         <div className="bg-white rounded-2xl shadow-soft border border-beetz-dark/5 p-5 flex items-center gap-3">
@@ -145,9 +151,23 @@ export default function EventDetail() {
 
       {activeTab === 'equipe' && (
         <div className="space-y-4">
-          {!myMembership && (
+          {/* Vagas + candidatos. É aqui que a equipe se monta quando o evento
+              tem vagas definidas. */}
+          <StaffingTab
+            eventId={id}
+            canManage={canApproveEventRequests(accessRole)}
+            onTeamChanged={load}
+          />
+
+          {/* Interesse em texto livre: só faz sentido quando não há vaga
+              cadastrada. Com vagas no ar, ter dois caminhos pra mesma coisa é
+              justamente o que confundia antes. */}
+          {!myMembership && !hasRequirements && (
             <div className="bg-white rounded-2xl p-5 shadow-soft border border-beetz-dark/5">
-              <p className="font-semibold text-sm mb-3">Quer participar deste evento?</p>
+              <p className="font-semibold text-sm mb-1">Quer participar deste evento?</p>
+              <p className="text-xs text-beetz-dark/50 mb-3">
+                Esse evento ainda não tem vagas abertas. Deixe seu interesse que a Diretoria avalia.
+              </p>
               <div className="flex flex-col sm:flex-row gap-2">
                 <input
                   value={requestRole} onChange={(e) => setRequestRole(e.target.value)} placeholder="Função desejada (ex: Garçom, Bar...)"
@@ -157,7 +177,7 @@ export default function EventDetail() {
                   onClick={handleRequestParticipation} disabled={requesting}
                   className="honey-gradient text-beetz-dark font-bold text-sm px-4 py-2 rounded-xl disabled:opacity-60"
                 >
-                  {requesting ? 'Enviando...' : 'Quero participar'}
+                  {requesting ? 'Enviando...' : 'Tenho interesse'}
                 </button>
               </div>
             </div>
@@ -207,7 +227,11 @@ export default function EventDetail() {
           )}
 
           <div className="bg-white rounded-2xl p-6 shadow-soft border border-beetz-dark/5">
-            <h2 className="font-bold mb-4">Quem vai trabalhar junto</h2>
+            <h2 className="font-bold mb-1">Quem vai trabalhar junto</h2>
+            <p className="text-xs text-beetz-dark/50 mb-4">
+              Time confirmado do evento — entra automaticamente quem é confirmado numa vaga acima,
+              mais quem for escalado na mão.
+            </p>
             {approvedMembers.length === 0 ? (
               <p className="text-sm text-beetz-dark/50">Equipe ainda não escalada.</p>
             ) : (
@@ -241,10 +265,6 @@ export default function EventDetail() {
             )}
           </div>
         </div>
-      )}
-
-      {activeTab === 'escala' && (
-        <StaffingTab eventId={id} canManage={canApproveEventRequests(accessRole)} />
       )}
 
       {activeTab === 'despesas' && canViewExpensesTab(accessRole) && (

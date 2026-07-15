@@ -1604,9 +1604,28 @@ export async function createEventStaffingRequirement(input: NewEventStaffingInpu
   return data as EventStaffingRequirement
 }
 
+export async function updateEventStaffingRequirement(
+  id: string, patch: Partial<Pick<EventStaffingRequirement, 'role_label' | 'quantity' | 'unit_cost' | 'notes'>>
+): Promise<EventStaffingRequirement> {
+  if (isDemoMode) {
+    const idx = demoState.eventStaffingRequirements.findIndex((s) => s.id === id)
+    if (idx < 0) throw new Error('Vaga não encontrada')
+    demoState.eventStaffingRequirements[idx] = { ...demoState.eventStaffingRequirements[idx], ...patch }
+    return demoState.eventStaffingRequirements[idx]
+  }
+  const { data, error } = await supabase
+    .from('event_staffing_requirements').update(patch).eq('id', id).select().single()
+  if (error) throw error
+  return data as EventStaffingRequirement
+}
+
+// Apagar a vaga leva junto as candidaturas dela (o banco tem
+// on delete cascade em event_staffing_applications.requirement_id) — quem já
+// estava confirmado continua como membro do evento, porque isso é outra tabela.
 export async function deleteEventStaffingRequirement(id: string): Promise<void> {
   if (isDemoMode) {
     demoState.eventStaffingRequirements = demoState.eventStaffingRequirements.filter((s) => s.id !== id)
+    demoState.staffingApplications = demoState.staffingApplications.filter((a) => a.requirement_id !== id)
     return
   }
   const { error } = await supabase.from('event_staffing_requirements').delete().eq('id', id)
