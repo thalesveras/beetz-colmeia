@@ -6,6 +6,17 @@ import type { DnsRecordType, DnsSubdomain } from '../../lib/types'
 const inputClass = 'rounded-xl border border-beetz-dark/15 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
 const ZONE_NAME = 'beetz.bar'
 
+// CNAME aponta pra um NOME de host, nunca pra uma URL. Colar "https://x.com/"
+// da barra do navegador cria um registro que o Cloudflare aceita calado mas
+// que nunca resolve — já aconteceu com o app.beetz.bar. A limpeza de verdade
+// acontece na edge function; aqui é só pra pessoa ver o que vai ser gravado
+// antes de clicar.
+function normalizeCnameTarget(raw: string): string {
+  let v = raw.trim().replace(/^[a-z]+:\/\//i, '')
+  v = v.split('/')[0].split('?')[0].split('#')[0].replace(/:\d+$/, '').replace(/\.$/, '')
+  return v.toLowerCase()
+}
+
 // Cria de verdade um registro de DNS no Cloudflare (via edge function
 // manage-subdomain, que segura o token) pra apontar um subdomínio novo —
 // ex: app.beetz.bar -> beetz-colmeia.netlify.app. Precisa dos secrets
@@ -39,7 +50,7 @@ export default function SubdomainsSection() {
       await createDnsSubdomain({
         subdomain: newPrefix.trim().toLowerCase(),
         target_type: newTargetType,
-        target_value: newTargetValue.trim(),
+        target_value: newTargetType === 'CNAME' ? normalizeCnameTarget(newTargetValue) : newTargetValue.trim(),
         proxied: newProxied
       })
       setNewPrefix(''); setNewTargetValue(''); setNewTargetType('CNAME'); setNewProxied(true)
@@ -86,10 +97,18 @@ export default function SubdomainsSection() {
           </select>
         </div>
         <input
-          placeholder={newTargetType === 'CNAME' ? 'ex: beetz-colmeia.netlify.app' : 'ex: 192.0.2.1'}
+          placeholder={newTargetType === 'CNAME' ? 'ex: beetz.netlify.app' : 'ex: 192.0.2.1'}
           value={newTargetValue} onChange={(e) => setNewTargetValue(e.target.value)}
           className={`${inputClass} w-full`}
         />
+        {/* Mostra o que de fato vai pro DNS quando o que foi colado é uma URL,
+            em vez de deixar a pessoa descobrir com o subdomínio quebrado. */}
+        {newTargetType === 'CNAME' && newTargetValue.trim() &&
+          normalizeCnameTarget(newTargetValue) !== newTargetValue.trim() && (
+          <p className="text-xs text-beetz-dark/60 bg-beetz-yellow/15 rounded-lg px-2.5 py-1.5">
+            Vai ser gravado como <code className="font-semibold">{normalizeCnameTarget(newTargetValue)}</code> — CNAME aponta pra um endereço de host, sem <code>https://</code> nem barra.
+          </p>
+        )}
         <label className="flex items-center gap-2 text-sm text-beetz-dark/70">
           <input type="checkbox" checked={newProxied} onChange={(e) => setNewProxied(e.target.checked)} />
           Proxy do Cloudflare ativo (nuvem laranja — recomendado)

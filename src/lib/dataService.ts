@@ -1623,6 +1623,30 @@ export async function sendEmail(to: string, subject: string, html: string): Prom
   if (res.failed > 0) throw new Error(res.results[0]?.error ?? 'Falha ao enviar e-mail.')
 }
 
+// Parabéns pro aniversariante. Repare que não passamos e-mail nenhum daqui:
+// mandamos só QUEM é a pessoa, e a edge function resolve o endereço no
+// servidor. Isso existe porque o e-mail do pré-cadastro é privado de propósito
+// (o diretório omite esse campo) — então a tela não precisa, e não deve, ter
+// acesso a ele só pra mandar parabéns.
+export type BirthdayEmailTarget =
+  | { kind: 'profile'; id: string }
+  | { kind: 'pending'; id: string }
+
+export async function sendBirthdayEmail(
+  target: BirthdayEmailTarget, subject: string, message: string
+): Promise<void> {
+  if (isDemoMode) return
+  const { data, error } = await supabase.functions.invoke('send-birthday-email', {
+    body: {
+      ...(target.kind === 'profile' ? { profile_id: target.id } : { pending_id: target.id }),
+      subject,
+      message
+    }
+  })
+  if (error) throw new Error(await extractFunctionErrorMessage(error))
+  if (data?.error) throw new Error(data.error)
+}
+
 // Envia em massa, em lotes de EMAIL_BATCH_SIZE, chamando onProgress a cada
 // lote concluído — mesmo padrão de "roda até acabar, mostrando progresso" já
 // usado pra importação de fotos do pré-cadastro em Settings.tsx.
