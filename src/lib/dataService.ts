@@ -12,7 +12,7 @@ import type {
   AppNotification, AppSettings, Badge, BadgeDefConfig, CashierSettlement, Compliment, Department, DnsSubdomain, DnsRecordType,
   EventFinancialSummary,
   EventItem, EventMember, EventModality, EventProduct, EventRepasse, EventStaffingApplication, EventStaffingRequirement, Expense,
-  ExpenseCategory, HiveLevelConfig, HoneyPoint, LinkRedirect, MovementType, OpenStaffingSlot, PaymentMethodOption, Product,
+  ExpenseCategory, ExpenseStatus, HiveLevelConfig, HoneyPoint, LinkRedirect, MovementType, OpenStaffingSlot, PaymentMethodOption, Product,
   ProductionConsumption, Producer, Profile, ProfileStats, RolePermissions, ServiceModality,
   PendingProfileDirectoryItem, PendingProfilePickerItem, PendingProfileSensitive, StaffingApplicationStatus, StockBalance, StockLocation, StockMovement,
   Supplier, TransferRequest, TransferRequestStatus, ZohoPendingProfile, EmailKind, EmailLogEntry
@@ -728,6 +728,96 @@ export async function listAllExpenses(): Promise<Expense[]> {
   const { data, error } = await supabase.from('expenses').select('*').order('created_at', { ascending: false })
   if (error) throw error
   return data as Expense[]
+}
+
+// ---------- Dashboard financeiro ----------
+// Junta despesa + evento + fornecedor + pessoa numa linha só, pronta pra
+// filtrar e agrupar na tela sem ficar cruzando array em toda renderização.
+//
+// Sobre a data: NÃO usamos expenses.created_at como eixo de tempo. Esse campo
+// é o momento em que a linha entrou no banco — e como as 85 despesas vieram
+// de uma importação única do Zoho, todas têm o mesmo dia (07/07). Agrupar por
+// ele empilharia tudo num mês só e mentiria. Usamos a data do EVENTO, que é
+// quando o gasto de fato aconteceu; toda despesa tem evento vinculado.
+export interface FinanceRow {
+  id: string
+  total: number
+  status: ExpenseStatus
+  category: string
+  description: string
+  paymentMethod: string
+  eventId: string
+  eventName: string
+  // Data do evento (YYYY-MM-DD) — o eixo de tempo real.
+  date: string
+  // 'YYYY-MM', pré-calculado pra agrupar por mês sem refazer parse.
+  month: string
+  supplierId: string | null
+  supplierName: string
+  personId: string | null
+  personName: string
+}
+
+export interface FinanceDataset {
+  rows: FinanceRow[]
+  events: EventItem[]
+  // Faturamento lançado por evento. Fica separado das despesas de propósito:
+  // hoje quase todo evento está com sales_amount 0, então a tela avisa em vez
+  // de mostrar "lucro" calculado em cima de receita que ninguém lançou.
+  revenueByEvent: Record<string, number>
+  eventsWithoutRevenue: number
+}
+
+export async function getFinanceDataset(): Promise<FinanceDataset> {
+  const [expenses, events, suppliers, profiles, pending] = await Promise.all([
+    listAllExpenses(), listEvents(), listSuppliers(), listProfiles(), listPendingProfilesForPicker()
+  ])
+
+  const eventById = new Map(events.map((e) => [e.id, e]))
+  const supplierById = new Map(suppliers.map((s) => [s.id, s]))
+  const profileById = new Map(profiles.map((p) => [p.id, p]))
+  const pendingById = new Map(pending.map((p) => [p.id, p]))
+
+  const rows: FinanceRow[] = expenses.map((x) => {
+    const ev = eventById.get(x.event_id)
+    const date = ev?.event_date ?? ''
+    // A despesa pode estar amarrada a um perfil real OU a um pré-cadastro —
+    // os dois viram "pessoa" aqui, pra tela não precisar saber a diferença.
+    const profile = x.team_member_id ? profileById.get(x.team_member_id) : null
+    const pend = x.pending_team_member_id ? pendingById.get(x.pending_team_member_id) : null
+    const personName = profile
+      ? `${profile.first_name ?? ''} ${profile.last_name ?? ''}`.trim()
+      : pend
+        ? `${pend.first_name ?? ''} ${pend.last_name ?? ''}`.trim()
+        : ''
+
+    return {
+      id: x.id,
+      total: Number(x.total) || 0,
+      status: x.status,
+      category: x.category || 'Sem categoria',
+      description: x.description || '',
+      paymentMethod: x.payment_method || 'Não informado',
+      eventId: x.event_id,
+      eventName: ev?.name ?? 'Evento removido',
+      date,
+      month: date ? date.slice(0, 7) : '',
+      supplierId: x.supplier_id,
+      supplierName: x.supplier_id ? (supplierById.get(x.supplier_id)?.name ?? 'Fornecedor removido') : 'Sem fornecedor',
+      personId: x.team_member_id ?? x.pending_team_member_id,
+      personName: personName || 'Sem pessoa'
+    }
+  })
+
+  const revenueByEvent: Record<string, number> = {}
+  let eventsWithoutRevenue = 0
+  for (const e of events) {
+    const value = Number(e.sales_amount) || 0
+    revenueByEvent[e.id] = value
+    if (value <= 0 && e.status === 'Concluído') eventsWithoutRevenue++
+  }
+
+  return { rows, events, revenueByEvent, eventsWithoutRevenue }
 }
 
 // Lista enxuta (sem CPF/telefone/etc.) de quem ainda não se cadastrou, pra

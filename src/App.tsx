@@ -14,6 +14,7 @@ import EventsList from './pages/events/EventsList'
 import EventDetail from './pages/events/EventDetail'
 import EventForm from './pages/events/EventForm'
 import FinanceExpenses from './pages/FinanceExpenses'
+import FinanceDashboard from './pages/finance/FinanceDashboard'
 import Suppliers from './pages/Suppliers'
 import Repasses from './pages/Repasses'
 import Receipts from './pages/Receipts'
@@ -50,7 +51,10 @@ export default function App() {
       <Route path="/eventos/novo" element={<ProtectedRoute><EventForm /></ProtectedRoute>} />
       <Route path="/eventos/:id" element={<ProtectedRoute><EventDetail /></ProtectedRoute>} />
       <Route path="/estoque" element={<ProtectedRoute><Stock /></ProtectedRoute>} />
-      <Route path="/financeiro" element={<ProtectedRoute><FinanceExpenses /></ProtectedRoute>} />
+      {/* /financeiro agora é o dashboard; a lista de lançamentos (onde se
+          cadastra e edita despesa) ganhou endereço próprio. */}
+      <Route path="/financeiro" element={<ProtectedRoute><FinanceDashboard /></ProtectedRoute>} />
+      <Route path="/financeiro/despesas" element={<ProtectedRoute><FinanceExpenses /></ProtectedRoute>} />
       <Route path="/financeiro/fornecedores" element={<ProtectedRoute><Suppliers /></ProtectedRoute>} />
       <Route path="/financeiro/repasses" element={<ProtectedRoute><Repasses /></ProtectedRoute>} />
       <Route path="/financeiro/recebimentos" element={<ProtectedRoute><Receipts /></ProtectedRoute>} />

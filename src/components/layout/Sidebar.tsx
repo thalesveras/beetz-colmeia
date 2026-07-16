@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
   Home, Users, UserCircle, Hexagon, CalendarDays, Trophy, Info, LogOut, Package,
-  ShieldCheck, Settings, ChevronDown, Wallet, Cake, Truck, HandCoins, Receipt, ClipboardList
+  ShieldCheck, Settings, ChevronDown, Wallet, Cake, Truck, HandCoins, Receipt, ClipboardList,
+  BarChart3
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import {
@@ -60,7 +61,8 @@ export default function Sidebar() {
           label: 'Financeiro',
           icon: Wallet,
           items: [
-            { to: '/financeiro', label: 'Despesas', icon: Wallet },
+            { to: '/financeiro', label: 'Painel', icon: BarChart3 },
+            { to: '/financeiro/despesas', label: 'Despesas', icon: Wallet },
             { to: '/financeiro/fornecedores', label: 'Fornecedores', icon: Truck },
             { to: '/financeiro/repasses', label: 'Repasses', icon: HandCoins },
             { to: '/financeiro/recebimentos', label: 'Recebimentos', icon: Receipt },

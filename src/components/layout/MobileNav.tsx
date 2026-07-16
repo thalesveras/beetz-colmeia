@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
   Home, Users, UserCircle, Hexagon, CalendarDays, Trophy, Package, ShieldCheck, Settings, Wallet,
-  MoreHorizontal, ClipboardList, Cake, Truck, HandCoins, Receipt, Info, X, LogOut
+  MoreHorizontal, ClipboardList, Cake, Truck, HandCoins, Receipt, Info, X, LogOut, BarChart3
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import {
@@ -82,7 +82,8 @@ function groupsFor(role: AccessRole, primary: NavItem[]): NavGroup[] {
       ? [{
           label: 'Financeiro',
           items: [
-            { to: '/financeiro', label: 'Despesas', icon: Wallet },
+            { to: '/financeiro', label: 'Painel', icon: BarChart3 },
+            { to: '/financeiro/despesas', label: 'Despesas', icon: Wallet },
             { to: '/financeiro/fornecedores', label: 'Fornecedores', icon: Truck },
             { to: '/financeiro/repasses', label: 'Repasses', icon: HandCoins },
             { to: '/financeiro/recebimentos', label: 'Recebimentos', icon: Receipt },
