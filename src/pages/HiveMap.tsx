@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Pencil } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { ChevronLeft, ChevronRight, Pencil, Search } from 'lucide-react'
 import { listDepartments, listPendingProfilesForDirectory, listProfiles, pendingDepartmentHintToSlug, updateDepartmentDetails } from '../lib/dataService'
 import { useAuth } from '../contexts/AuthContext'
 import { canEditHiveMap, canViewHiveMap, canViewPendingProfileDetails } from '../lib/permissions'
@@ -7,6 +7,71 @@ import type { Department, PendingProfileDirectoryItem, Profile } from '../lib/ty
 import ProfileCard from '../components/ui/ProfileCard'
 import PendingProfileCard from '../components/ui/PendingProfileCard'
 import PendingProfileModal from '../components/ui/PendingProfileModal'
+
+// Setor grande tem centenas de pessoas (Caixas passa de 600), então listar
+// tudo de uma vez trava a tela e ninguém acha ninguém. Mesmo tamanho de página
+// e mesma paginação da Turma, pra as duas telas se comportarem igual.
+const PAGE_SIZE = 24
+
+// Mostra primeira, última, atual e vizinhas — o resto vira reticências.
+function getPageNumbers(current: number, total: number): (number | 'ellipsis')[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
+  const pages: (number | 'ellipsis')[] = [1]
+  if (current > 3) pages.push('ellipsis')
+  for (let i = Math.max(2, current - 1); i <= Math.min(total - 1, current + 1); i++) pages.push(i)
+  if (current < total - 2) pages.push('ellipsis')
+  pages.push(total)
+  return pages
+}
+
+function normalize(s: string) {
+  return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+}
+
+interface PagerProps {
+  page: number
+  totalPages: number
+  onChange: (p: number) => void
+}
+
+function Pager({ page, totalPages, onChange }: PagerProps) {
+  if (totalPages <= 1) return null
+  return (
+    <div className="flex items-center justify-center gap-1 mt-4">
+      <button
+        onClick={() => onChange(Math.max(1, page - 1))}
+        disabled={page === 1}
+        className="p-2 rounded-lg hover:bg-beetz-gray disabled:opacity-30 disabled:hover:bg-transparent"
+        aria-label="Página anterior"
+      >
+        <ChevronLeft size={15} />
+      </button>
+      {getPageNumbers(page, totalPages).map((p, i) =>
+        p === 'ellipsis' ? (
+          <span key={`e${i}`} className="px-1.5 text-beetz-dark/30 text-sm">…</span>
+        ) : (
+          <button
+            key={p}
+            onClick={() => onChange(p)}
+            className={`min-w-[32px] h-8 px-2 rounded-lg text-sm font-semibold transition-colors ${
+              p === page ? 'bg-beetz-dark text-white' : 'text-beetz-dark/60 hover:bg-beetz-gray'
+            }`}
+          >
+            {p}
+          </button>
+        )
+      )}
+      <button
+        onClick={() => onChange(Math.min(totalPages, page + 1))}
+        disabled={page === totalPages}
+        className="p-2 rounded-lg hover:bg-beetz-gray disabled:opacity-30 disabled:hover:bg-transparent"
+        aria-label="Próxima página"
+      >
+        <ChevronRight size={15} />
+      </button>
+    </div>
+  )
+}
 
 export default function HiveMap() {
   const { accessRole } = useAuth()
@@ -19,6 +84,11 @@ export default function HiveMap() {
   const [loading, setLoading] = useState(true)
   const [viewingPending, setViewingPending] = useState<PendingProfileDirectoryItem | null>(null)
   const [editingDept, setEditingDept] = useState<Department | null>(null)
+  // Uma página por lista: as duas convivem na mesma tela e navegar numa não
+  // pode mexer na outra.
+  const [memberPage, setMemberPage] = useState(1)
+  const [pendingPage, setPendingPage] = useState(1)
+  const [search, setSearch] = useState('')
 
   function load() {
     return Promise.all([listDepartments(), listProfiles(), listPendingProfilesForDirectory()]).then(([d, p, pend]) => {
@@ -35,8 +105,33 @@ export default function HiveMap() {
 
   const pendingForDept = (slug: string) => pending.filter((p) => pendingDepartmentHintToSlug(p.department_hint) === slug)
   const countFor = (dept: Department) => profiles.filter((p) => p.department_id === dept.id).length + pendingForDept(dept.slug).length
-  const membersOfSelected = selected ? profiles.filter((p) => p.department_id === selected.id) : []
-  const pendingOfSelected = selected ? pendingForDept(selected.slug) : []
+
+  const q = normalize(search.trim())
+  const matches = (first: string | null, last: string | null) =>
+    !q || normalize(`${first ?? ''} ${last ?? ''}`).includes(q)
+
+  const membersOfSelected = useMemo(
+    () => (selected ? profiles.filter((p) => p.department_id === selected.id && matches(p.first_name, p.last_name)) : []),
+    [selected, profiles, q]
+  )
+  const pendingOfSelected = useMemo(
+    () => (selected
+      ? pending.filter((p) => pendingDepartmentHintToSlug(p.department_hint) === selected.slug && matches(p.first_name, p.last_name))
+      : []),
+    [selected, pending, q]
+  )
+
+  const memberTotalPages = Math.max(1, Math.ceil(membersOfSelected.length / PAGE_SIZE))
+  const pendingTotalPages = Math.max(1, Math.ceil(pendingOfSelected.length / PAGE_SIZE))
+  // Clamp: se o filtro encolher a lista, a página atual pode não existir mais.
+  const memberPageSafe = Math.min(memberPage, memberTotalPages)
+  const pendingPageSafe = Math.min(pendingPage, pendingTotalPages)
+  const memberPageItems = membersOfSelected.slice((memberPageSafe - 1) * PAGE_SIZE, memberPageSafe * PAGE_SIZE)
+  const pendingPageItems = pendingOfSelected.slice((pendingPageSafe - 1) * PAGE_SIZE, pendingPageSafe * PAGE_SIZE)
+
+  // Trocar de setor ou buscar sempre volta pro começo — senão você cai na
+  // página 12 de um setor que só tem 3.
+  useEffect(() => { setMemberPage(1); setPendingPage(1) }, [selected?.id, search])
 
   if (!canViewHiveMap(accessRole)) {
     return (
@@ -83,7 +178,7 @@ export default function HiveMap() {
       {selected && (
         <section className="space-y-6">
           <div>
-            <div className="flex items-center gap-2 mb-4">
+            <div className="flex flex-wrap items-center gap-2 mb-4">
               <h2 className="text-lg font-bold">{selected.icon} Time de {selected.name}</h2>
               {canEditMap && (
                 <button
@@ -93,27 +188,53 @@ export default function HiveMap() {
                   <Pencil size={12} /> Editar
                 </button>
               )}
-            </div>
-            {membersOfSelected.length === 0 ? (
-              <p className="text-sm text-beetz-dark/50 bg-white rounded-2xl p-6 border border-beetz-dark/5">Ninguém cadastrado neste setor ainda.</p>
-            ) : (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {membersOfSelected.map((p) => <ProfileCard key={p.id} profile={p} />)}
+              {/* Num setor de 600 pessoas, folhear página por página não acha
+                  ninguém — a busca é o que torna a paginação usável. */}
+              <div className="relative ml-auto w-full sm:w-64">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-beetz-dark/30" />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder={`Buscar em ${selected.name}`}
+                  className="w-full pl-9 pr-3 py-2 rounded-xl border border-beetz-dark/15 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow"
+                />
               </div>
+            </div>
+
+            {membersOfSelected.length === 0 ? (
+              <p className="text-sm text-beetz-dark/50 bg-white rounded-2xl p-6 border border-beetz-dark/5">
+                {search.trim() ? 'Ninguém com esse nome neste setor.' : 'Ninguém cadastrado neste setor ainda.'}
+              </p>
+            ) : (
+              <>
+                <p className="text-xs text-beetz-dark/40 mb-3">
+                  {membersOfSelected.length} cadastrado(s)
+                  {memberTotalPages > 1 && ` · página ${memberPageSafe} de ${memberTotalPages}`}
+                </p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {memberPageItems.map((p) => <ProfileCard key={p.id} profile={p} />)}
+                </div>
+                <Pager page={memberPageSafe} totalPages={memberTotalPages} onChange={setMemberPage} />
+              </>
             )}
           </div>
 
           {pendingOfSelected.length > 0 && (
             <div>
               <h3 className="font-bold mb-1">Pré-cadastro</h3>
-              <p className="text-sm text-beetz-dark/50 mb-4">
+              <p className="text-sm text-beetz-dark/50 mb-1">
                 Já fazem parte da Beetz, mas ainda não criaram conta no app.
               </p>
+              <p className="text-xs text-beetz-dark/40 mb-3">
+                {pendingOfSelected.length} pessoa(s)
+                {pendingTotalPages > 1 && ` · página ${pendingPageSafe} de ${pendingTotalPages}`}
+              </p>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {pendingOfSelected.map((p) => (
+                {pendingPageItems.map((p) => (
                   <PendingProfileCard key={p.id} profile={p} onClick={canViewDetails ? () => setViewingPending(p) : undefined} />
                 ))}
               </div>
+              <Pager page={pendingPageSafe} totalPages={pendingTotalPages} onChange={setPendingPage} />
             </div>
           )}
         </section>
