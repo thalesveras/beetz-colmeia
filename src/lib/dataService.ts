@@ -11,7 +11,7 @@ import { badgesFromStats, getHiveLevel } from './levels'
 import type {
   AppNotification, AppSettings, Badge, BadgeDefConfig, CashierSettlement, Compliment, Department, DnsSubdomain, DnsRecordType,
   EventFinancialSummary,
-  EventItem, EventMember, EventModality, EventProduct, EventRepasse, EventStaffingApplication, EventStaffingRequirement, Expense,
+  EventChangeLogEntry, EventItem, EventMember, EventModality, EventProduct, EventRepasse, EventStaffingApplication, EventStaffingRequirement, Expense,
   ExpenseCategory, ExpenseStatus, HiveLevelConfig, HoneyPoint, LinkRedirect, MovementType, OpenStaffingSlot, PaymentMethodOption, Product,
   ProductionConsumption, Producer, Profile, ProfileStats, RolePermissions, ServiceModality,
   PendingProfileDirectoryItem, PendingProfilePickerItem, PendingProfileSensitive, StaffingApplicationStatus, StockBalance, StockLocation, StockMovement,
@@ -1559,11 +1559,32 @@ export async function getEventFinancialSummary(eventId: string): Promise<EventFi
 }
 
 // ---------- Portal do produtor: contas ----------
+// A ficha do produtor deixou de ser a mesma coisa que a conta de login: agora
+// tem id próprio e o login é o auth_user_id. Isso é o que permite a Diretoria
+// cadastrar um produtor que nunca entrou no app.
 export async function getProducerById(id: string): Promise<Producer | null> {
   if (isDemoMode) return demoState.producers.find((p) => p.id === id) ?? null
   const { data, error } = await supabase.from('producers').select('*').eq('id', id).maybeSingle()
   if (error) throw error
   return data as Producer | null
+}
+
+// Acha a ficha a partir da CONTA logada. Se a Diretoria já tinha cadastrado
+// esse produtor pelo e-mail, claim_producer_profile liga os dois aqui — sem
+// isso ele criaria uma ficha nova e a duplicação voltaria.
+export async function getProducerForAuthUser(authUserId: string): Promise<Producer | null> {
+  if (isDemoMode) {
+    return demoState.producers.find((p) => p.auth_user_id === authUserId || p.id === authUserId) ?? null
+  }
+  const { data, error } = await supabase
+    .from('producers').select('*').eq('auth_user_id', authUserId).maybeSingle()
+  if (error) throw error
+  if (data) return data as Producer
+
+  const { data: claimedId, error: claimErr } = await supabase.rpc('claim_producer_profile')
+  if (claimErr) throw claimErr
+  if (!claimedId) return null
+  return getProducerById(claimedId as string)
 }
 
 export async function upsertProducer(producer: Partial<Producer> & { id: string }): Promise<Producer> {
@@ -1575,7 +1596,7 @@ export async function upsertProducer(producer: Partial<Producer> & { id: string 
     }
     const blank: Producer = {
       id: producer.id, name: '', company_name: null, cpf_cnpj: null, phone: null,
-      email: producer.email ?? '', created_at: new Date().toISOString(), ...producer
+      email: producer.email ?? '', status: 'Ativo', created_at: new Date().toISOString(), ...producer
     }
     demoState.producers.push(blank)
     return blank
@@ -1583,6 +1604,101 @@ export async function upsertProducer(producer: Partial<Producer> & { id: string 
   const { data, error } = await supabase.from('producers').upsert(producer).select().single()
   if (error) throw error
   return data as Producer
+}
+
+// ---------- Cadastro de produtores (Diretoria) ----------
+export type NewProducerInput = Pick<Producer, 'name' | 'email'> &
+  Partial<Omit<Producer, 'id' | 'created_at' | 'auth_user_id'>>
+
+export async function listProducers(): Promise<Producer[]> {
+  if (isDemoMode) return [...demoState.producers].sort((a, b) => a.name.localeCompare(b.name))
+  const { data, error } = await supabase.from('producers').select('*').order('name')
+  if (error) throw error
+  return data as Producer[]
+}
+
+export async function createProducer(input: NewProducerInput, createdBy: string | null): Promise<Producer> {
+  if (isDemoMode) {
+    const record: Producer = {
+      id: uid('prod'), name: input.name, company_name: null, cpf_cnpj: null, phone: null,
+      email: input.email, status: 'Ativo', created_at: new Date().toISOString(), ...input
+    }
+    demoState.producers.push(record)
+    return record
+  }
+  const { data, error } = await supabase
+    .from('producers').insert({ ...input, created_by: createdBy }).select().single()
+  if (error) throw error
+  return data as Producer
+}
+
+export async function updateProducer(id: string, patch: Partial<Producer>): Promise<Producer> {
+  if (isDemoMode) {
+    const idx = demoState.producers.findIndex((p) => p.id === id)
+    if (idx < 0) throw new Error('Produtor não encontrado')
+    demoState.producers[idx] = { ...demoState.producers[idx], ...patch }
+    return demoState.producers[idx]
+  }
+  const { data, error } = await supabase.from('producers').update(patch).eq('id', id).select().single()
+  if (error) throw error
+  return data as Producer
+}
+
+export async function deleteProducer(id: string): Promise<void> {
+  if (isDemoMode) {
+    demoState.producers = demoState.producers.filter((p) => p.id !== id)
+    return
+  }
+  const { error } = await supabase.from('producers').delete().eq('id', id)
+  if (error) throw error
+}
+
+// Números do produtor: o que responde "conheço meu produtor". Tudo derivado
+// dos eventos vinculados — por isso o vínculo importa mais que a ficha bonita.
+export interface ProducerStats {
+  eventCount: number
+  totalRevenue: number
+  totalExpenses: number
+  totalRepasses: number
+  avgRevenuePerEvent: number
+  lastEventDate: string | null
+}
+
+export async function getProducerStats(producerId: string): Promise<{ stats: ProducerStats; events: EventItem[] }> {
+  const events = (await listEvents()).filter((e) => e.producer_id === producerId)
+  const eventIds = new Set(events.map((e) => e.id))
+
+  const [expenses, repasses] = await Promise.all([listAllExpenses(), listAllEventRepasses()])
+  const totalExpenses = expenses
+    .filter((x) => eventIds.has(x.event_id) && x.status !== 'Cancelado')
+    .reduce((s, x) => s + (Number(x.total) || 0), 0)
+  const totalRepasses = repasses
+    .filter((r) => eventIds.has(r.event_id))
+    .reduce((s, r) => s + (Number(r.amount) || 0), 0)
+  const totalRevenue = events.reduce((s, e) => s + (Number(e.sales_amount) || 0), 0)
+  const sorted = [...events].sort((a, b) => (a.event_date < b.event_date ? 1 : -1))
+
+  return {
+    events: sorted,
+    stats: {
+      eventCount: events.length,
+      totalRevenue,
+      totalExpenses,
+      totalRepasses,
+      avgRevenuePerEvent: events.length ? totalRevenue / events.length : 0,
+      lastEventDate: sorted[0]?.event_date ?? null
+    }
+  }
+}
+
+// ---------- Histórico de alterações do evento ----------
+export async function listEventChangeLog(eventId: string): Promise<EventChangeLogEntry[]> {
+  if (isDemoMode) return []
+  const { data, error } = await supabase
+    .from('event_change_log').select('*').eq('event_id', eventId)
+    .order('changed_at', { ascending: false }).limit(50)
+  if (error) throw error
+  return data as EventChangeLogEntry[]
 }
 
 // ---------- Eventos vistos/criados pelo produtor ----------

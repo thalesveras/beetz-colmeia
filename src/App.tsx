@@ -15,6 +15,8 @@ import EventDetail from './pages/events/EventDetail'
 import EventForm from './pages/events/EventForm'
 import FinanceExpenses from './pages/FinanceExpenses'
 import FinanceDashboard from './pages/finance/FinanceDashboard'
+import Producers from './pages/Producers'
+import ProducerDetail from './pages/ProducerDetail'
 import Suppliers from './pages/Suppliers'
 import Repasses from './pages/Repasses'
 import Receipts from './pages/Receipts'
@@ -56,6 +58,8 @@ export default function App() {
       <Route path="/financeiro" element={<ProtectedRoute><FinanceDashboard /></ProtectedRoute>} />
       <Route path="/financeiro/despesas" element={<ProtectedRoute><FinanceExpenses /></ProtectedRoute>} />
       <Route path="/financeiro/fornecedores" element={<ProtectedRoute><Suppliers /></ProtectedRoute>} />
+      <Route path="/produtoras" element={<ProtectedRoute><Producers /></ProtectedRoute>} />
+      <Route path="/produtoras/:id" element={<ProtectedRoute><ProducerDetail /></ProtectedRoute>} />
       <Route path="/financeiro/repasses" element={<ProtectedRoute><Repasses /></ProtectedRoute>} />
       <Route path="/financeiro/recebimentos" element={<ProtectedRoute><Receipts /></ProtectedRoute>} />
       <Route path="/financeiro/fechamentos" element={<ProtectedRoute><AllSettlements /></ProtectedRoute>} />

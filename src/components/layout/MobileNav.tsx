@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
   Home, Users, UserCircle, Hexagon, CalendarDays, Trophy, Package, ShieldCheck, Settings, Wallet,
-  MoreHorizontal, ClipboardList, Cake, Truck, HandCoins, Receipt, Info, X, LogOut, BarChart3
+  MoreHorizontal, ClipboardList, Cake, Truck, HandCoins, Receipt, Info, X, LogOut, BarChart3, Building2
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import {
@@ -75,6 +75,7 @@ function groupsFor(role: AccessRole, primary: NavItem[]): NavGroup[] {
       items: [
         { to: '/eventos', label: 'Eventos', icon: CalendarDays },
         { to: '/escala', label: 'Escala', icon: ClipboardList },
+        ...(canViewFinancialSummary(role) ? [{ to: '/produtoras', label: 'Produtoras', icon: Building2 }] : []),
         ...(canViewStockTab(role) ? [{ to: '/estoque', label: 'Estoque', icon: Package }] : [])
       ]
     },

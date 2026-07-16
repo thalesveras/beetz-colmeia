@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import {
   Home, Users, UserCircle, Hexagon, CalendarDays, Trophy, Info, LogOut, Package,
   ShieldCheck, Settings, ChevronDown, Wallet, Cake, Truck, HandCoins, Receipt, ClipboardList,
-  BarChart3
+  BarChart3, Building2
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import {
@@ -52,6 +52,7 @@ export default function Sidebar() {
       items: [
         { to: '/eventos', label: 'Eventos', icon: CalendarDays },
         { to: '/escala', label: 'Escala', icon: ClipboardList },
+        ...(canViewFinancialSummary(accessRole) ? [{ to: '/produtoras', label: 'Produtoras', icon: Building2 }] : []),
         ...(canViewStockTab(accessRole) ? [{ to: '/estoque', label: 'Estoque', icon: Package }] : [])
       ]
     },

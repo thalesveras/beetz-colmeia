@@ -159,6 +159,11 @@ export interface EventItem {
 }
 
 // ---------- Portal do produtor (conta externa, fora da equipe Beetz) ----------
+export type ProducerStatus = 'Ativo' | 'Inativo' | 'Bloqueado'
+
+// Ficha comercial da produtora. Importante: o id NÃO é o id do login — a ficha
+// existe sem conta (a Diretoria cadastra antes) e auth_user_id só é preenchido
+// quando o produtor entra no portal com o mesmo e-mail.
 export interface Producer {
   id: string
   name: string
@@ -167,6 +172,29 @@ export interface Producer {
   phone: string | null
   email: string
   created_at: string
+  auth_user_id?: string | null
+  status?: ProducerStatus
+  phone_secondary?: string | null
+  responsible_name?: string | null
+  instagram?: string | null
+  website?: string | null
+  address?: string | null
+  city?: string | null
+  state?: string | null
+  partner_since?: string | null
+  // Só a Diretoria enxerga. Nunca exibir no portal do produtor.
+  internal_notes?: string | null
+  created_by?: string | null
+}
+
+export interface EventChangeLogEntry {
+  id: string
+  event_id: string
+  field: string
+  old_value: string | null
+  new_value: string | null
+  changed_by: string | null
+  changed_at: string
 }
 
 export interface ServiceModality {

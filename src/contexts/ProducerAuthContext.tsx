@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { isDemoMode, supabase } from '../lib/supabaseClient'
-import { getProducerById, upsertProducer } from '../lib/dataService'
+import { getProducerForAuthUser, upsertProducer } from '../lib/dataService'
 import type { Producer } from '../lib/types'
 
 export interface ProducerProfileInput {
@@ -35,8 +35,15 @@ export function ProducerAuthProvider({ children }: { children: ReactNode }) {
   const [producer, setProducer] = useState<Producer | null>(null)
   const [loading, setLoading] = useState(true)
 
-  async function loadProducer(id: string) {
-    const p = await getProducerById(id)
+  // A ficha do produtor deixou de ser a mesma coisa que a conta: agora tem id
+  // próprio e o login é o auth_user_id. Isso é o que permite a Diretoria
+  // cadastrar produtora que nunca entrou no app — e quando essa pessoa entra
+  // com o mesmo e-mail, getProducerForAuthUser liga os dois em vez de criar
+  // uma segunda ficha (era assim que a duplicação nascia).
+  //
+  // producerId aqui continua sendo o id do LOGIN; o id da ficha é producer.id.
+  async function loadProducer(authUserId: string) {
+    const p = await getProducerForAuthUser(authUserId)
     setProducer(p)
   }
 
@@ -103,7 +110,17 @@ export function ProducerAuthProvider({ children }: { children: ReactNode }) {
 
   async function completeProfile(data: ProducerProfileInput) {
     if (!producerId || !email) return
-    const saved = await upsertProducer({ id: producerId, email, ...data })
+    // Se a Diretoria já cadastrou essa produtora, atualiza a ficha existente
+    // (producer.id) em vez de criar outra. Só cria ficha nova quando não há
+    // nenhuma com esse e-mail — e aí já nasce amarrada ao login pelo
+    // auth_user_id. Sem isso a ficha nasceria órfã e o produtor não a acharia
+    // no próximo acesso.
+    const saved = await upsertProducer({
+      id: producer?.id ?? crypto.randomUUID(),
+      auth_user_id: producerId,
+      email,
+      ...data
+    })
     setProducer(saved)
   }
 
