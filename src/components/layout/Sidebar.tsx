@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import {
-  canApproveUsers, canManageUsers, canViewFinancialSummary, canViewHiveMap, canViewRanking,
+  canApproveUsers, canManageUsers, canViewBirthdays, canViewFinancialSummary, canViewHiveMap, canViewRanking,
   canViewStockTab, canViewTeamDirectory
 } from '../../lib/permissions'
 import Avatar from '../ui/Avatar'
@@ -41,7 +41,7 @@ export default function Sidebar() {
         ...(canViewTeamDirectory(accessRole) ? [{ to: '/turma', label: 'Conhecer a turma', icon: Users }] : []),
         { to: '/perfil/me', label: 'Meu perfil', icon: UserCircle },
         ...(canViewHiveMap(accessRole) ? [{ to: '/mapa', label: 'Mapa da colmeia', icon: Hexagon }] : []),
-        { to: '/aniversariantes', label: 'Aniversariantes do mês', icon: Cake },
+        ...(canViewBirthdays(accessRole) ? [{ to: '/aniversariantes', label: 'Aniversariantes do mês', icon: Cake }] : []),
         ...(canViewRanking(accessRole) ? [{ to: '/ranking', label: 'Ranking', icon: Trophy }] : [])
       ]
     },

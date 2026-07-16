@@ -9,7 +9,7 @@ import type {
   Expense, ExpenseCategory, ExpenseStatus, PaymentMethod, PaymentMethodOption, PendingProfilePickerItem,
   Profile, Supplier
 } from '../../lib/types'
-import { canEditExpense } from '../../lib/permissions'
+import { canEditExpense, canReviewExpense } from '../../lib/permissions'
 import FileField from '../../components/ui/FileField'
 import SignaturePad from '../../components/ui/SignaturePad'
 import { Plus, Pencil } from 'lucide-react'
@@ -274,13 +274,25 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
         <div className="space-y-2">
           {expenses.map((exp) => (
             <div key={exp.id} className={`flex flex-wrap items-center gap-3 bg-white border border-beetz-dark/5 rounded-xl p-4 ${exp.status === 'Cancelado' ? 'opacity-50' : ''}`}>
-              <select
-                value={exp.status}
-                onChange={(e) => handleStatusChange(exp.id, e.target.value as ExpenseStatus)}
-                className={`text-xs font-semibold px-2.5 py-1 rounded-full border-0 ${statusColors[exp.status]}`}
-              >
-                {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
+              {/* Trocar o status (Pendente -> Aprovado -> Pago) é aprovar
+                  dinheiro, e antes esse seletor não tinha checagem NENHUMA:
+                  qualquer um que enxergasse a aba podia aprovar a própria
+                  despesa. Agora exige "Revisar status da despesa" — a flag que
+                  existia no banco e na tela, mas que nenhum código consultava.
+                  Sem a permissão, o status vira só leitura. */}
+              {canReviewExpense(accessRole) ? (
+                <select
+                  value={exp.status}
+                  onChange={(e) => handleStatusChange(exp.id, e.target.value as ExpenseStatus)}
+                  className={`text-xs font-semibold px-2.5 py-1 rounded-full border-0 ${statusColors[exp.status]}`}
+                >
+                  {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              ) : (
+                <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${statusColors[exp.status]}`}>
+                  {exp.status}
+                </span>
+              )}
               <div className="flex-1 min-w-[140px]">
                 <p className="font-semibold text-sm">{exp.category || 'Sem categoria'}</p>
                 <p className="text-xs text-beetz-dark/50">

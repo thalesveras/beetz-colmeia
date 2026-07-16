@@ -566,6 +566,10 @@ export interface RolePermissions {
   can_view_ranking: boolean
   can_view_hive_map: boolean
   can_edit_hive_map: boolean
+  can_view_birthdays: boolean
+  // Separado de can_view_birthdays porque o e-mail sai do endereço oficial da
+  // Beetz — ver a lista é uma coisa, falar em nome da empresa é outra.
+  can_send_birthday_email: boolean
   updated_at: string
 }
 

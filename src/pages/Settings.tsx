@@ -74,6 +74,8 @@ const PERMISSION_GROUPS: { title: string; fields: { key: PermissionKey; label: s
       { key: 'can_view_pending_details', label: 'Ver detalhes de pré-cadastro', description: 'Clicar num card de pré-cadastro (Turma, Mapa da Colmeia, Aniversariantes) e ver o modal com mais informações da pessoa.' },
       { key: 'can_give_recognition', label: 'Dar Mel e elogiar', description: 'Enviar reconhecimento (mel) e elogios pra outros colaboradores.' },
       { key: 'can_view_ranking', label: 'Ver o Ranking', description: 'Acessar a página de ranking/colocação dos colaboradores.' },
+      { key: 'can_view_birthdays', label: 'Ver os Aniversariantes', description: 'Acessar a página com quem faz aniversário no mês.' },
+      { key: 'can_send_birthday_email', label: 'Enviar e-mail de parabéns', description: 'Mandar o e-mail de aniversário — sai do endereço oficial da Beetz e fica registrado no log.' },
       { key: 'can_edit_hive_map', label: 'Editar o Mapa da Colmeia', description: 'Alterar nome, ícone e descrição dos departamentos no Mapa da Colmeia.' }
     ]
   }

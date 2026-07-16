@@ -3,7 +3,7 @@ import { Cake, ChevronLeft, ChevronRight, Filter, Mail, Search } from 'lucide-re
 import { listDepartments, listPendingProfilesForDirectory, listProfiles, pendingDepartmentHintToSlug } from '../lib/dataService'
 import type { BirthdayEmailTarget } from '../lib/dataService'
 import { useAuth } from '../contexts/AuthContext'
-import { canManageUsers, canViewPendingProfileDetails } from '../lib/permissions'
+import { canSendBirthdayEmail, canViewBirthdays, canViewPendingProfileDetails } from '../lib/permissions'
 import type { Department, PendingProfileDirectoryItem, Profile } from '../lib/types'
 import Avatar from '../components/ui/Avatar'
 import PendingProfileModal from '../components/ui/PendingProfileModal'
@@ -41,7 +41,10 @@ type KindFilter = 'todos' | 'cadastrados' | 'pre'
 export default function Birthdays() {
   const { accessRole } = useAuth()
   const canViewDetails = canViewPendingProfileDetails(accessRole)
-  const canSendEmail = canManageUsers(accessRole)
+  // Antes isso era canManageUsers: quem administrava a colmeia mandava
+  // parabéns, e quem não administrava não mandava — duas coisas sem relação
+  // amarradas na mesma chave. Agora tem flag própria.
+  const canSendEmail = canSendBirthdayEmail(accessRole)
 
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [pending, setPending] = useState<PendingProfileDirectoryItem[]>([])
@@ -131,6 +134,18 @@ export default function Birthdays() {
   }
 
   const todayCount = allItems.filter((i) => i.month === thisMonth && i.day === today).length
+
+  // Era a única tela do menu Comunidade sem trava — Turma, Mapa e Ranking
+  // todas checam permissão, e essa entrava direto pra qualquer um.
+  if (!canViewBirthdays(accessRole)) {
+    return (
+      <div className="bg-white rounded-2xl p-8 shadow-soft border border-beetz-dark/5 text-center">
+        <p className="text-4xl mb-3">🔒</p>
+        <h1 className="text-xl font-bold mb-1">Acesso restrito</h1>
+        <p className="text-sm text-beetz-dark/60">Seu perfil de acesso não tem permissão pra ver os aniversariantes.</p>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">

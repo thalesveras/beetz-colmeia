@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import {
-  canApproveUsers, canManageUsers, canViewFinancialSummary, canViewHiveMap, canViewRanking,
+  canApproveUsers, canManageUsers, canViewBirthdays, canViewFinancialSummary, canViewHiveMap, canViewRanking,
   canViewStockTab, canViewTeamDirectory
 } from '../../lib/permissions'
 import type { AccessRole } from '../../lib/permissions'
@@ -66,7 +66,7 @@ function groupsFor(role: AccessRole, primary: NavItem[]): NavGroup[] {
         ...(canViewTeamDirectory(role) ? [{ to: '/turma', label: 'Conhecer a turma', icon: Users }] : []),
         { to: '/perfil/me', label: 'Meu perfil', icon: UserCircle },
         ...(canViewHiveMap(role) ? [{ to: '/mapa', label: 'Mapa da colmeia', icon: Hexagon }] : []),
-        { to: '/aniversariantes', label: 'Aniversariantes', icon: Cake },
+        ...(canViewBirthdays(role) ? [{ to: '/aniversariantes', label: 'Aniversariantes', icon: Cake }] : []),
         ...(canViewRanking(role) ? [{ to: '/ranking', label: 'Ranking', icon: Trophy }] : [])
       ]
     },

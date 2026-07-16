@@ -12,7 +12,7 @@ import {
 import type { EventItem, Product, Profile, StockBalance, StockLocation, StockMovement, TransferRequest, TransferRequestStatus } from '../lib/types'
 import StockMovementForm from '../components/stock/StockMovementForm'
 import { useAuth } from '../contexts/AuthContext'
-import { canEditOwnStock, canEditStock, canManageStockCatalog, canManageUsers } from '../lib/permissions'
+import { canEditOwnStock, canEditStock, canManageStockCatalog, canManageUsers, canViewStockTab } from '../lib/permissions'
 
 const inputClass = 'flex-1 border border-beetz-dark/15 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
 const COMMON_UNITS = ['un', 'kg', 'g', 'L', 'ml', 'caixa', 'pacote', 'saco', 'garrafa', 'fardo', 'dúzia']
@@ -113,6 +113,20 @@ export default function Stock() {
   }
 
   useEffect(() => { load() }, [])
+
+  // Antes só o link do menu era escondido: quem digitasse /estoque na barra de
+  // endereço entrava e via produtos, saldos e todo o histórico. Todas as outras
+  // páginas sensíveis têm essa trava; essa faltava. (O RLS já barrava a
+  // escrita — o vazamento era de leitura.)
+  if (!canViewStockTab(accessRole)) {
+    return (
+      <div className="bg-white rounded-2xl p-8 shadow-soft border border-beetz-dark/5 text-center">
+        <p className="text-4xl mb-3">🔒</p>
+        <h1 className="text-xl font-bold mb-1">Acesso restrito</h1>
+        <p className="text-sm text-beetz-dark/60">Seu perfil de acesso não tem permissão pra ver o Estoque.</p>
+      </div>
+    )
+  }
 
   const productName = (id: string) => products.find((p) => p.id === id)?.name ?? '—'
   const locationName = (id: string) => locations.find((l) => l.id === id)?.name ?? '—'
