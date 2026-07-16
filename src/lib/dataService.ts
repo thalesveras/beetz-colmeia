@@ -1879,13 +1879,23 @@ export async function deleteDnsSubdomain(record: DnsSubdomain): Promise<void> {
 // disso as regras da tabela link_redirects já valem na hora.
 export interface DeployRedirectWorkerResult {
   success: boolean
+  host?: string
   pattern?: string
   script?: string
   route_action?: 'created' | 'updated'
+  // O que precisou ser feito no DNS do links.beetz.bar: criado, proxy ligado,
+  // ou já estava ok. Útil pra tela dizer o que aconteceu de verdade.
+  dns_action?: string
+  removed_old_route?: boolean
 }
 
 export async function deployRedirectWorker(): Promise<DeployRedirectWorkerResult> {
-  if (isDemoMode) return { success: true, pattern: 'beetz.bar/*', script: 'beetz-bar-redirects', route_action: 'created' }
+  if (isDemoMode) {
+    return {
+      success: true, host: 'links.beetz.bar', pattern: 'links.beetz.bar/*',
+      script: 'beetz-bar-redirects', route_action: 'created', dns_action: 'criado'
+    }
+  }
   const { data, error } = await supabase.functions.invoke('deploy-redirect-worker', { body: {} })
   if (error) throw new Error(await extractFunctionErrorMessage(error))
   if (data?.error) throw new Error(data.error)

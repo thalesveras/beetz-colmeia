@@ -5,15 +5,17 @@ import { createLinkRedirect, deleteLinkRedirect, deployRedirectWorker, listLinkR
 import type { LinkRedirect } from '../../lib/types'
 
 const inputClass = 'rounded-xl border border-beetz-dark/15 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
+const LINKS_HOST = 'links.beetz.bar'
 
-// Redirecionadores do site público beetz.bar (ex: /cardapio -> um link
-// externo). Isso aqui só cadastra a regra no banco — quem de fato redireciona
-// é um Cloudflare Worker publicado na frente do beetz.bar (o domínio hoje é
-// WordPress, então o redirecionamento precisa acontecer na borda do
-// Cloudflare, antes de chegar no site). O Worker consulta essa tabela em
-// tempo real a cada visita. Uma vez publicado (botão "Publicar mecanismo"
-// abaixo — só precisa uma vez, ou de novo se o mecanismo mudar), qualquer
-// regra criada/editada/apagada aqui já vale na hora.
+// Redirecionadores curtos (ex: links.beetz.bar/cardapio -> um link do iFood).
+// Aqui só cadastramos a regra no banco; quem redireciona é um Cloudflare
+// Worker que consulta essa tabela em tempo real a cada visita.
+//
+// Por que links.beetz.bar e não beetz.bar/cardapio: Worker só roda em domínio
+// que passa pelo proxy do Cloudflare, e o beetz.bar aponta pro WordPress em
+// "DNS only". Proxiar o domínio principal mexeria no site em produção (com
+// risco de loop de redirecionamento se o SSL/TLS estiver em Flexible), então
+// usamos um subdomínio nosso, que nasce proxiado e não encosta no site.
 export default function RedirectsSection() {
   const { userId } = useAuth()
   const [redirects, setRedirects] = useState<LinkRedirect[]>([])
@@ -86,9 +88,8 @@ export default function RedirectsSection() {
     try {
       const result = await deployRedirectWorker()
       setDeployResult(
-        result.route_action === 'updated'
-          ? 'Mecanismo atualizado no Cloudflare. Os redirecionadores já valem na hora.'
-          : 'Mecanismo publicado no Cloudflare. Os redirecionadores já valem na hora.'
+        `Pronto — ${LINKS_HOST} está no ar (DNS: ${result.dns_action ?? 'ok'}). ` +
+        'Os redirecionadores já valem na hora, sem precisar clicar aqui de novo.'
       )
     } catch (err) {
       setDeployError(err instanceof Error ? err.message : 'Erro ao publicar o mecanismo no Cloudflare.')
@@ -99,10 +100,10 @@ export default function RedirectsSection() {
 
   return (
     <div>
-      <h2 className="font-bold mb-1 flex items-center gap-2"><Link2 size={18} /> Redirecionadores (beetz.bar)</h2>
+      <h2 className="font-bold mb-1 flex items-center gap-2"><Link2 size={18} /> Redirecionadores ({LINKS_HOST})</h2>
       <p className="text-xs text-beetz-dark/50 mb-3">
-        Ex: <code className="bg-beetz-gray px-1.5 py-0.5 rounded">/cardapio</code> → um link do iFood, WhatsApp, formulário etc.
-        Vale na hora, sem precisar reimplantar nada — desde que o mecanismo abaixo já tenha sido publicado uma vez.
+        Links curtos da Beetz. Ex: <code className="bg-beetz-gray px-1.5 py-0.5 rounded">{LINKS_HOST}/cardapio</code> → um link do iFood, WhatsApp, formulário etc.
+        Criar, editar e desativar vale na hora, sem publicar nada de novo.
       </p>
 
       <div className="bg-beetz-dark text-white rounded-2xl p-4 mb-4 flex flex-wrap items-center gap-3">
@@ -110,10 +111,8 @@ export default function RedirectsSection() {
         <div className="flex-1 min-w-[220px]">
           <p className="text-sm font-semibold">Mecanismo de redirecionamento (Cloudflare Worker)</p>
           <p className="text-xs text-white/50">
-            beetz.bar é WordPress — precisa desse Worker na borda do Cloudflare pra interceptar as rotas. Clique uma vez pra publicar (ou de novo se algo mudar). Precisa dos secrets{' '}
-            <code className="bg-white/10 px-1 py-0.5 rounded">CLOUDFLARE_API_TOKEN</code>,{' '}
-            <code className="bg-white/10 px-1 py-0.5 rounded">CLOUDFLARE_ACCOUNT_ID</code> e{' '}
-            <code className="bg-white/10 px-1 py-0.5 rounded">CLOUDFLARE_ZONE_ID</code> no Supabase, com o token tendo permissão de Workers (Edit) além de DNS.
+            Clique uma vez pra publicar: cria o {LINKS_HOST} no DNS, sobe o Worker e aponta a rota. Só precisa de novo se o mecanismo mudar.
+            Usamos um subdomínio porque o beetz.bar é WordPress e não passa pelo proxy do Cloudflare — proxiar o domínio principal mexeria no site em produção.
           </p>
         </div>
         <button
@@ -183,10 +182,16 @@ export default function RedirectsSection() {
                     {r.is_active ? 'Ativo' : 'Inativo'}
                   </button>
                   <div className="flex-1 min-w-[220px]">
-                    <p className="font-semibold text-sm flex items-center gap-1.5">
-                      beetz.bar<span className="text-beetz-dark/80">{r.path}</span>
+                    <a
+                      href={`https://${LINKS_HOST}${r.path}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-semibold text-sm flex items-center gap-1.5 hover:text-beetz-dark/60"
+                      title="Abrir o link"
+                    >
+                      {LINKS_HOST}<span className="text-beetz-dark/80">{r.path}</span>
                       <ExternalLink size={12} className="text-beetz-dark/30" />
-                    </p>
+                    </a>
                     <p className="text-xs text-beetz-dark/50 truncate">
                       → {r.destination_url}{r.notes ? ` · ${r.notes}` : ''}
                     </p>
