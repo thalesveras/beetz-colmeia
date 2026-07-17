@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Plus } from 'lucide-react'
+import { ChevronRight, Plus } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { createProductionConsumption, listProducts, listProductionConsumption } from '../../lib/dataService'
 import type { ProductionConsumption, Product } from '../../lib/types'
+import EditConsumptionModal from './EditConsumptionModal'
 
 const inputClass = 'w-full border border-beetz-dark/15 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
 
@@ -17,6 +18,7 @@ export default function ProductionConsumptionTab({ eventId }: { eventId: string 
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [editing, setEditing] = useState<ProductionConsumption | null>(null)
 
   const [productId, setProductId] = useState('')
   const [quantity, setQuantity] = useState(1)
@@ -103,16 +105,31 @@ export default function ProductionConsumptionTab({ eventId }: { eventId: string 
       {!loading && (
         <div className="space-y-2">
           {items.map((item) => (
-            <div key={item.id} className="flex flex-wrap items-center gap-3 bg-white border border-beetz-dark/5 rounded-xl p-4">
+            <button
+              key={item.id}
+              onClick={() => setEditing(item)}
+              className="w-full flex flex-wrap items-center gap-3 bg-white border border-beetz-dark/5 rounded-xl p-4 text-left hover:border-beetz-yellow/60 hover:shadow-glow active:scale-[0.99] transition"
+              title="Toque pra editar"
+            >
               <div className="flex-1 min-w-[140px]">
                 <p className="font-semibold text-sm">{productName(item.product_id)}</p>
                 <p className="text-xs text-beetz-dark/50">{item.quantity} un. × {currency(item.unit_cost)} {item.notes ? `· ${item.notes}` : ''}</p>
               </div>
               <span className="font-bold text-sm">{currency(item.total_cost)}</span>
-            </div>
+              <ChevronRight size={15} className="text-beetz-dark/25" />
+            </button>
           ))}
-          {items.length === 0 && <p className="text-sm text-beetz-dark/50">Registros não encontrados.</p>}
+          {items.length === 0 && <p className="text-sm text-beetz-dark/50">Nenhum consumo registrado ainda.</p>}
         </div>
+      )}
+
+      {editing && (
+        <EditConsumptionModal
+          item={editing}
+          products={products}
+          onClose={() => setEditing(null)}
+          onSaved={load}
+        />
       )}
     </div>
   )

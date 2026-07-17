@@ -1543,6 +1543,35 @@ export async function listProductionConsumption(eventId: string): Promise<Produc
   return data as ProductionConsumption[]
 }
 
+// total_cost é coluna GERADA no banco (quantity × unit_cost) — nunca entra
+// no update, senão o Postgres recusa o comando inteiro.
+export async function updateProductionConsumption(
+  id: string,
+  patch: Partial<Pick<ProductionConsumption, 'product_id' | 'quantity' | 'unit_cost' | 'notes'>>
+): Promise<ProductionConsumption> {
+  if (isDemoMode) {
+    const idx = demoState.productionConsumption.findIndex((c) => c.id === id)
+    if (idx < 0) throw new Error('Registro não encontrado')
+    const merged = { ...demoState.productionConsumption[idx], ...patch }
+    merged.total_cost = merged.quantity * merged.unit_cost
+    demoState.productionConsumption[idx] = merged
+    return merged
+  }
+  const { data, error } = await supabase
+    .from('production_consumption').update(patch).eq('id', id).select().single()
+  if (error) throw error
+  return data as ProductionConsumption
+}
+
+export async function deleteProductionConsumption(id: string): Promise<void> {
+  if (isDemoMode) {
+    demoState.productionConsumption = demoState.productionConsumption.filter((c) => c.id !== id)
+    return
+  }
+  const { error } = await supabase.from('production_consumption').delete().eq('id', id)
+  if (error) throw error
+}
+
 export async function createProductionConsumption(input: NewProductionConsumptionInput): Promise<ProductionConsumption> {
   if (isDemoMode) {
     const total_cost = input.quantity * input.unit_cost
