@@ -13,6 +13,7 @@ import type { EventItem, Product, ProductAvgCost, Profile, StockAvailable, Stock
 import StockMovementForm from '../components/stock/StockMovementForm'
 import ProductTimeline from '../components/stock/ProductTimeline'
 import ReservationsSection from '../components/stock/ReservationsSection'
+import InventoryCount from '../components/stock/InventoryCount'
 import { useAuth } from '../contexts/AuthContext'
 import { canEditOwnStock, canEditStock, canManageStockCatalog, canManageUsers, canViewStockTab } from '../lib/permissions'
 
@@ -436,6 +437,13 @@ export default function Stock() {
             products={products} locations={locations} events={events} availability={availability}
             userId={userId} canManage={canManageCatalog} onChanged={load}
           />
+
+          {canManageCatalog && (
+            <InventoryCount
+              products={products} locations={locations} balances={balances}
+              userId={userId} onDone={load}
+            />
+          )}
 
           <section>
             <h2 className="text-lg font-bold mb-4">Saldo atual por estoque</h2>
