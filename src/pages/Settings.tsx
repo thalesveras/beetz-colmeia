@@ -10,13 +10,14 @@ import { ACCESS_ROLE_LABELS, ACCESS_ROLES, canManageUsers, departmentToAccessRol
 import {
   createExpenseCategory, createPaymentMethod, createServiceModality, deleteExpenseCategory,
   deletePaymentMethod, deleteServiceModality, getZohoPendingProfilesStats, importPendingPhotosBatch,
+  authorizeZohoWithCode,
   importZohoPendingProfiles, inspectZohoCreatorFields, listBadgeDefsConfig, listDepartments,
   listExpenseCategories, listEmailLog, listHiveLevelsConfig, listPaymentMethods, listRolePermissions,
   listServiceModalities, listTeamEmails, listZohoMeta, peekZohoReport, sendCampaignEmail, sendEmail,
   removeBrandLogo, syncZohoCreator, updateAppSettings, updateBadgeDef, updateDepartmentAccessRole,
   updateHiveLevel, updateRolePermission, updateServiceModality, uploadBrandLogo
 } from '../lib/dataService'
-import type { ZohoMetaItem, ZohoPendingProfilesStats, ZohoReportPeek } from '../lib/dataService'
+import type { ZohoAuthorizeResult, ZohoMetaItem, ZohoPendingProfilesStats, ZohoReportPeek } from '../lib/dataService'
 import type {
   AppSettings, BadgeDefConfig, Department, EmailLogEntry, ExperienceLevel, ExpenseCategory, HiveLevelConfig,
   PaymentMethodOption, RolePermissions, ServiceModality, ZohoPendingProfile
@@ -1049,6 +1050,32 @@ function DataImporterSection() {
   }
   useEffect(() => { loadStats() }, [])
 
+  const [authCode, setAuthCode] = useState('')
+  const [authorizing, setAuthorizing] = useState(false)
+  const [authError, setAuthError] = useState<string | null>(null)
+  const [authResult, setAuthResult] = useState<ZohoAuthorizeResult | null>(null)
+
+  // Troca o código colado por refresh token DENTRO da edge function — nasceu
+  // do dia em que renovar o token exigia curl no terminal e o terminal venceu
+  // a briga. O token não passa nem pelo navegador: vai direto pro cofre.
+  async function handleAuthorize(e: React.FormEvent) {
+    e.preventDefault()
+    if (!authCode.trim()) return
+    setAuthorizing(true)
+    setAuthError(null)
+    setAuthResult(null)
+    try {
+      const res = await authorizeZohoWithCode(authCode.trim())
+      setAuthResult(res)
+      setAuthCode('')
+      await loadStats()
+    } catch (err: any) {
+      setAuthError(err?.message ?? 'Erro ao autorizar o Zoho.')
+    } finally {
+      setAuthorizing(false)
+    }
+  }
+
   async function handleSync() {
     setSyncing(true)
     setSyncError(null)
@@ -1287,9 +1314,53 @@ function DataImporterSection() {
         <p className="text-sm font-semibold mb-1 flex items-center gap-1.5"><RefreshCw size={14} /> Sincronizar direto com o Zoho Creator</p>
         <p className="text-xs text-beetz-dark/60 mb-3">
           Busca os registros do relatório Equipe direto na API do Zoho, sem precisar exportar .csv na mão.
-          Precisa ter os secrets do Zoho (client ID, client secret e refresh token) cadastrados na Edge Function
+          Precisa ter client ID e client secret do Zoho nos secrets da Edge Function
           <code className="bg-white px-1 py-0.5 rounded mx-1">zoho-creator-sync</code>.
+          O refresh token é guardado pelo cartão de reautorização abaixo.
         </p>
+
+        {/* Reautorização sem terminal: cola o código do api-console e pronto.
+            A troca código→token acontece no servidor; o token vai pro cofre
+            no banco e não aparece em lugar nenhum. */}
+        <div className="bg-white rounded-xl p-4 border border-beetz-dark/10 mb-4">
+          <p className="font-semibold text-sm mb-1 flex items-center gap-1.5">
+            <RefreshCw size={14} /> Reautorizar acesso ao Zoho
+          </p>
+          <p className="text-xs text-beetz-dark/60 mb-2">
+            Quando a sincronização reclamar de token ou permissão: entra em <strong>api-console.zoho.com</strong>,
+            abre o <strong>Self Client</strong> da integração → aba <strong>Generate Code</strong>, usa o scope
+            <code className="bg-beetz-gray px-1 py-0.5 rounded mx-1">ZohoCreator.report.READ,ZohoCreator.meta.READ</code>
+            (duração: 10 minutos) e cola o código gerado aqui. Cada código vale uma vez só.
+          </p>
+          <form onSubmit={handleAuthorize} className="flex flex-wrap gap-2">
+            <input
+              value={authCode}
+              onChange={(e) => setAuthCode(e.target.value)}
+              placeholder="Cole o código aqui (começa com 1000.)"
+              className="flex-1 min-w-[240px] rounded-xl border border-beetz-dark/15 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-beetz-yellow"
+            />
+            <button
+              type="submit"
+              disabled={authorizing || !authCode.trim()}
+              className="flex items-center gap-2 bg-beetz-dark text-white font-semibold px-4 py-2 rounded-xl text-sm hover:bg-black transition-colors disabled:opacity-60"
+            >
+              {authorizing ? 'Autorizando...' : 'Autorizar'}
+            </button>
+          </form>
+          {authError && (
+            <div className="flex items-start gap-2 bg-red-50 text-red-700 text-sm rounded-xl p-3 mt-3">
+              <AlertTriangle size={16} className="shrink-0 mt-0.5" /> {authError}
+            </div>
+          )}
+          {authResult && (
+            <div className={`rounded-xl p-3 mt-3 text-sm ${authResult.scope_ok ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
+              {authResult.scope_ok
+                ? 'Autorizado e testado: a leitura do relatório funcionou. Agora é só clicar em "Sincronizar agora".'
+                : (authResult.scope_detail ?? 'Token salvo, mas o teste de leitura falhou — gere o código de novo com o scope indicado acima.')}
+            </div>
+          )}
+        </div>
+
         <div className="flex flex-wrap gap-2">
           <button
             onClick={handleSync}

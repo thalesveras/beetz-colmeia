@@ -461,6 +461,28 @@ export async function peekZohoReport(reportLinkName: string, maxRecords = 5): Pr
   return data
 }
 
+export interface ZohoAuthorizeResult {
+  authorized: boolean
+  scope_ok: boolean
+  scope_detail: string | null
+  granted_scope: string | null
+}
+
+// Reautorização sem terminal: manda o código gerado no api-console pra edge
+// function, que troca por refresh token usando os secrets que já estão lá e
+// guarda no cofre do banco (zoho_oauth_tokens, só service_role lê). O token
+// não passa pelo navegador nem aparece pra ninguém — nasceu do dia em que
+// renovar token exigia curl e o terminal venceu a briga.
+export async function authorizeZohoWithCode(grantCode: string): Promise<ZohoAuthorizeResult> {
+  if (isDemoMode) return { authorized: true, scope_ok: true, scope_detail: null, granted_scope: null }
+  const { data, error } = await supabase.functions.invoke('zoho-creator-sync', {
+    body: { authorize: true, grant_code: grantCode }
+  })
+  if (error) throw new Error(await extractFunctionErrorMessage(error))
+  if (data?.error) throw new Error(data.error)
+  return data
+}
+
 export interface ImportPendingPhotosBatchResult {
   mode: 'avatar' | 'document'
   processed: number
