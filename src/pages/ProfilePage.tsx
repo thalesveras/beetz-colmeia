@@ -128,7 +128,11 @@ export default function ProfilePage() {
           <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
 
           {isOwnProfile && (
-            <div className="absolute bottom-3 right-3 flex gap-2">
+            // z-20 porque o bloco de conteúdo abaixo é z-10 e sobe 56px por
+            // cima da capa (-mt-14). O botão vive a 12px do rodapé, dentro
+            // dessa faixa: sem z-20 ele aparece (o bloco é transparente) mas
+            // não recebe clique, porque div transparente continua sendo alvo.
+            <div className="absolute bottom-3 right-3 flex gap-2 z-20">
               <label
                 className={`flex items-center gap-1.5 text-xs font-bold bg-white/90 hover:bg-white text-beetz-dark px-3 py-1.5 rounded-lg cursor-pointer transition-colors ${
                   coverBusy ? 'opacity-60 pointer-events-none' : ''
