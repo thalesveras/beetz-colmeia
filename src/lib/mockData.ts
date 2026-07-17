@@ -306,10 +306,10 @@ export const mockProducts: Product[] = [
 ]
 
 export const mockStockMovements: StockMovement[] = [
-  { id: 'sm1', product_id: 'pr1', stock_location_id: 'sl2', event_id: null, movement_type: 'Entrada', quantity: 2000, notes: 'Compra inicial', created_by: 'p1', status: 'Ativo', created_at: '2025-12-01T10:00:00Z' },
-  { id: 'sm2', product_id: 'pr1', stock_location_id: 'sl2', event_id: 'e1', movement_type: 'Saída', quantity: 600, notes: 'Usado no Festival de Verão', created_by: 'p3', status: 'Ativo', created_at: '2026-01-18T20:00:00Z' },
-  { id: 'sm3', product_id: 'pr2', stock_location_id: 'sl2', event_id: null, movement_type: 'Entrada', quantity: 100, notes: 'Compra inicial', created_by: 'p1', status: 'Ativo', created_at: '2025-12-01T10:00:00Z' },
-  { id: 'sm4', product_id: 'pr2', stock_location_id: 'sl2', event_id: 'e1', movement_type: 'Saída', quantity: 40, notes: 'Usado no Festival de Verão', created_by: 'p3', status: 'Ativo', created_at: '2026-01-18T20:00:00Z' }
+  { id: 'sm1', product_id: 'pr1', stock_location_id: 'sl2', event_id: null, movement_type: 'Entrada', quantity: 2000, unit_cost: null, notes: 'Compra inicial', created_by: 'p1', status: 'Ativo', created_at: '2025-12-01T10:00:00Z' },
+  { id: 'sm2', product_id: 'pr1', stock_location_id: 'sl2', event_id: 'e1', movement_type: 'Saída', quantity: 600, unit_cost: null, notes: 'Usado no Festival de Verão', created_by: 'p3', status: 'Ativo', created_at: '2026-01-18T20:00:00Z' },
+  { id: 'sm3', product_id: 'pr2', stock_location_id: 'sl2', event_id: null, movement_type: 'Entrada', quantity: 100, unit_cost: null, notes: 'Compra inicial', created_by: 'p1', status: 'Ativo', created_at: '2025-12-01T10:00:00Z' },
+  { id: 'sm4', product_id: 'pr2', stock_location_id: 'sl2', event_id: 'e1', movement_type: 'Saída', quantity: 40, unit_cost: null, notes: 'Usado no Festival de Verão', created_by: 'p3', status: 'Ativo', created_at: '2026-01-18T20:00:00Z' }
 ]
 
 // ---------- Produtos do evento, consumo da produção e transferências ----------

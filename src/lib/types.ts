@@ -550,6 +550,7 @@ export type MovementType =
   | 'Entrada' | 'Saída'
   | 'Compra' | 'Envio para Evento' | 'Devolução do Evento'
   | 'Ajuste (entrada)' | 'Ajuste (saída)' | 'Perda'
+  | 'Consumo Interno' | 'Quebra'
 
 export interface StockMovement {
   id: string
@@ -558,6 +559,9 @@ export interface StockMovement {
   event_id: string | null
   movement_type: MovementType
   quantity: number
+  // Preenchido nas Compras: alimenta o custo médio ponderado (product_avg_costs
+  // no banco), que é a base do "valor do estoque" em R$.
+  unit_cost: number | null
   notes: string | null
   created_by: string | null
   status: MovementStatus
@@ -571,6 +575,35 @@ export interface StockBalance {
   stock_location_id: string
   stock_location_name: string
   balance: number
+}
+
+// View stock_available: balance é o físico; reserved é o separado pra eventos
+// futuros (stock_reservations com status Reservado); available = o que sobra
+// pra prometer. As três colunas juntas evitam a pergunta "tem no estoque mas
+// posso usar?" — que é onde reserva de papel e planilha sempre quebram.
+export interface StockAvailable extends StockBalance {
+  reserved: number
+  available: number
+}
+
+export interface ProductAvgCost {
+  product_id: string
+  product_name: string
+  avg_cost: number | null
+}
+
+export type ReservationStatus = 'Reservado' | 'Atendida' | 'Cancelada'
+
+export interface StockReservation {
+  id: string
+  event_id: string
+  product_id: string
+  stock_location_id: string
+  quantity: number
+  status: ReservationStatus
+  notes: string | null
+  created_by: string | null
+  created_at: string
 }
 
 export type AccessRoleKey = 'diretoria' | 'garcom' | 'caixa' | 'operacional' | 'colaborador'

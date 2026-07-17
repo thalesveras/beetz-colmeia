@@ -10,7 +10,10 @@ const inputClass = 'w-full border border-beetz-dark/15 rounded-xl px-4 py-2.5 te
 // real: compra entra, ajuste pode ir pros dois lados, perda sai. "Envio pro
 // evento" e "Devolução do evento" não aparecem aqui de propósito — nascem
 // automaticamente ao aprovar/devolver uma transferência (aba Transferências).
-const movementTypes: MovementType[] = ['Compra', 'Ajuste (entrada)', 'Ajuste (saída)', 'Perda']
+// Consumo Interno e Quebra entraram na Fase 1 da inteligência de estoque:
+// separam "a equipe bebeu/usou" de "quebrou no transporte" — dois números que
+// a Perda genérica misturava e que contam histórias diferentes no fechamento.
+const movementTypes: MovementType[] = ['Compra', 'Ajuste (entrada)', 'Ajuste (saída)', 'Consumo Interno', 'Quebra', 'Perda']
 
 interface Props {
   fixedEventId?: string
@@ -30,6 +33,7 @@ export default function StockMovementForm({ fixedEventId, onSaved }: Props) {
   const [eventId, setEventId] = useState(fixedEventId || '')
   const [movementType, setMovementType] = useState<MovementType>('Compra')
   const [quantity, setQuantity] = useState(1)
+  const [unitCost, setUnitCost] = useState('')
   const [notes, setNotes] = useState('')
 
   useEffect(() => {
@@ -58,11 +62,17 @@ export default function StockMovementForm({ fixedEventId, onSaved }: Props) {
       event_id: fixedEventId || eventId || null,
       movement_type: movementType,
       quantity,
+      // Preço só em Compra: é o que alimenta o custo médio (product_avg_costs)
+      // e, por consequência, o valor do estoque em R$. Vírgula vira ponto
+      // porque teclado brasileiro digita "4,50".
+      unit_cost: movementType === 'Compra' && unitCost.trim()
+        ? Number(unitCost.replace(',', '.')) || null
+        : null,
       notes: notes || null,
       created_by: userId
     })
     setSaving(false)
-    setProductId(''); setLocationId(''); setQuantity(1); setNotes('')
+    setProductId(''); setLocationId(''); setQuantity(1); setUnitCost(''); setNotes('')
     if (!fixedEventId) setEventId('')
     onSaved()
   }
@@ -102,9 +112,21 @@ export default function StockMovementForm({ fixedEventId, onSaved }: Props) {
         </div>
       </div>
 
-      <div>
-        <label className="text-sm font-medium block mb-1">Quantidade</label>
-        <input type="number" min={0.01} step="0.01" required className={inputClass} value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} />
+      <div className={movementType === 'Compra' ? 'grid sm:grid-cols-2 gap-4' : ''}>
+        <div>
+          <label className="text-sm font-medium block mb-1">Quantidade</label>
+          <input type="number" min={0.01} step="0.01" required className={inputClass} value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} />
+        </div>
+        {movementType === 'Compra' && (
+          <div>
+            <label className="text-sm font-medium block mb-1">Preço unitário (R$)</label>
+            <input type="text" inputMode="decimal" placeholder="Ex: 4,50" className={inputClass}
+              value={unitCost} onChange={(e) => setUnitCost(e.target.value)} />
+            <p className="text-xs text-beetz-dark/40 mt-1">
+              Alimenta o custo médio e o valor do estoque. Sem preço, a compra entra só em quantidade.
+            </p>
+          </div>
+        )}
         {showNegativeWarning && (
           <p className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2">
             <AlertTriangle size={13} className="shrink-0" />

@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Plus, Pencil, Ban, RotateCcw, Check, X, Trash2, ChevronDown, ChevronUp, Package, Warehouse, AlertTriangle,
-  Clock3, ArrowLeftRight, ChevronLeft, ChevronRight, Filter
+  Clock3, ArrowLeftRight, ChevronLeft, ChevronRight, Filter, Wallet, CalendarDays
 } from 'lucide-react'
 import {
   approveTransferRequest, createProduct, createStockLocation, createTransferRequest, deleteProduct,
-  deleteStockLocation, getStockBalances, isPositiveMovementType, listEvents, listProducts, listProfiles,
+  deleteStockLocation, getStockBalances, listProductAvgCosts, listStockAvailability, isPositiveMovementType, listEvents, listProducts, listProfiles,
   listStockLocations, listStockMovements, listTransferRequests, registerTransferReturn, updateProduct,
   updateStockLocation, updateStockMovement, updateTransferRequestStatus
 } from '../lib/dataService'
-import type { EventItem, Product, Profile, StockBalance, StockLocation, StockMovement, TransferRequest, TransferRequestStatus } from '../lib/types'
+import type { EventItem, Product, ProductAvgCost, Profile, StockAvailable, StockBalance, StockLocation, StockMovement, TransferRequest, TransferRequestStatus } from '../lib/types'
 import StockMovementForm from '../components/stock/StockMovementForm'
 import { useAuth } from '../contexts/AuthContext'
 import { canEditOwnStock, canEditStock, canManageStockCatalog, canManageUsers, canViewStockTab } from '../lib/permissions'
@@ -43,6 +43,8 @@ const transferStatusColors: Record<TransferRequestStatus, string> = {
 export default function Stock() {
   const { userId, accessRole } = useAuth()
   const [balances, setBalances] = useState<StockBalance[]>([])
+  const [avgCosts, setAvgCosts] = useState<ProductAvgCost[]>([])
+  const [availability, setAvailability] = useState<StockAvailable[]>([])
   const [locations, setLocations] = useState<StockLocation[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [movements, setMovements] = useState<StockMovement[]>([])
@@ -98,9 +100,9 @@ export default function Stock() {
 
   async function load() {
     setLoading(true)
-    const [b, l, p, m, pr, ev, tr] = await Promise.all([
+    const [b, l, p, m, pr, ev, tr, costs, avail] = await Promise.all([
       getStockBalances(), listStockLocations(), listProducts(), listStockMovements(), listProfiles(),
-      listEvents(), listTransferRequests()
+      listEvents(), listTransferRequests(), listProductAvgCosts(), listStockAvailability()
     ])
     setBalances(b)
     setLocations(l)
@@ -109,8 +111,25 @@ export default function Stock() {
     setProfiles(pr)
     setEvents(ev)
     setTransfers(tr)
+    setAvgCosts(costs)
+    setAvailability(avail)
     setLoading(false)
   }
+
+  // Valor em R$ = saldo físico × custo médio das compras daquele produto.
+  // Produto sem compra com preço não entra na soma (não tem como valer algo
+  // que nunca teve preço) — por isso o rótulo diz "produtos com custo".
+  const avgCostById = useMemo(() => new Map(avgCosts.map((c) => [c.product_id, c.avg_cost])), [avgCosts])
+  const stockValue = useMemo(() => availability.reduce((sum, a) => {
+    const cost = avgCostById.get(a.product_id)
+    return cost && a.balance > 0 ? sum + a.balance * cost : sum
+  }, 0), [availability, avgCostById])
+  const reservedValue = useMemo(() => availability.reduce((sum, a) => {
+    const cost = avgCostById.get(a.product_id)
+    return cost && a.reserved > 0 ? sum + a.reserved * cost : sum
+  }, 0), [availability, avgCostById])
+  const reservedUnits = useMemo(() => availability.reduce((s, a) => s + a.reserved, 0), [availability])
+  const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
   useEffect(() => { load() }, [])
 
@@ -337,7 +356,36 @@ export default function Stock() {
         <p className="text-beetz-dark/50">Carregando...</p>
       ) : (
         <>
-          <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {/* Os dois primeiros KPIs são a Fase 1 da inteligência: R$ em vez de
+              contagem. Só somam produtos com custo médio (Compra com preço) —
+              melhor um número menor e verdadeiro que um total inventado. */}
+          <section className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <div className="bg-beetz-dark text-white rounded-2xl p-4 shadow-soft flex items-center gap-3">
+              <div className="bg-beetz-yellow/20 text-beetz-yellow rounded-xl p-2.5"><Wallet size={20} /></div>
+              <div className="min-w-0">
+                <p className="text-xl font-extrabold leading-none truncate">{brl(stockValue)}</p>
+                <p className="text-xs text-white/50 mt-1">Valor do estoque (produtos com custo)</p>
+              </div>
+            </div>
+            <div className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5 flex items-center gap-3">
+              <div className="bg-beetz-yellow/20 text-beetz-dark rounded-xl p-2.5"><CalendarDays size={20} /></div>
+              <div className="min-w-0">
+                <p className="text-xl font-extrabold leading-none truncate">
+                  {reservedValue > 0 ? brl(reservedValue) : `${reservedUnits} un`}
+                </p>
+                <p className="text-xs text-beetz-dark/50 mt-1">Reservado pra eventos</p>
+              </div>
+            </div>
+            <div className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5 flex items-center gap-3">
+              <div className="bg-beetz-yellow/20 text-beetz-dark rounded-xl p-2.5"><Clock3 size={20} /></div>
+              <div>
+                <p className="text-xl font-extrabold leading-none">{movementsToday.length}</p>
+                <p className="text-xs text-beetz-dark/50 mt-1">Movimentações hoje</p>
+              </div>
+            </div>
+          </section>
+
+          <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5 flex items-center gap-3">
               <div className="bg-beetz-yellow/20 text-beetz-dark rounded-xl p-2.5"><Package size={20} /></div>
               <div>
@@ -350,13 +398,6 @@ export default function Stock() {
               <div>
                 <p className="text-xl font-extrabold leading-none">{locations.length}</p>
                 <p className="text-xs text-beetz-dark/50 mt-1">Estoques/almoxarifados</p>
-              </div>
-            </div>
-            <div className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5 flex items-center gap-3">
-              <div className="bg-beetz-yellow/20 text-beetz-dark rounded-xl p-2.5"><Clock3 size={20} /></div>
-              <div>
-                <p className="text-xl font-extrabold leading-none">{movementsToday.length}</p>
-                <p className="text-xs text-beetz-dark/50 mt-1">Movimentações hoje</p>
               </div>
             </div>
             <div className={`rounded-2xl p-4 shadow-soft border flex items-center gap-3 ${lowStockItems.length > 0 ? 'bg-red-50 border-red-100' : 'bg-white border-beetz-dark/5'}`}>

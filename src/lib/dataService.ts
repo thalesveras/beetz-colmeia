@@ -14,7 +14,7 @@ import type {
   EventChangeLogEntry, EventItem, EventMember, EventModality, EventProduct, EventRepasse, EventStaffingApplication, EventStaffingRequirement, Expense,
   ExpenseCategory, ExpenseStatus, HiveLevelConfig, HoneyPoint, LinkRedirect, MovementType, OpenStaffingSlot, PaymentMethodOption, Product,
   ProductionConsumption, Producer, Profile, ProfileStats, RolePermissions, ServiceModality,
-  PendingProfileDirectoryItem, PendingProfilePickerItem, PendingProfileSensitive, StaffingApplicationStatus, StockBalance, StockLocation, StockMovement,
+  PendingProfileDirectoryItem, PendingProfilePickerItem, PendingProfileSensitive, StaffingApplicationStatus, StockAvailable, StockBalance, StockReservation, ReservationStatus, ProductAvgCost, StockLocation, StockMovement,
   Supplier, TransferRequest, TransferRequestStatus, ZohoPendingProfile, EmailKind, EmailLogEntry
 } from './types'
 
@@ -1109,13 +1109,15 @@ export interface NewStockMovementInput {
   event_id: string | null
   movement_type: MovementType
   quantity: number
+  // Só faz sentido em Compra — o formulário esconde nos demais tipos.
+  unit_cost?: number | null
   notes: string | null
   created_by: string | null
 }
 
 export async function createStockMovement(input: NewStockMovementInput): Promise<StockMovement> {
   if (isDemoMode) {
-    const movement: StockMovement = { ...input, id: uid('sm'), status: 'Ativo', created_at: new Date().toISOString() }
+    const movement: StockMovement = { ...input, unit_cost: input.unit_cost ?? null, id: uid('sm'), status: 'Ativo', created_at: new Date().toISOString() }
     demoState.stockMovements.push(movement)
     return movement
   }
@@ -1158,6 +1160,52 @@ export async function getStockBalances(): Promise<StockBalance[]> {
   const { data, error } = await supabase.from('stock_balances').select('*')
   if (error) throw error
   return data as StockBalance[]
+}
+
+// ---------- Inteligência do estoque (Fase 1) ----------
+// As views fazem a conta no banco; aqui só se lê. Custo médio vem das Compras
+// com preço; disponível = físico - reservado.
+export async function listStockAvailability(): Promise<StockAvailable[]> {
+  if (isDemoMode) {
+    const balances = await getStockBalances()
+    return balances.map((b) => ({ ...b, reserved: 0, available: b.balance }))
+  }
+  const { data, error } = await supabase.from('stock_available').select('*')
+  if (error) throw error
+  return data as StockAvailable[]
+}
+
+export async function listProductAvgCosts(): Promise<ProductAvgCost[]> {
+  if (isDemoMode) return demoState.products.map((p) => ({ product_id: p.id, product_name: p.name, avg_cost: null }))
+  const { data, error } = await supabase.from('product_avg_costs').select('*')
+  if (error) throw error
+  return data as ProductAvgCost[]
+}
+
+export async function listStockReservations(onlyActive = true): Promise<StockReservation[]> {
+  if (isDemoMode) return []
+  let q = supabase.from('stock_reservations').select('*').order('created_at', { ascending: false })
+  if (onlyActive) q = q.eq('status', 'Reservado')
+  const { data, error } = await q
+  if (error) throw error
+  return data as StockReservation[]
+}
+
+export async function createStockReservation(input: Omit<StockReservation, 'id' | 'status' | 'created_at'>): Promise<StockReservation> {
+  if (isDemoMode) throw new Error('Reservas não funcionam em modo demo.')
+  const { data, error } = await supabase.from('stock_reservations')
+    .insert({ ...input, status: 'Reservado' }).select().single()
+  if (error) throw error
+  return data as StockReservation
+}
+
+// Atender = o envio aconteceu (a reserva vira movimentação de verdade);
+// cancelar = liberou o disponível. Nunca se apaga: histórico de reserva é o
+// que explica por que um evento ficou sem produto.
+export async function updateStockReservationStatus(id: string, status: ReservationStatus): Promise<void> {
+  if (isDemoMode) return
+  const { error } = await supabase.from('stock_reservations').update({ status }).eq('id', id)
+  if (error) throw error
 }
 
 // ---------- Configurações: Perfis de acesso ----------
@@ -1502,7 +1550,7 @@ export async function approveTransferRequest(request: TransferRequest, approvedB
     if (idx >= 0) demoState.transferRequests[idx] = { ...demoState.transferRequests[idx], status: 'Aprovado' }
     demoState.stockMovements.push({
       id: uid('sm'), product_id: request.product_id, stock_location_id: request.from_location_id,
-      event_id: request.event_id, movement_type: 'Envio para Evento', quantity: request.quantity,
+      event_id: request.event_id, movement_type: 'Envio para Evento', quantity: request.quantity, unit_cost: null,
       notes: `Transferência aprovada (#${request.id.slice(0, 8)})`, created_by: approvedBy,
       status: 'Ativo', created_at: new Date().toISOString()
     })
@@ -1510,7 +1558,7 @@ export async function approveTransferRequest(request: TransferRequest, approvedB
   }
   const { error: moveErr } = await supabase.from('stock_movements').insert({
     product_id: request.product_id, stock_location_id: request.from_location_id, event_id: request.event_id,
-    movement_type: 'Envio para Evento', quantity: request.quantity,
+    movement_type: 'Envio para Evento', quantity: request.quantity, unit_cost: null,
     notes: `Transferência aprovada (#${request.id.slice(0, 8)})`, created_by: approvedBy, status: 'Ativo'
   })
   if (moveErr) throw moveErr
@@ -1531,7 +1579,7 @@ export async function registerTransferReturn(request: TransferRequest, returnedQ
     if (idx >= 0) demoState.transferRequests[idx] = { ...demoState.transferRequests[idx], returned_quantity: returnedQuantity }
     demoState.stockMovements.push({
       id: uid('sm'), product_id: request.product_id, stock_location_id: request.from_location_id,
-      event_id: request.event_id, movement_type: 'Devolução do Evento', quantity: returnedQuantity,
+      event_id: request.event_id, movement_type: 'Devolução do Evento', quantity: returnedQuantity, unit_cost: null,
       notes: `Sobra devolvida (#${request.id.slice(0, 8)})`, created_by: returnedBy,
       status: 'Ativo', created_at: new Date().toISOString()
     })
