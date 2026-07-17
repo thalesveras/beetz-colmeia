@@ -19,6 +19,7 @@ import StaffingTab from './StaffingTab'
 import StockReconciliationCard from './StockReconciliationCard'
 import EventSummaryCard from './EventSummaryCard'
 import FinancialSummaryCard from './FinancialSummaryCard'
+import EventResumoTab from './EventResumoTab'
 import ContractCard from './ContractCard'
 import { useAuth } from '../../contexts/AuthContext'
 import {
@@ -30,24 +31,26 @@ import {
 // evento por caminhos paralelos, com duas filas de aprovação, e confirmar numa
 // criava membro na outra. Agora Equipe é o único lugar: vagas, candidatos e
 // time confirmado juntos.
-type TabKey = 'equipe' | 'despesas' | 'recebimentos' | 'estoque' | 'produtos' | 'consumo' | 'repasses' | 'fechamentos'
+type TabKey = 'resumo' | 'equipe' | 'despesas' | 'recebimentos' | 'estoque' | 'produtos' | 'consumo' | 'repasses' | 'fechamentos'
 
 export default function EventDetail() {
   const { id } = useParams()
   const { accessRole, userId } = useAuth()
 
+  // Resumo primeiro (a porta de entrada), resto em ORDEM ALFABÉTICA — pedido
+  // do dono: no celular, ordem previsível vale mais que ordem "lógica".
   const tabs: { key: TabKey; label: string }[] = [
-    { key: 'equipe', label: 'Equipe' },
-    ...(canViewExpensesTab(accessRole) ? [{ key: 'despesas' as TabKey, label: 'Despesas' }] : []),
-    ...(canViewCashierTab(accessRole) ? [{ key: 'recebimentos' as TabKey, label: 'Recebimentos' }] : []),
-    ...(canViewStockTab(accessRole) ? [{ key: 'produtos' as TabKey, label: 'Produtos' }] : []),
-    ...(canViewStockTab(accessRole) ? [{ key: 'estoque' as TabKey, label: 'Estoque' }] : []),
+    { key: 'resumo', label: 'Resumo' },
     ...(canViewStockTab(accessRole) ? [{ key: 'consumo' as TabKey, label: 'Consumo da produção' }] : []),
-    // Repasses = pagamentos à produtora do evento (financeiro), não tem nada a
-    // ver com transferência de estoque — essa saiu daqui e foi pra dentro da
-    // aba Estoque, junto do resto do controle de almoxarifado.
-    ...(canViewFinancialSummary(accessRole) ? [{ key: 'repasses' as TabKey, label: 'Repasses' }] : []),
-    ...(canViewFinancialSummary(accessRole) ? [{ key: 'fechamentos' as TabKey, label: 'Fechamentos' }] : [])
+    ...(canViewExpensesTab(accessRole) ? [{ key: 'despesas' as TabKey, label: 'Despesas' }] : []),
+    { key: 'equipe', label: 'Equipe' },
+    ...(canViewStockTab(accessRole) ? [{ key: 'estoque' as TabKey, label: 'Estoque' }] : []),
+    ...(canViewFinancialSummary(accessRole) ? [{ key: 'fechamentos' as TabKey, label: 'Fechamento' }] : []),
+    ...(canViewStockTab(accessRole) ? [{ key: 'produtos' as TabKey, label: 'Produtos' }] : []),
+    ...(canViewCashierTab(accessRole) ? [{ key: 'recebimentos' as TabKey, label: 'Recebimentos' }] : []),
+    // Repasses = pagamentos à produtora do evento (financeiro), não confundir
+    // com transferência de estoque (que mora dentro da aba Estoque).
+    ...(canViewFinancialSummary(accessRole) ? [{ key: 'repasses' as TabKey, label: 'Repasses' }] : [])
   ]
   const [event, setEvent] = useState<EventItem | null>(null)
   const [members, setMembers] = useState<(EventMember & { profile: Profile | null })[]>([])
@@ -59,7 +62,7 @@ export default function EventDetail() {
   const [roleInput, setRoleInput] = useState('')
   const [requestRole, setRequestRole] = useState('')
   const [requesting, setRequesting] = useState(false)
-  const [activeTab, setActiveTab] = useState<TabKey>('equipe')
+  const [activeTab, setActiveTab] = useState<TabKey>('resumo')
   // Se o evento tem vagas, o caminho é se candidatar a uma delas; o campo de
   // interesse em texto livre só aparece quando não há vaga nenhuma.
   const [hasRequirements, setHasRequirements] = useState(false)
@@ -131,15 +134,15 @@ export default function EventDetail() {
       )}
 
       <div className="bg-white rounded-2xl p-1.5 shadow-soft border border-beetz-dark/5">
-        <div
-          className="flex gap-1 overflow-x-auto [&::-webkit-scrollbar]:hidden"
-          style={{ scrollbarWidth: 'none' }}
-        >
+        {/* flex-wrap: todas as abas visíveis de uma vez, inclusive no celular —
+            a rolagem horizontal escondida cortava "Fechamento" pra fora da
+            tela e a aba simplesmente não existia pra quem não rolasse. */}
+        <div className="flex flex-wrap gap-1">
           {tabs.map((t) => (
             <button
               key={t.key}
               onClick={() => setActiveTab(t.key)}
-              className={`shrink-0 whitespace-nowrap px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
+              className={`whitespace-nowrap px-3.5 py-2 rounded-xl text-sm font-semibold transition-colors ${
                 activeTab === t.key ? 'bg-beetz-dark text-white' : 'text-beetz-dark/60 hover:bg-beetz-gray'
               }`}
             >
@@ -148,6 +151,17 @@ export default function EventDetail() {
           ))}
         </div>
       </div>
+
+      {activeTab === 'resumo' && (
+        <EventResumoTab
+          eventId={id}
+          canExpenses={canViewExpensesTab(accessRole)}
+          canCashier={canViewCashierTab(accessRole)}
+          canStock={canViewStockTab(accessRole)}
+          canFinance={canViewFinancialSummary(accessRole)}
+          onNavigate={(t) => setActiveTab(t as TabKey)}
+        />
+      )}
 
       {activeTab === 'equipe' && (
         <div className="space-y-4">
