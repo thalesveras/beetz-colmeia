@@ -87,7 +87,7 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
     const name = newSupplierName.trim()
     if (!name) return
     setAddingSupplier(true)
-    const created = await createSupplier(name, null)
+    const created = await createSupplier({ name })
     setSuppliers((prev) => [...prev, created])
     setSupplierId(created.id)
     setNewSupplierName('')

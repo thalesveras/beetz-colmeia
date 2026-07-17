@@ -1417,18 +1417,26 @@ export async function listSuppliers(): Promise<Supplier[]> {
   return data as Supplier[]
 }
 
-export async function createSupplier(name: string, contact: string | null): Promise<Supplier> {
+export type NewSupplierInput = Partial<Omit<Supplier, 'id' | 'created_at' | 'name'>> & { name: string }
+
+export async function createSupplier(input: NewSupplierInput): Promise<Supplier> {
+  const row = {
+    name: input.name, contact: input.contact ?? null, cnpj: input.cnpj ?? null,
+    phone: input.phone ?? null, email: input.email ?? null,
+    pix_key: input.pix_key ?? null, pix_key_type: input.pix_key_type ?? null,
+    notes: input.notes ?? null
+  }
   if (isDemoMode) {
-    const supplier: Supplier = { id: uid('sup'), name, contact, created_at: new Date().toISOString() }
+    const supplier: Supplier = { ...row, id: uid('sup'), created_at: new Date().toISOString() }
     demoState.suppliers.push(supplier)
     return supplier
   }
-  const { data, error } = await supabase.from('suppliers').insert({ name, contact }).select().single()
+  const { data, error } = await supabase.from('suppliers').insert(row).select().single()
   if (error) throw error
   return data as Supplier
 }
 
-export async function updateSupplier(id: string, patch: Partial<Pick<Supplier, 'name' | 'contact'>>): Promise<Supplier> {
+export async function updateSupplier(id: string, patch: Partial<Omit<Supplier, 'id' | 'created_at'>>): Promise<Supplier> {
   if (isDemoMode) {
     const idx = demoState.suppliers.findIndex((s) => s.id === id)
     if (idx < 0) throw new Error('Fornecedor não encontrado')

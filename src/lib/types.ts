@@ -430,10 +430,21 @@ export interface DnsSubdomain {
   created_at: string
 }
 
+export type PixKeyType = 'CPF' | 'CNPJ' | 'E-mail' | 'Telefone' | 'Aleatória'
+
 export interface Supplier {
   id: string
   name: string
+  // 'contact' é legado: era um campo só onde cabia telefone, e-mail e o que
+  // mais viesse. Continua lendo o que já existe, mas o cadastro novo separa.
   contact: string | null
+  cnpj: string | null
+  phone: string | null
+  email: string | null
+  // O que realmente importa na hora de pagar: pra onde vai o dinheiro.
+  pix_key: string | null
+  pix_key_type: PixKeyType | null
+  notes: string | null
   created_at: string
 }
 

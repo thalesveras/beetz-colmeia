@@ -255,9 +255,9 @@ export const mockBadges: Badge[] = [
 
 // ---------- Fornecedores ----------
 export const mockSuppliers: Supplier[] = [
-  { id: 'sup1', name: 'Casa Barreirinhas', contact: '(98) 99999-1111', created_at: '2025-01-01T10:00:00Z' },
-  { id: 'sup2', name: 'Distribuidora Gelo Fácil', contact: '(11) 98888-2222', created_at: '2025-01-01T10:00:00Z' },
-  { id: 'sup3', name: 'Som & Luz Produções', contact: '(11) 97777-3333', created_at: '2025-01-01T10:00:00Z' }
+  { id: 'sup1', name: 'Casa Barreirinhas', contact: '(98) 99999-1111', cnpj: null, phone: null, email: null, pix_key: null, pix_key_type: null, notes: null, created_at: '2025-01-01T10:00:00Z' },
+  { id: 'sup2', name: 'Distribuidora Gelo Fácil', contact: '(11) 98888-2222', cnpj: null, phone: null, email: null, pix_key: null, pix_key_type: null, notes: null, created_at: '2025-01-01T10:00:00Z' },
+  { id: 'sup3', name: 'Som & Luz Produções', contact: '(11) 97777-3333', cnpj: null, phone: null, email: null, pix_key: null, pix_key_type: null, notes: null, created_at: '2025-01-01T10:00:00Z' }
 ]
 
 // ---------- Despesas ----------
