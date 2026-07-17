@@ -793,8 +793,11 @@ export async function getFinanceDataset(): Promise<FinanceDataset> {
   const pendingById = new Map(pending.map((p) => [p.id, p]))
 
   const rows: FinanceRow[] = expenses.map((x) => {
-    const ev = eventById.get(x.event_id)
-    const date = ev?.event_date ?? ''
+    const ev = x.event_id ? eventById.get(x.event_id) : undefined
+    // Despesa de evento usa a data do EVENTO (o eixo de tempo real da operação).
+    // Despesa da empresa não tem evento — usa a própria data de lançamento,
+    // que pra ela é honesta: foi quando o gasto aconteceu.
+    const date = ev?.event_date ?? (x.event_id ? '' : x.created_at.slice(0, 10))
     // A despesa pode estar amarrada a um perfil real OU a um pré-cadastro —
     // os dois viram "pessoa" aqui, pra tela não precisar saber a diferença.
     const profile = x.team_member_id ? profileById.get(x.team_member_id) : null
@@ -812,8 +815,8 @@ export async function getFinanceDataset(): Promise<FinanceDataset> {
       category: x.category || 'Sem categoria',
       description: x.description || '',
       paymentMethod: x.payment_method || 'Não informado',
-      eventId: x.event_id,
-      eventName: ev?.name ?? 'Evento removido',
+      eventId: x.event_id ?? '',
+      eventName: x.event_id ? (ev?.name ?? 'Evento removido') : 'Beetz (empresa)',
       date,
       month: date ? date.slice(0, 7) : '',
       supplierId: x.supplier_id,

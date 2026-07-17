@@ -325,8 +325,14 @@ export default function FinanceExpenses() {
                         <Link to={`/eventos/${event.id}`} className="text-sm font-semibold hover:text-beetz-yellow transition-colors">
                           {event.name}
                         </Link>
-                      ) : (
+                      ) : exp.event_id ? (
                         <span className="text-sm text-beetz-dark/40">Evento removido</span>
+                      ) : (
+                        // Sem event_id = despesa da EMPRESA (aluguel, estoque...)
+                        // — não é erro, é a categoria nova de gasto.
+                        <span className="inline-flex items-center gap-1 text-xs font-bold bg-beetz-dark text-white px-2 py-0.5 rounded-full">
+                          Beetz · empresa{exp.stock_movement_id ? ' · estoque' : ''}
+                        </span>
                       )}
                       <p className="text-xs text-beetz-dark/50">
                         {event ? formatDate(event.event_date) : ''}

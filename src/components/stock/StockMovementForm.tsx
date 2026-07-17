@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
-import { createStockMovement, getStockBalances, isPositiveMovementType, listEvents, listProducts, listStockLocations } from '../../lib/dataService'
+import { createExpense, createStockMovement, getStockBalances, isPositiveMovementType, listEvents, listProducts, listStockLocations } from '../../lib/dataService'
 import type { EventItem, MovementType, Product, StockBalance, StockLocation } from '../../lib/types'
 
 const inputClass = 'w-full border border-beetz-dark/15 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
@@ -34,6 +34,10 @@ export default function StockMovementForm({ fixedEventId, onSaved }: Props) {
   const [movementType, setMovementType] = useState<MovementType>('Compra')
   const [quantity, setQuantity] = useState(1)
   const [unitCost, setUnitCost] = useState('')
+  // Ligado por padrão: o vínculo estoque↔financeiro é opcional no modelo, mas
+  // opcional-desligado é o campo que ninguém preenche. Quem NÃO quiser a
+  // despesa desmarca — o caminho comum vira o caminho fácil.
+  const [generateExpense, setGenerateExpense] = useState(true)
   const [notes, setNotes] = useState('')
 
   useEffect(() => {
@@ -56,21 +60,48 @@ export default function StockMovementForm({ fixedEventId, onSaved }: Props) {
     e.preventDefault()
     if (!productId || !locationId || !userId) return
     setSaving(true)
-    await createStockMovement({
+    // Preço só em Compra: alimenta o custo médio (product_avg_costs) e o valor
+    // do estoque em R$. Vírgula vira ponto (teclado brasileiro digita "4,50").
+    const parsedCost = movementType === 'Compra' && unitCost.trim()
+      ? Number(unitCost.replace(',', '.')) || null
+      : null
+    const movement = await createStockMovement({
       product_id: productId,
       stock_location_id: locationId,
       event_id: fixedEventId || eventId || null,
       movement_type: movementType,
       quantity,
-      // Preço só em Compra: é o que alimenta o custo médio (product_avg_costs)
-      // e, por consequência, o valor do estoque em R$. Vírgula vira ponto
-      // porque teclado brasileiro digita "4,50".
-      unit_cost: movementType === 'Compra' && unitCost.trim()
-        ? Number(unitCost.replace(',', '.')) || null
-        : null,
+      unit_cost: parsedCost,
       notes: notes || null,
       created_by: userId
     })
+
+    // Compra com preço pode gerar a despesa DA EMPRESA (sem evento — compra
+    // pertence ao almoxarifado) já vinculada à movimentação. Um lançamento,
+    // dois efeitos: estoque ganha quantidade+custo, financeiro ganha o gasto
+    // como Pendente pra Diretoria revisar. Se a despesa falhar, a Compra fica
+    // — o aviso diz o que faltou, e dá pra lançar a despesa à mão depois.
+    if (movementType === 'Compra' && generateExpense && parsedCost) {
+      const productName = products.find((p) => p.id === productId)?.name ?? 'produto'
+      try {
+        await createExpense({
+          event_id: null,
+          status: 'Pendente',
+          category: 'Estoque',
+          description: `Compra de estoque: ${productName} (${quantity} un)`,
+          quantity,
+          unit_value: parsedCost,
+          dex_fee: 0,
+          receipt_data: null, payment_method: null, signature_data: null, repasse_data: null,
+          created_by: userId, team_member_id: null, supplier_id: null,
+          pending_team_member_id: null,
+          stock_movement_id: movement.id
+        })
+      } catch {
+        alert('A compra entrou no estoque, mas a despesa não pôde ser criada — lance-a manualmente no Financeiro.')
+      }
+    }
+
     setSaving(false)
     setProductId(''); setLocationId(''); setQuantity(1); setUnitCost(''); setNotes('')
     if (!fixedEventId) setEventId('')
@@ -125,6 +156,15 @@ export default function StockMovementForm({ fixedEventId, onSaved }: Props) {
             <p className="text-xs text-beetz-dark/40 mt-1">
               Alimenta o custo médio e o valor do estoque. Sem preço, a compra entra só em quantidade.
             </p>
+            {unitCost.trim() && (
+              <label className="flex items-center gap-2 mt-2 cursor-pointer">
+                <input type="checkbox" checked={generateExpense} onChange={(e) => setGenerateExpense(e.target.checked)}
+                  className="rounded border-beetz-dark/20" />
+                <span className="text-xs text-beetz-dark/60">
+                  Gerar despesa no Financeiro ({(quantity * (Number(unitCost.replace(',', '.')) || 0)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}, entra como Pendente)
+                </span>
+              </label>
+            )}
           </div>
         )}
         {showNegativeWarning && (

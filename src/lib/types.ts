@@ -321,7 +321,9 @@ export type PaymentMethod = string
 
 export interface Expense {
   id: string
-  event_id: string
+  // Nulo = despesa da EMPRESA (aluguel, contador, compra de estoque) — custo
+  // geral, de nenhuma festa. Preenchido = despesa daquele evento.
+  event_id: string | null
   status: ExpenseStatus
   category: string | null
   receipt_data: string | null
@@ -339,6 +341,8 @@ export interface Expense {
   // cadastrou no app (só existe como pré-cadastro do Zoho/CSV). Mutuamente
   // exclusivo com team_member_id — quando a pessoa se cadastra,
   // claim_pending_profile() migra o valor pra team_member_id automaticamente.
+  // Qual Compra de estoque esta despesa paga (opcional; único por compra).
+  stock_movement_id?: string | null
   pending_team_member_id: string | null
   supplier_id: string | null
   created_at: string
