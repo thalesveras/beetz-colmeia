@@ -106,11 +106,14 @@ export async function listProfiles(): Promise<Profile[]> {
   if (isDemoMode) return demoState.profiles
     .filter((p) => p.onboarding_completed && p.approval_status === 'Aprovado')
     .sort(byProfileName)
-  const { data, error } = await supabase.from('profiles').select('*')
-    .eq('onboarding_completed', true).eq('approval_status', 'Aprovado')
-    .order('first_name', { ascending: true }).order('last_name', { ascending: true })
-  if (error) throw error
-  return data as Profile[]
+  return fetchAllPages(async (from, to) => {
+    const { data, error } = await supabase.from('profiles').select('*')
+      .eq('onboarding_completed', true).eq('approval_status', 'Aprovado')
+      .order('first_name', { ascending: true }).order('last_name', { ascending: true })
+      .range(from, to)
+    if (error) throw error
+    return data as Profile[]
+  })
 }
 
 // pt-BR pra "Álvaro" vir antes de "Bruno" em vez de depois de "Zeca".
@@ -841,11 +844,29 @@ export async function getFinanceDataset(): Promise<FinanceDataset> {
 // usar no seletor de "Equipe" das Despesas. Qualquer colaborador logado pode
 // chamar isso (a function no banco confere is_staff), diferente da tabela
 // zoho_pending_profiles completa, que continua só-Diretoria.
+
+// O PostgREST devolve NO MÁXIMO 1000 linhas por requisição — silenciosamente.
+// Com 1722 pré-cadastros ordenados por nome, o corte caía na letra L e 722
+// pessoas sumiam da Turma e do seletor de Equipe, parecendo "importação pela
+// metade". Este helper pagina até vir página incompleta.
+async function fetchAllPages<T>(fetchPage: (from: number, to: number) => Promise<T[]>): Promise<T[]> {
+  const PAGE = 1000
+  const all: T[] = []
+  for (let from = 0; ; from += PAGE) {
+    const page = await fetchPage(from, from + PAGE - 1)
+    all.push(...page)
+    if (page.length < PAGE) break
+  }
+  return all
+}
+
 export async function listPendingProfilesForPicker(): Promise<PendingProfilePickerItem[]> {
   if (isDemoMode) return []
-  const { data, error } = await supabase.rpc('list_pending_profiles_for_picker')
-  if (error) throw error
-  return (data ?? []) as PendingProfilePickerItem[]
+  return fetchAllPages(async (from, to) => {
+    const { data, error } = await supabase.rpc('list_pending_profiles_for_picker').range(from, to)
+    if (error) throw error
+    return (data ?? []) as PendingProfilePickerItem[]
+  })
 }
 
 // Igual ao picker acima, mas com cidade/cargo/departamento/foto — usado pra
@@ -853,9 +874,11 @@ export async function listPendingProfilesForPicker(): Promise<PendingProfilePick
 // com perfil pode ver, a function no banco confere is_staff).
 export async function listPendingProfilesForDirectory(): Promise<PendingProfileDirectoryItem[]> {
   if (isDemoMode) return []
-  const { data, error } = await supabase.rpc('list_pending_profiles_for_directory')
-  if (error) throw error
-  return (data ?? []) as PendingProfileDirectoryItem[]
+  return fetchAllPages(async (from, to) => {
+    const { data, error } = await supabase.rpc('list_pending_profiles_for_directory').range(from, to)
+    if (error) throw error
+    return (data ?? []) as PendingProfileDirectoryItem[]
+  })
 }
 
 // Busca sob demanda (um perfil por vez) os campos sensíveis do pré-cadastro
