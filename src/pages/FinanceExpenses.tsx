@@ -9,9 +9,10 @@ import type {
   EventItem, Expense, ExpenseCategory, ExpenseStatus, PaymentMethodOption, PendingProfilePickerItem,
   Profile, Supplier
 } from '../lib/types'
-import { canEditExpense, canViewFinancialSummary } from '../lib/permissions'
-import { ArrowUpDown, Filter, LayoutGrid, List, Pencil, Trash2, X } from 'lucide-react'
+import { canAddExpense, canEditExpense, canReviewExpense, canViewFinancialSummary } from '../lib/permissions'
+import { ArrowUpDown, Filter, LayoutGrid, List, Pencil, Plus, Trash2, X } from 'lucide-react'
 import EditExpenseModal from '../components/finance/EditExpenseModal'
+import CreateExpenseModal from '../components/finance/CreateExpenseModal'
 
 const statusColors: Record<ExpenseStatus, string> = {
   Pendente: 'bg-beetz-yellow/30 text-beetz-dark',
@@ -42,7 +43,7 @@ type SortField = 'date' | 'event' | 'status' | 'value'
 type SortDir = 'asc' | 'desc'
 
 export default function FinanceExpenses() {
-  const { accessRole } = useAuth()
+  const { accessRole, userId } = useAuth()
   const [loading, setLoading] = useState(true)
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [events, setEvents] = useState<EventItem[]>([])
@@ -63,6 +64,7 @@ export default function FinanceExpenses() {
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
+  const [creating, setCreating] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
@@ -221,7 +223,16 @@ export default function FinanceExpenses() {
           <h1 className="text-2xl md:text-3xl font-extrabold">Financeiro</h1>
           <p className="text-beetz-dark/60 mt-1">Todas as despesas da colmeia, de todos os eventos, num só lugar.</p>
         </div>
-        <div className="flex bg-white rounded-xl border border-beetz-dark/10 p-1">
+        <div className="flex items-center gap-2">
+          {canAddExpense(accessRole) && (
+            <button
+              onClick={() => setCreating(true)}
+              className="flex items-center gap-2 honey-gradient text-beetz-dark font-bold px-4 py-2 rounded-xl text-sm"
+            >
+              <Plus size={16} /> Nova despesa
+            </button>
+          )}
+          <div className="flex bg-white rounded-xl border border-beetz-dark/10 p-1">
           <button
             onClick={() => setViewMode('cards')}
             className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${viewMode === 'cards' ? 'bg-beetz-dark text-white' : 'text-beetz-dark/50 hover:bg-beetz-gray'}`}
@@ -234,6 +245,7 @@ export default function FinanceExpenses() {
           >
             <List size={14} /> Tabela
           </button>
+          </div>
         </div>
       </div>
 
@@ -481,6 +493,21 @@ export default function FinanceExpenses() {
             <X size={13} /> Limpar
           </button>
         </div>
+      )}
+
+      {creating && (
+        <CreateExpenseModal
+          events={events}
+          categories={categories}
+          paymentMethods={paymentMethods}
+          profiles={profiles}
+          pendingProfiles={pendingProfiles}
+          suppliers={suppliers}
+          userId={userId}
+          canReview={canReviewExpense(accessRole)}
+          onClose={() => setCreating(false)}
+          onSaved={load}
+        />
       )}
 
       {editingExpense && (
