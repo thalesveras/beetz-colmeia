@@ -664,8 +664,20 @@ export interface BadgeDefConfig {
 export interface AppSettings {
   id: boolean
   company_name: string
+  // O "Colmeia" embaixo do nome, no menu e no login.
+  short_name: string
+  // Sobe pro bucket 'brand'. Nulo = cai no 🐝 padrão.
+  logo_url: string | null
   welcome_title: string
   welcome_subtitle: string
+  login_title: string
+  login_subtitle: string
+  info_text: string | null
+  // Só valem pra quem instalar o app DEPOIS da mudança: o celular grava nome e
+  // ícone no momento da instalação e não volta a perguntar.
+  pwa_name: string
+  pwa_short_name: string
+  pwa_description: string
   updated_at: string
 }
 

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useProducerAuth } from '../../contexts/ProducerAuthContext'
+import BrandLogo from '../../components/ui/BrandLogo'
 
 const inputClass = 'w-full border border-beetz-dark/15 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
 
@@ -27,12 +28,8 @@ export default function ProducerOnboarding() {
   return (
     <div className="min-h-screen dark-gradient flex items-center justify-center p-6">
       <div className="w-full max-w-md bg-white rounded-3xl p-8 shadow-soft">
-        <div className="flex items-center gap-2 mb-6">
-          <div className="w-10 h-10 rounded-xl honey-gradient flex items-center justify-center text-xl">🐝</div>
-          <div>
-            <p className="font-extrabold leading-none">Beetz</p>
-            <p className="text-[11px] text-beetz-dark/50 leading-none mt-0.5">Portal do Produtor</p>
-          </div>
+        <div className="mb-6">
+          <BrandLogo size="md" withName tone="dark" subtitle="Portal do Produtor" />
         </div>
 
         <h1 className="text-2xl font-extrabold mb-1">Bem-vindo(a)!</h1>

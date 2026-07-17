@@ -1305,6 +1305,62 @@ export async function updateAppSettings(patch: Partial<Omit<AppSettings, 'id' | 
   return data as AppSettings
 }
 
+// ---------- Logo da marca ----------
+// Vive no bucket 'brand' (não em 'avatars'): a política de lá exige que a
+// primeira pasta seja o auth.uid() de quem envia, o que faz sentido pra foto de
+// perfil e nenhum pra um arquivo da empresa. Escrita só da Diretoria, garantida
+// por RLS no Storage — não por esconder o botão.
+const LOGO_MIME = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml']
+const LOGO_MAX_BYTES = 2 * 1024 * 1024
+
+export async function uploadBrandLogo(file: File): Promise<string> {
+  if (!LOGO_MIME.includes(file.type)) {
+    throw new Error('Formato não aceito. Use PNG, JPG, WEBP ou SVG.')
+  }
+  if (file.size > LOGO_MAX_BYTES) {
+    throw new Error(`Imagem muito grande (${(file.size / 1024 / 1024).toFixed(1)} MB). O limite é 2 MB.`)
+  }
+
+  if (isDemoMode) {
+    const fakeUrl = URL.createObjectURL(file)
+    demoState.appSettings = { ...demoState.appSettings, logo_url: fakeUrl }
+    return fakeUrl
+  }
+
+  // Caminho fixo + upsert: trocar o logo sobrescreve em vez de acumular órfão.
+  // Como a URL não muda, o ?v= é o que faz o navegador largar a imagem velha.
+  const ext = file.type === 'image/svg+xml' ? 'svg' : file.type.split('/')[1]
+  const path = `logo.${ext}`
+  const { error: uploadError } = await supabase.storage
+    .from('brand')
+    .upload(path, file, { upsert: true, contentType: file.type, cacheControl: '3600' })
+  if (uploadError) throw uploadError
+
+  const { data: pub } = supabase.storage.from('brand').getPublicUrl(path)
+  const url = `${pub.publicUrl}?v=${Date.now()}`
+
+  const { error } = await supabase.from('app_settings')
+    .update({ logo_url: url, updated_at: new Date().toISOString() }).eq('id', true)
+  if (error) throw error
+  return url
+}
+
+export async function removeBrandLogo(): Promise<void> {
+  if (isDemoMode) {
+    demoState.appSettings = { ...demoState.appSettings, logo_url: null }
+    return
+  }
+  // Limpa a referência primeiro: se o arquivo sumir e a coluna ficar, a tela
+  // mostra imagem quebrada — pior que voltar pro 🐝.
+  const { error } = await supabase.from('app_settings')
+    .update({ logo_url: null, updated_at: new Date().toISOString() }).eq('id', true)
+  if (error) throw error
+
+  const { data: list } = await supabase.storage.from('brand').list('')
+  const files = (list ?? []).filter((f: any) => f.name.startsWith('logo.')).map((f: any) => f.name)
+  if (files.length) await supabase.storage.from('brand').remove(files)
+}
+
 // ---------- Fornecedores ----------
 export async function listSuppliers(): Promise<Supplier[]> {
   if (isDemoMode) return demoState.suppliers

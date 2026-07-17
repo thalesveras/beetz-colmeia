@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Papa from 'papaparse'
 import {
   AlertTriangle, Image, Plus, RefreshCw, Search, Upload, X, Save, Settings as SettingsIcon, ShieldAlert, Trash2,
@@ -13,8 +13,8 @@ import {
   importZohoPendingProfiles, inspectZohoCreatorFields, listBadgeDefsConfig, listDepartments,
   listExpenseCategories, listEmailLog, listHiveLevelsConfig, listPaymentMethods, listRolePermissions,
   listServiceModalities, listTeamEmails, listZohoMeta, peekZohoReport, sendCampaignEmail, sendEmail,
-  syncZohoCreator, updateAppSettings, updateBadgeDef, updateDepartmentAccessRole, updateHiveLevel,
-  updateRolePermission, updateServiceModality
+  removeBrandLogo, syncZohoCreator, updateAppSettings, updateBadgeDef, updateDepartmentAccessRole,
+  updateHiveLevel, updateRolePermission, updateServiceModality, uploadBrandLogo
 } from '../lib/dataService'
 import type { ZohoMetaItem, ZohoPendingProfilesStats, ZohoReportPeek } from '../lib/dataService'
 import type {
@@ -636,52 +636,203 @@ function BadgeRow({ badge, onSaved }: { badge: BadgeDefConfig; onSaved: () => vo
   )
 }
 
-// ---------- Dados gerais da Beetz ----------
+// ---------- Dados gerais da marca ----------
+// Um form só pra tudo que é identidade: símbolo, nomes e textos. O que NÃO está
+// aqui é tão importante quanto o que está — os ícones do PWA e as cores são
+// arquivo/classe no repo, e a tela diz isso em vez de fingir que dá.
+type BrandForm = Pick<AppSettings,
+  'company_name' | 'short_name' | 'welcome_title' | 'welcome_subtitle' |
+  'login_title' | 'login_subtitle' | 'pwa_name' | 'pwa_short_name' | 'pwa_description'
+> & { info_text: string }
+
 function BrandSection() {
   const { appSettings, refreshConfig } = useConfig()
-  const [companyName, setCompanyName] = useState(appSettings.company_name)
-  const [welcomeTitle, setWelcomeTitle] = useState(appSettings.welcome_title)
-  const [welcomeSubtitle, setWelcomeSubtitle] = useState(appSettings.welcome_subtitle)
+  const [form, setForm] = useState<BrandForm>(pickBrand(appSettings))
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [logoBusy, setLogoBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const logoInputRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => {
-    setCompanyName(appSettings.company_name)
-    setWelcomeTitle(appSettings.welcome_title)
-    setWelcomeSubtitle(appSettings.welcome_subtitle)
-  }, [appSettings])
+  function pickBrand(s: AppSettings): BrandForm {
+    return {
+      company_name: s.company_name, short_name: s.short_name,
+      welcome_title: s.welcome_title, welcome_subtitle: s.welcome_subtitle,
+      login_title: s.login_title, login_subtitle: s.login_subtitle,
+      pwa_name: s.pwa_name, pwa_short_name: s.pwa_short_name,
+      pwa_description: s.pwa_description, info_text: s.info_text ?? ''
+    }
+  }
+
+  useEffect(() => { setForm(pickBrand(appSettings)) }, [appSettings])
+  const set = (k: keyof BrandForm, v: string) => setForm((f) => ({ ...f, [k]: v }))
+
+  async function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setLogoBusy(true); setError(null)
+    try {
+      await uploadBrandLogo(file)
+      await refreshConfig()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao enviar o logo.')
+    } finally {
+      setLogoBusy(false)
+      // Zera o input pra dar pra reenviar o mesmo arquivo depois de um erro.
+      if (logoInputRef.current) logoInputRef.current.value = ''
+    }
+  }
+
+  async function handleLogoRemove() {
+    setLogoBusy(true); setError(null)
+    try {
+      await removeBrandLogo()
+      await refreshConfig()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao remover o logo.')
+    } finally {
+      setLogoBusy(false)
+    }
+  }
 
   async function handleSave() {
-    setSaving(true)
-    setSaved(false)
-    await updateAppSettings({ company_name: companyName, welcome_title: welcomeTitle, welcome_subtitle: welcomeSubtitle })
-    await refreshConfig()
-    setSaving(false)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2500)
+    setSaving(true); setSaved(false); setError(null)
+    try {
+      await updateAppSettings({ ...form, info_text: form.info_text.trim() || null })
+      await refreshConfig()
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao salvar.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
     <section className={cardClass}>
       <h2 className="text-lg font-bold mb-1">Dados gerais da marca</h2>
-      <p className="text-sm text-beetz-dark/60 mb-4">
-        Nome da empresa e textos da tela de boas-vindas. As cores continuam fixas no código por enquanto —
-        mudar isso exigiria uma reestruturação maior do tema.
+      <p className="text-sm text-beetz-dark/60 mb-5">
+        O símbolo, os nomes e os textos que a turma vê. Muda na hora, sem publicar nada.
       </p>
-      <div className="space-y-4 max-w-xl">
+
+      {error && (
+        <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-sm text-red-700 mb-4">{error}</div>
+      )}
+
+      <div className="space-y-6 max-w-xl">
+        {/* Símbolo */}
         <div>
-          <label className="text-sm font-medium block mb-1">Nome da empresa</label>
-          <input className={inputClass} value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
+          <label className="text-sm font-medium block mb-2">Símbolo da marca</label>
+          <div className="flex items-center gap-4">
+            <div className="w-16 h-16 rounded-2xl border border-beetz-dark/10 overflow-hidden flex items-center justify-center bg-white shrink-0">
+              {appSettings.logo_url
+                ? <img src={appSettings.logo_url} alt="" className="w-full h-full object-contain" />
+                : <span className="text-3xl">🐝</span>}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <label className={`flex items-center gap-1.5 text-sm font-semibold border border-beetz-dark/15 px-3.5 py-2 rounded-xl cursor-pointer hover:bg-beetz-gray ${logoBusy ? 'opacity-60 pointer-events-none' : ''}`}>
+                <Upload size={15} />
+                {logoBusy ? 'Enviando...' : appSettings.logo_url ? 'Trocar logo' : 'Enviar logo'}
+                <input ref={logoInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                  className="hidden" onChange={handleLogoChange} />
+              </label>
+              {appSettings.logo_url && (
+                <button onClick={handleLogoRemove} disabled={logoBusy}
+                  className="flex items-center gap-1.5 text-sm font-semibold text-beetz-dark/60 hover:text-red-600 px-3 py-2 rounded-xl hover:bg-beetz-gray disabled:opacity-60">
+                  <Trash2 size={15} /> Remover
+                </button>
+              )}
+            </div>
+          </div>
+          <p className="text-xs text-beetz-dark/40 mt-2">
+            PNG, JPG, WEBP ou SVG, até 2 MB. Aparece no menu, no login e no portal do produtor.
+            Sem logo, fica o 🐝.
+          </p>
         </div>
-        <div>
-          <label className="text-sm font-medium block mb-1">Título da tela de boas-vindas</label>
-          <input className={inputClass} value={welcomeTitle} onChange={(e) => setWelcomeTitle(e.target.value)} />
+
+        {/* Nomes */}
+        <div className="grid sm:grid-cols-2 gap-4 pt-5 border-t border-beetz-dark/5">
+          <div>
+            <label className="text-sm font-medium block mb-1">Nome da empresa</label>
+            <input className={inputClass} value={form.company_name} onChange={(e) => set('company_name', e.target.value)} />
+          </div>
+          <div>
+            <label className="text-sm font-medium block mb-1">Nome curto</label>
+            <input className={inputClass} value={form.short_name} onChange={(e) => set('short_name', e.target.value)} />
+            <p className="text-xs text-beetz-dark/40 mt-1">O que aparece embaixo do nome, no menu.</p>
+          </div>
         </div>
-        <div>
-          <label className="text-sm font-medium block mb-1">Subtítulo da tela de boas-vindas</label>
-          <input className={inputClass} value={welcomeSubtitle} onChange={(e) => setWelcomeSubtitle(e.target.value)} />
+
+        {/* Boas-vindas */}
+        <div className="space-y-4 pt-5 border-t border-beetz-dark/5">
+          <p className="text-xs font-bold uppercase tracking-wide text-beetz-dark/35">Tela de boas-vindas</p>
+          <div>
+            <label className="text-sm font-medium block mb-1">Título</label>
+            <input className={inputClass} value={form.welcome_title} onChange={(e) => set('welcome_title', e.target.value)} />
+          </div>
+          <div>
+            <label className="text-sm font-medium block mb-1">Subtítulo</label>
+            <input className={inputClass} value={form.welcome_subtitle} onChange={(e) => set('welcome_subtitle', e.target.value)} />
+          </div>
         </div>
-        <div className="flex items-center gap-3">
+
+        {/* Login */}
+        <div className="space-y-4 pt-5 border-t border-beetz-dark/5">
+          <p className="text-xs font-bold uppercase tracking-wide text-beetz-dark/35">Tela de login</p>
+          <div>
+            <label className="text-sm font-medium block mb-1">Título</label>
+            <input className={inputClass} value={form.login_title} onChange={(e) => set('login_title', e.target.value)} />
+          </div>
+          <div>
+            <label className="text-sm font-medium block mb-1">Subtítulo</label>
+            <input className={inputClass} value={form.login_subtitle} onChange={(e) => set('login_subtitle', e.target.value)} />
+          </div>
+          <p className="text-xs text-beetz-dark/40">
+            Vale só pra quem está entrando. A tela de criar conta tem texto próprio, fixo.
+          </p>
+        </div>
+
+        {/* Informações */}
+        <div className="pt-5 border-t border-beetz-dark/5">
+          <label className="text-sm font-medium block mb-1">Texto da página Informações</label>
+          <textarea className={`${inputClass} min-h-[90px]`} value={form.info_text}
+            onChange={(e) => set('info_text', e.target.value)}
+            placeholder="Deixe em branco para usar o texto padrão do app." />
+        </div>
+
+        {/* PWA */}
+        <div className="space-y-4 pt-5 border-t border-beetz-dark/5">
+          <p className="text-xs font-bold uppercase tracking-wide text-beetz-dark/35">App instalado no celular</p>
+          <div className="bg-beetz-dark text-white rounded-2xl p-4 flex gap-3">
+            <ShieldAlert size={18} className="shrink-0 text-beetz-yellow mt-0.5" />
+            <div className="text-sm">
+              <p className="font-semibold mb-1">Só vale pra quem instalar depois.</p>
+              <p className="text-white/60">
+                O celular grava o nome e o ícone no momento em que o app é instalado. Quem já
+                instalou continua vendo o antigo até desinstalar e instalar de novo — é regra do
+                sistema, não dá pra forçar daqui. E o <strong className="font-semibold text-white/80">ícone</strong> não
+                está nesta tela de propósito: ele é arquivo publicado junto com o código.
+              </p>
+            </div>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <label className="text-sm font-medium block mb-1">Nome do app</label>
+              <input className={inputClass} value={form.pwa_name} onChange={(e) => set('pwa_name', e.target.value)} />
+            </div>
+            <div>
+              <label className="text-sm font-medium block mb-1">Nome curto (embaixo do ícone)</label>
+              <input className={inputClass} value={form.pwa_short_name} onChange={(e) => set('pwa_short_name', e.target.value)} />
+            </div>
+          </div>
+          <div>
+            <label className="text-sm font-medium block mb-1">Descrição</label>
+            <input className={inputClass} value={form.pwa_description} onChange={(e) => set('pwa_description', e.target.value)} />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 pt-5 border-t border-beetz-dark/5">
           <button
             onClick={handleSave}
             disabled={saving}

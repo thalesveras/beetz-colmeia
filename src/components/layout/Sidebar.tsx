@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { groupHasActive, isItemActive, navGroupsFor, HOME_LINK, INFO_LINK } from '../../lib/navigation'
 import type { NavGroup, NavItem } from '../../lib/navigation'
 import Avatar from '../ui/Avatar'
+import BrandLogo from '../ui/BrandLogo'
 
 export default function Sidebar() {
   const { profile, email, signOut, accessRole } = useAuth()
@@ -15,12 +16,8 @@ export default function Sidebar() {
 
   return (
     <aside className="hidden md:flex md:flex-col w-64 shrink-0 h-screen sticky top-0 bg-beetz-dark text-white p-5">
-      <div className="flex items-center gap-2 mb-8 px-1">
-        <div className="w-9 h-9 rounded-lg honey-gradient flex items-center justify-center text-lg">🐝</div>
-        <div>
-          <p className="font-extrabold leading-none">Beetz</p>
-          <p className="text-[11px] text-beetz-yellow/80 leading-none mt-0.5">Colmeia</p>
-        </div>
+      <div className="mb-8 px-1">
+        <BrandLogo size="sm" withName />
       </div>
 
       <nav className="flex-1 space-y-1 overflow-y-auto -mr-2 pr-2">

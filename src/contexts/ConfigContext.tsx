@@ -4,6 +4,7 @@ import {
 } from '../lib/dataService'
 import { setBadgeDefs, setHiveLevels } from '../lib/levels'
 import { setRolePermissions } from '../lib/permissions'
+import { applyPwaManifest } from '../lib/pwaManifest'
 import { mockAppSettings } from '../lib/mockData'
 import type { AppSettings } from '../lib/types'
 
@@ -31,6 +32,9 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
       setHiveLevels(levels)
       setBadgeDefs(badges)
       setAppSettings(settings)
+      // Nome do app instalado e título da aba saem do banco. Só afeta quem
+      // instalar daqui pra frente — ver comentário em lib/pwaManifest.ts.
+      applyPwaManifest(settings)
     } catch (err) {
       // Se a configuração não carregar (ex: tabelas novas ainda não aplicadas),
       // seguimos com os valores padrão embutidos no código.

@@ -401,7 +401,15 @@ export const mockBadgeDefConfigs: BadgeDefConfig[] = [
 export const mockAppSettings: AppSettings = {
   id: true,
   company_name: 'Beetz',
+  short_name: 'Colmeia',
+  logo_url: null,
   welcome_title: 'Bem-vindo à Colmeia Beetz',
   welcome_subtitle: 'Conheça quem faz os maiores eventos acontecerem.',
+  login_title: 'Entrar na colmeia',
+  login_subtitle: 'Acesse com seu email e senha da Beetz.',
+  info_text: null,
+  pwa_name: 'Beetz Colmeia',
+  pwa_short_name: 'Colmeia',
+  pwa_description: 'A comunidade interna de quem faz os maiores eventos acontecerem.',
   updated_at: '2026-01-01T10:00:00Z'
 }

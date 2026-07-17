@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useProducerAuth } from '../../contexts/ProducerAuthContext'
+import BrandLogo from '../../components/ui/BrandLogo'
 
 export default function ProducerLogin() {
   const { sendMagicLink, isDemoMode } = useProducerAuth()
@@ -28,12 +29,8 @@ export default function ProducerLogin() {
   return (
     <div className="min-h-screen dark-gradient flex items-center justify-center p-6">
       <div className="w-full max-w-md bg-white rounded-3xl p-8 shadow-soft">
-        <div className="flex items-center gap-2 mb-6">
-          <div className="w-10 h-10 rounded-xl honey-gradient flex items-center justify-center text-xl">🐝</div>
-          <div>
-            <p className="font-extrabold leading-none">Beetz</p>
-            <p className="text-[11px] text-beetz-dark/50 leading-none mt-0.5">Portal do Produtor</p>
-          </div>
+        <div className="mb-6">
+          <BrandLogo size="md" withName tone="dark" subtitle="Portal do Produtor" />
         </div>
 
         <h1 className="text-2xl font-extrabold mb-1">Monte seu evento</h1>

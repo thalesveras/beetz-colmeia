@@ -1,9 +1,12 @@
 import { useState } from 'react'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import BrandLogo from '../components/ui/BrandLogo'
+import { useConfig } from '../contexts/ConfigContext'
 
 export default function Login() {
   const { signIn, signUp, signInWithGoogle, isDemoMode } = useAuth()
+  const { appSettings } = useConfig()
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const next = params.get('next') || '/dashboard'
@@ -51,19 +54,18 @@ export default function Login() {
   return (
     <div className="min-h-screen dark-gradient flex items-center justify-center p-6">
       <div className="w-full max-w-md bg-white rounded-3xl p-8 shadow-soft">
-        <div className="flex items-center gap-2 mb-6">
-          <div className="w-10 h-10 rounded-xl honey-gradient flex items-center justify-center text-xl">🐝</div>
-          <div>
-            <p className="font-extrabold leading-none">Beetz</p>
-            <p className="text-[11px] text-beetz-dark/50 leading-none mt-0.5">Colmeia</p>
-          </div>
+        <div className="mb-6">
+          <BrandLogo size="md" withName tone="dark" />
         </div>
 
+        {/* Os textos de "entrar" vêm das Configurações; os de "criar conta"
+            continuam fixos — é outro momento, e um título configurado pra quem
+            volta ("Que bom te ver") soa errado pra quem chega agora. */}
         <h1 className="text-2xl font-extrabold mb-1">
-          {mode === 'entrar' ? 'Entrar na colmeia' : 'Criar minha conta'}
+          {mode === 'entrar' ? appSettings.login_title : 'Criar minha conta'}
         </h1>
         <p className="text-sm text-beetz-dark/60 mb-6">
-          {mode === 'entrar' ? 'Acesse com seu email e senha da Beetz.' : 'Primeira vez por aqui? Bem-vindo(a)!'}
+          {mode === 'entrar' ? appSettings.login_subtitle : 'Primeira vez por aqui? Bem-vindo(a)!'}
         </p>
 
         {isDemoMode && (
