@@ -4,10 +4,14 @@ import {
   Users, CalendarDays, Trophy, Clock, ClipboardList, ArrowRight, CalendarCheck, MapPin, Wallet
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
-import { listProfiles, listEvents, listOpenStaffingSlots, getRanking, type RankingEntry } from '../lib/dataService'
+import {
+  listProfiles, listEvents, listOpenStaffingSlots, getRanking, listDepartments,
+  listPendingProfilesForDirectory, type RankingEntry
+} from '../lib/dataService'
 import { canViewFinancialSummary, canManageUsers } from '../lib/permissions'
-import type { EventItem, OpenStaffingSlot, Profile } from '../lib/types'
+import type { Department, EventItem, OpenStaffingSlot, Profile } from '../lib/types'
 import StatCard from '../components/ui/StatCard'
+import MetricDrilldown from '../components/ui/MetricDrilldown'
 import Avatar from '../components/ui/Avatar'
 
 function formatDate(d: string) {
@@ -24,15 +28,27 @@ export default function Dashboard() {
   const [events, setEvents] = useState<EventItem[]>([])
   const [slots, setSlots] = useState<OpenStaffingSlot[]>([])
   const [ranking, setRanking] = useState<RankingEntry[]>([])
+  const [departments, setDepartments] = useState<Department[]>([])
+  const [pendingCount, setPendingCount] = useState(0)
+  // Qual métrica está aberta em detalhe. null = nenhuma.
+  const [drill, setDrill] = useState<'colaboradores' | 'eventos' | 'proximo' | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    Promise.all([listProfiles(), listEvents(), listOpenStaffingSlots(userId ?? null), getRanking()])
-      .then(([p, e, s, r]) => {
+    Promise.all([
+      listProfiles(), listEvents(), listOpenStaffingSlots(userId ?? null), getRanking(),
+      listDepartments(),
+      // Pré-cadastro é contexto do cartão de Colaboradores: falha aqui não pode
+      // derrubar o dashboard inteiro, então cai pra 0 em silêncio.
+      listPendingProfilesForDirectory().then((r) => r.length).catch(() => 0)
+    ])
+      .then(([p, e, s, r, d, pend]) => {
         setProfiles(p)
         setEvents(e)
         setSlots(s)
         setRanking(r)
+        setDepartments(d)
+        setPendingCount(pend)
       })
       .finally(() => setLoading(false))
   }, [userId])
@@ -47,6 +63,26 @@ export default function Dashboard() {
   const myWaiting = slots.filter((s) => s.myApplication?.status === 'Candidatado')
   const openForMe = slots.filter((s) => !s.myApplication && s.confirmedCount < s.requirement.quantity)
   const isDiretoria = canManageUsers(accessRole)
+
+  // Composição dos números dos cartões. Fica aqui e não dentro do modal porque
+  // o cartão mostra a prévia (hint) do mesmo dado — uma conta só, dois lugares.
+  const byRole = Array.from(
+    profiles.reduce((m, p) => {
+      const d = departments.find((x) => x.id === p.department_id)?.name ?? 'Sem departamento'
+      return m.set(d, (m.get(d) ?? 0) + 1)
+    }, new Map<string, number>())
+  ).sort((a, b) => b[1] - a[1])
+
+  const byStatus = Array.from(
+    events.reduce((m, e) => m.set(e.status, (m.get(e.status) ?? 0) + 1), new Map<string, number>())
+  ).sort((a, b) => b[1] - a[1])
+
+  function daysUntil(date: string) {
+    const dias = Math.round((new Date(date + 'T00:00:00').getTime() - new Date(today + 'T00:00:00').getTime()) / 86400000)
+    if (dias === 0) return 'é hoje'
+    if (dias === 1) return 'amanhã'
+    return `em ${dias} dias`
+  }
 
   return (
     <div className="space-y-8">
@@ -147,9 +183,22 @@ export default function Dashboard() {
         <section>
           <h2 className="text-lg font-bold mb-4">Visão geral da colmeia</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <StatCard icon={<Users size={20} />} label="Colaboradores" value={profiles.length} />
-            <StatCard icon={<CalendarDays size={20} />} label="Eventos ativos" value={activeEvents} />
-            <StatCard icon={<Trophy size={20} />} label="Próximo evento" value={upcoming[0] ? formatDate(upcoming[0].event_date) : '—'} />
+            <StatCard
+              icon={<Users size={20} />} label="Colaboradores" value={profiles.length}
+              hint={pendingCount > 0 ? `+${pendingCount} pré-cadastros` : undefined}
+              onClick={() => setDrill('colaboradores')}
+            />
+            <StatCard
+              icon={<CalendarDays size={20} />} label="Eventos ativos" value={activeEvents}
+              hint={`${events.length} no total`}
+              onClick={() => setDrill('eventos')}
+            />
+            <StatCard
+              icon={<Trophy size={20} />} label="Próximo evento"
+              value={upcoming[0] ? formatDate(upcoming[0].event_date) : '—'}
+              hint={upcoming[0]?.name}
+              onClick={() => setDrill('proximo')}
+            />
             {canViewFinancialSummary(accessRole) ? (
               <Link to="/financeiro" className="bg-white rounded-2xl p-5 shadow-soft border border-beetz-dark/5 flex items-center gap-4 hover:shadow-glow transition-shadow">
                 <div className="w-12 h-12 rounded-xl honey-gradient flex items-center justify-center shrink-0"><Wallet size={20} /></div>
@@ -163,6 +212,77 @@ export default function Dashboard() {
             )}
           </div>
         </section>
+      )}
+
+      {/* ---- Detalhe das métricas ---- */}
+      {drill === 'colaboradores' && (
+        <MetricDrilldown
+          title="Colaboradores" value={profiles.length}
+          subtitle="Quem tem acesso à Colmeia hoje"
+          breakdown={[
+            ...byRole.map(([dept, n]) => ({ label: dept, value: n })),
+            ...(pendingCount > 0
+              ? [{ label: 'Pré-cadastros (sem login ainda)', value: pendingCount, highlight: true }]
+              : [])
+          ]}
+          howItsMade={
+            'Conta só perfis com cadastro completo e aprovados — são os que aparecem na Turma e podem ser escalados. ' +
+            'Pré-cadastro importado do Zoho não entra: ele vira colaborador no dia que a pessoa entra com o mesmo e-mail.'
+          }
+          action={{ to: '/turma', label: 'Ver a turma' }}
+          onClose={() => setDrill(null)}
+        />
+      )}
+
+      {drill === 'eventos' && (
+        <MetricDrilldown
+          title="Eventos" value={activeEvents}
+          subtitle="Ativos agora — confirmados ou em andamento"
+          breakdown={byStatus.map(([status, n]) => ({
+            label: status, value: n,
+            highlight: status === 'Confirmado' || status === 'Em andamento'
+          }))}
+          howItsMade={
+            '"Ativo" = status Confirmado ou Em andamento. Planejado ainda não fechou; Concluído e Cancelado saíram do radar. ' +
+            'O total inclui todos, de qualquer data.'
+          }
+          action={{ to: '/eventos', label: 'Ver eventos' }}
+          onClose={() => setDrill(null)}
+        />
+      )}
+
+      {drill === 'proximo' && (
+        <MetricDrilldown
+          title={upcoming[0]?.name ?? 'Nenhum evento à frente'}
+          subtitle={upcoming[0] ? `${formatDate(upcoming[0].event_date)} · ${daysUntil(upcoming[0].event_date)}` : undefined}
+          breakdown={upcoming[0] ? [
+            { label: 'Local', value: upcoming[0].location || '—' },
+            { label: 'Cidade', value: upcoming[0].city || '—' },
+            { label: 'Status', value: upcoming[0].status },
+            { label: 'Vagas abertas', value: openForMe.length, highlight: openForMe.length > 0 }
+          ] : []}
+          howItsMade={
+            'O evento com a data mais próxima entre os que ainda não passaram. Eventos de hoje continuam contando; ' +
+            'os de ontem pra trás saem da lista, mesmo que ainda estejam como Planejado.'
+          }
+          action={upcoming[0] ? { to: `/eventos/${upcoming[0].id}`, label: 'Abrir evento' } : undefined}
+          onClose={() => setDrill(null)}
+        >
+          {upcoming.length > 1 && (
+            <div className="mb-5">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-beetz-dark/35 mb-2">Depois desse</p>
+              <div className="space-y-1">
+                {upcoming.slice(1, 4).map((e) => (
+                  <Link key={e.id} to={`/eventos/${e.id}`}
+                    className="flex items-center justify-between gap-3 bg-beetz-gray/60 hover:bg-beetz-yellow/20 rounded-xl px-3 py-2 transition-colors">
+                    <span className="text-sm truncate">{e.name}</span>
+                    <span className="text-xs text-beetz-dark/45 shrink-0">{formatDate(e.event_date)}</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+        </MetricDrilldown>
       )}
 
       {/* ---- Próximos eventos da colmeia (todos, não só os meus) ---- */}
