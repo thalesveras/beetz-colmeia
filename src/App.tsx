@@ -15,6 +15,7 @@ import EventDetail from './pages/events/EventDetail'
 import EventForm from './pages/events/EventForm'
 import FinanceExpenses from './pages/FinanceExpenses'
 import FinanceDashboard from './pages/finance/FinanceDashboard'
+import Alerts from './pages/Alerts'
 import Producers from './pages/Producers'
 import ProducerDetail from './pages/ProducerDetail'
 import Suppliers from './pages/Suppliers'
@@ -58,6 +59,7 @@ export default function App() {
       <Route path="/financeiro" element={<ProtectedRoute><FinanceDashboard /></ProtectedRoute>} />
       <Route path="/financeiro/despesas" element={<ProtectedRoute><FinanceExpenses /></ProtectedRoute>} />
       <Route path="/financeiro/fornecedores" element={<ProtectedRoute><Suppliers /></ProtectedRoute>} />
+      <Route path="/alertas" element={<ProtectedRoute><Alerts /></ProtectedRoute>} />
       <Route path="/produtoras" element={<ProtectedRoute><Producers /></ProtectedRoute>} />
       <Route path="/produtoras/:id" element={<ProtectedRoute><ProducerDetail /></ProtectedRoute>} />
       <Route path="/financeiro/repasses" element={<ProtectedRoute><Repasses /></ProtectedRoute>} />

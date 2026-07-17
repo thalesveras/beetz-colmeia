@@ -1,4 +1,4 @@
-import type { Department, Profile, RolePermissions } from './types'
+import type { AlertFlagKey, Department, Profile, RolePermissions } from './types'
 
 export type AccessRole = 'diretoria' | 'garcom' | 'caixa' | 'operacional' | 'colaborador'
 
@@ -38,7 +38,10 @@ const ROLE_PERMISSIONS: Record<AccessRole, Omit<RolePermissions, 'role' | 'updat
     can_manage_stock_catalog: true, can_edit_own_stock: true,
     can_view_pending_details: true, can_give_recognition: true, can_view_ranking: true,
     can_view_hive_map: true, can_edit_hive_map: true, can_view_team_directory: true,
-    can_view_birthdays: true, can_send_birthday_email: true
+    can_view_birthdays: true, can_send_birthday_email: true,
+    can_receive_alert_staffing_decision: true, can_receive_alert_staffing_application: true,
+    can_receive_alert_staffing_new_slot: true, can_receive_alert_stock_low: true,
+    can_receive_alert_expense_reviewed: true, can_receive_alert_event_changed: true
   },
   garcom: {
     can_add_expense: false, can_review_expense: false, can_add_cashier: true, can_add_stock: false,
@@ -47,7 +50,10 @@ const ROLE_PERMISSIONS: Record<AccessRole, Omit<RolePermissions, 'role' | 'updat
     can_manage_stock_catalog: false, can_edit_own_stock: false,
     can_view_pending_details: true, can_give_recognition: true, can_view_ranking: true,
     can_view_hive_map: true, can_edit_hive_map: false, can_view_team_directory: true,
-    can_view_birthdays: true, can_send_birthday_email: false
+    can_view_birthdays: true, can_send_birthday_email: false,
+    can_receive_alert_staffing_decision: true, can_receive_alert_staffing_application: false,
+    can_receive_alert_staffing_new_slot: true, can_receive_alert_stock_low: false,
+    can_receive_alert_expense_reviewed: true, can_receive_alert_event_changed: true
   },
   caixa: {
     can_add_expense: false, can_review_expense: false, can_add_cashier: true, can_add_stock: false,
@@ -56,7 +62,10 @@ const ROLE_PERMISSIONS: Record<AccessRole, Omit<RolePermissions, 'role' | 'updat
     can_manage_stock_catalog: false, can_edit_own_stock: false,
     can_view_pending_details: true, can_give_recognition: true, can_view_ranking: true,
     can_view_hive_map: true, can_edit_hive_map: false, can_view_team_directory: true,
-    can_view_birthdays: true, can_send_birthday_email: false
+    can_view_birthdays: true, can_send_birthday_email: false,
+    can_receive_alert_staffing_decision: true, can_receive_alert_staffing_application: false,
+    can_receive_alert_staffing_new_slot: true, can_receive_alert_stock_low: false,
+    can_receive_alert_expense_reviewed: true, can_receive_alert_event_changed: true
   },
   // Operacional cobre o time de bar/produção/segurança/etc — ganham autonomia pra
   // manter o catálogo de produtos/estoques em dia e corrigir os próprios lançamentos.
@@ -67,7 +76,10 @@ const ROLE_PERMISSIONS: Record<AccessRole, Omit<RolePermissions, 'role' | 'updat
     can_manage_stock_catalog: true, can_edit_own_stock: true,
     can_view_pending_details: true, can_give_recognition: true, can_view_ranking: true,
     can_view_hive_map: true, can_edit_hive_map: false, can_view_team_directory: true,
-    can_view_birthdays: true, can_send_birthday_email: false
+    can_view_birthdays: true, can_send_birthday_email: false,
+    can_receive_alert_staffing_decision: true, can_receive_alert_staffing_application: false,
+    can_receive_alert_staffing_new_slot: true, can_receive_alert_stock_low: true,
+    can_receive_alert_expense_reviewed: true, can_receive_alert_event_changed: true
   },
   colaborador: {
     can_add_expense: false, can_review_expense: false, can_add_cashier: false, can_add_stock: false,
@@ -76,7 +88,10 @@ const ROLE_PERMISSIONS: Record<AccessRole, Omit<RolePermissions, 'role' | 'updat
     can_manage_stock_catalog: false, can_edit_own_stock: false,
     can_view_pending_details: true, can_give_recognition: true, can_view_ranking: true,
     can_view_hive_map: true, can_edit_hive_map: false, can_view_team_directory: true,
-    can_view_birthdays: true, can_send_birthday_email: false
+    can_view_birthdays: true, can_send_birthday_email: false,
+    can_receive_alert_staffing_decision: true, can_receive_alert_staffing_application: false,
+    can_receive_alert_staffing_new_slot: true, can_receive_alert_stock_low: false,
+    can_receive_alert_expense_reviewed: true, can_receive_alert_event_changed: true
   }
 }
 
@@ -190,4 +205,18 @@ export function canViewBirthdays(role: AccessRole) {
 // Diretoria no servidor de qualquer jeito; essa flag controla a interface.
 export function canSendBirthdayEmail(role: AccessRole) {
   return ROLE_PERMISSIONS[role].can_send_birthday_email
+}
+
+// Só a Diretoria configura quais alertas cada cargo recebe. Ver a própria caixa
+// de alertas, porém, é de todo mundo — por isso não há flag pra abrir /alertas:
+// as abas Pessoais e Escala mostram o que é seu, e a aba Configurações some
+// pra quem não é Diretoria.
+export function canConfigureAlerts(role: AccessRole) {
+  return ROLE_PERMISSIONS[role].can_manage_users
+}
+
+// Espelha o alert_enabled() do banco. Aqui serve só pra tela não prometer o que
+// não vem; quem realmente barra é o trigger, que lê a mesma coluna.
+export function canReceiveAlert(role: AccessRole, flag: AlertFlagKey) {
+  return ROLE_PERMISSIONS[role][flag]
 }

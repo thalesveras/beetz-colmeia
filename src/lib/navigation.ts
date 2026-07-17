@@ -1,5 +1,5 @@
 import {
-  BarChart3, Building2, Cake, CalendarDays, ClipboardList, HandCoins, Hexagon, Home, Info,
+  BarChart3, Bell, Building2, Cake, CalendarDays, ClipboardList, HandCoins, Hexagon, Home, Info,
   Package, Receipt, ShieldCheck, Settings, Trophy, Truck, UserCircle, Users, Wallet
 } from 'lucide-react'
 import {
@@ -88,6 +88,11 @@ export function navGroupsFor(role: AccessRole): NavGroup[] {
           icon: ShieldCheck,
           items: [
             { to: '/admin', label: 'Administração', icon: ShieldCheck },
+            // Ver os próprios alertas é de todo mundo; a aba de configuração
+            // dentro da página é que some pra quem não é Diretoria. O item vive
+            // em Gestão porque é lá que se configura — mas o /alertas em si não
+            // tem trava de entrada.
+            { to: '/alertas', label: 'Alertas', icon: Bell },
             ...(canManageUsers(role) ? [{ to: '/configuracoes', label: 'Configurações', icon: Settings }] : [])
           ]
         }]

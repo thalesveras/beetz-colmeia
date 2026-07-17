@@ -277,6 +277,9 @@ export interface AppNotification {
   link: string | null
   read_at: string | null
   created_at: string
+  // Qual alerta do catálogo (lib/alerts.ts) gerou esta linha. Nulo nas linhas
+  // antigas, de antes do catálogo existir — a tela trata como 'Geral'.
+  alert_key: AlertFlagKey | null
 }
 
 export interface Compliment {
@@ -598,7 +601,36 @@ export interface RolePermissions {
   // Separado de can_view_birthdays porque o e-mail sai do endereço oficial da
   // Beetz — ver a lista é uma coisa, falar em nome da empresa é outra.
   can_send_birthday_email: boolean
+  // Alertas: quais avisos cada cargo recebe no sininho. Quem decide é a
+  // Diretoria em /alertas; o trigger no banco lê a mesma flag antes de gravar,
+  // então desligar aqui não é cosmético — a notificação nem nasce.
+  can_receive_alert_staffing_decision: boolean
+  can_receive_alert_staffing_application: boolean
+  can_receive_alert_staffing_new_slot: boolean
+  can_receive_alert_stock_low: boolean
+  can_receive_alert_expense_reviewed: boolean
+  can_receive_alert_event_changed: boolean
   updated_at: string
+}
+
+// As seis flags acima, num formato que a tela de Alertas consegue percorrer.
+// 'escopo' separa o que é sobre VOCÊ do que é sobre a operação — é o que divide
+// as abas Pessoais e Globais.
+export type AlertFlagKey =
+  | 'can_receive_alert_staffing_decision'
+  | 'can_receive_alert_staffing_application'
+  | 'can_receive_alert_staffing_new_slot'
+  | 'can_receive_alert_stock_low'
+  | 'can_receive_alert_expense_reviewed'
+  | 'can_receive_alert_event_changed'
+
+export interface AlertTypeDef {
+  key: AlertFlagKey
+  label: string
+  description: string
+  kind: NotificationKind
+  escopo: 'pessoal' | 'global'
+  gatilho: string
 }
 
 export interface ExpenseCategory {
