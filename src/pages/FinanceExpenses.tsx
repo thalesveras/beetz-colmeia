@@ -10,7 +10,7 @@ import type {
   Profile, Supplier
 } from '../lib/types'
 import { canAddExpense, canEditExpense, canReviewExpense, canViewFinancialSummary } from '../lib/permissions'
-import { ArrowUpDown, Filter, LayoutGrid, List, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { ArrowUpDown, Bookmark, Filter, LayoutGrid, List, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
 import EditExpenseModal from '../components/finance/EditExpenseModal'
 import CreateExpenseModal from '../components/finance/CreateExpenseModal'
 
@@ -53,6 +53,7 @@ export default function FinanceExpenses() {
   const [categories, setCategories] = useState<ExpenseCategory[]>([])
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodOption[]>([])
 
+  const [searchFilter, setSearchFilter] = useState('')
   const [monthFilter, setMonthFilter] = useState('')
   const [producerFilter, setProducerFilter] = useState('')
   const [eventFilter, setEventFilter] = useState('')
@@ -69,6 +70,59 @@ export default function FinanceExpenses() {
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const canEdit = canEditExpense(accessRole)
+
+  // ---------- Filtros salvos ----------
+  // localStorage por navegador: filtro salvo é atalho pessoal de trabalho
+  // ("Pendentes da Vaquejada"), não configuração da empresa — não precisa de
+  // tabela nem de sincronizar entre aparelhos.
+  interface FilterPreset {
+    name: string
+    search: string
+    month: string
+    producer: string
+    event: string
+    status: string
+  }
+  const PRESETS_KEY = 'beetz-finance-filter-presets'
+  const [presets, setPresets] = useState<FilterPreset[]>(readPresets())
+  function readPresets(): FilterPreset[] {
+    try { return JSON.parse(localStorage.getItem(PRESETS_KEY) ?? '[]') } catch { return [] }
+  }
+  const [presetName, setPresetName] = useState('')
+  const [savingPreset, setSavingPreset] = useState(false)
+
+  function persistPresets(next: FilterPreset[]) {
+    setPresets(next)
+    try { localStorage.setItem(PRESETS_KEY, JSON.stringify(next)) } catch { /* modo privado: paciência */ }
+  }
+
+  
+
+  function savePreset() {
+    const name = presetName.trim()
+    if (!name || !hasFilters) return
+    // Mesmo nome = sobrescreve: é o comportamento que quem salva de novo espera.
+    const next = [
+      ...presets.filter((f) => f.name !== name),
+      { name, search: searchFilter, month: monthFilter, producer: producerFilter, event: eventFilter, status: statusFilter }
+    ]
+    persistPresets(next)
+    setPresetName('')
+    setSavingPreset(false)
+  }
+
+  function applyPreset(f: FilterPreset) {
+    setSearchFilter(f.search); setMonthFilter(f.month); setProducerFilter(f.producer)
+    setEventFilter(f.event); setStatusFilter(f.status)
+  }
+
+  function removePreset(name: string) {
+    persistPresets(presets.filter((f) => f.name !== name))
+  }
+
+  function clearFilters() {
+    setSearchFilter(''); setMonthFilter(''); setProducerFilter(''); setEventFilter(''); setStatusFilter('')
+  }
 
   async function load() {
     setLoading(true)
@@ -112,13 +166,34 @@ export default function FinanceExpenses() {
   }, [events, producerFilter])
 
   const filtered = useMemo(() => {
+    const q = searchFilter.trim().toLowerCase()
     const list = expenses.filter((exp) => {
-      const event = eventsById.get(exp.event_id)
-      if (!event) return false
-      if (monthFilter && event.event_date.slice(0, 7) !== monthFilter) return false
-      if (producerFilter && event.producer_name !== producerFilter) return false
-      if (eventFilter && event.id !== eventFilter) return false
+      const event = exp.event_id ? eventsById.get(exp.event_id) : undefined
+      // BUG CORRIGIDO: `if (!event) return false` escondia toda despesa da
+      // EMPRESA (sem evento) — a página fingia que elas não existiam. Agora:
+      // sem evento, o mês usa a data de lançamento; filtros de produtor/evento
+      // naturalmente a excluem (ela não pertence a nenhum).
+      const refDate = event?.event_date ?? exp.created_at.slice(0, 10)
+      if (monthFilter && refDate.slice(0, 7) !== monthFilter) return false
+      if (producerFilter && event?.producer_name !== producerFilter) return false
+      if (eventFilter && event?.id !== eventFilter) return false
       if (statusFilter && exp.status !== statusFilter) return false
+      if (q) {
+        const supplier = exp.supplier_id ? suppliers.find((sp) => sp.id === exp.supplier_id) : null
+        const person = exp.team_member_id
+          ? profiles.find((pr) => pr.id === exp.team_member_id)
+          : null
+        const pend = exp.pending_team_member_id
+          ? pendingProfiles.find((pp) => pp.id === exp.pending_team_member_id)
+          : null
+        const haystack = [
+          exp.description, exp.category, event?.name ?? 'empresa beetz',
+          supplier?.name,
+          person ? `${person.first_name} ${person.last_name}` : '',
+          pend ? `${pend.first_name ?? ''} ${pend.last_name ?? ''}` : ''
+        ].filter(Boolean).join(' ').toLowerCase()
+        if (!haystack.includes(q)) return false
+      }
       return true
     })
     const dir = sortDir === 'asc' ? 1 : -1
@@ -137,22 +212,17 @@ export default function FinanceExpenses() {
           return dir * ((eventA?.event_date ?? '') < (eventB?.event_date ?? '') ? -1 : 1)
       }
     })
-  }, [expenses, eventsById, monthFilter, producerFilter, eventFilter, statusFilter, sortField, sortDir])
+  }, [expenses, eventsById, searchFilter, monthFilter, producerFilter, eventFilter, statusFilter, sortField, sortDir, suppliers, profiles, pendingProfiles])
 
   const total = useMemo(() => filtered.reduce((sum, e) => sum + e.total, 0), [filtered])
-  const hasFilters = !!(monthFilter || producerFilter || eventFilter || statusFilter)
+  const hasFilters = !!(searchFilter || monthFilter || producerFilter || eventFilter || statusFilter)
 
   const selectedTotal = useMemo(
     () => filtered.filter((e) => selected.has(e.id)).reduce((sum, e) => sum + e.total, 0),
     [filtered, selected]
   )
 
-  function clearFilters() {
-    setMonthFilter('')
-    setProducerFilter('')
-    setEventFilter('')
-    setStatusFilter('')
-  }
+
 
   function toggleSort(field: SortField) {
     if (sortField === field) {
@@ -254,6 +324,14 @@ export default function FinanceExpenses() {
           <div className="flex items-center gap-2 text-sm font-semibold text-beetz-dark/70">
             <Filter size={16} /> Filtros
           </div>
+          <div className="relative flex-1 min-w-[220px]">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-beetz-dark/30" />
+            <input
+              className="w-full border border-beetz-dark/15 rounded-xl pl-8 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow"
+              placeholder="Buscar descrição, categoria, fornecedor, pessoa..."
+              value={searchFilter} onChange={(e) => setSearchFilter(e.target.value)}
+            />
+          </div>
           <select value={monthFilter} onChange={(e) => setMonthFilter(e.target.value)} className={selectClass}>
             <option value="">Todos os meses</option>
             {months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
@@ -283,6 +361,48 @@ export default function FinanceExpenses() {
             </button>
           )}
         </div>
+
+        {/* Filtros salvos: atalhos pessoais deste navegador. Salvar de novo com
+            o mesmo nome sobrescreve. */}
+        {(presets.length > 0 || hasFilters) && (
+          <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-beetz-dark/5">
+            <Bookmark size={14} className="text-beetz-dark/30" />
+            {presets.map((f) => (
+              <span key={f.name} className="inline-flex items-center rounded-full bg-beetz-gray hover:bg-beetz-yellow/30 transition-colors">
+                <button onClick={() => applyPreset(f)} className="text-xs font-semibold px-3 py-1.5" title="Aplicar este filtro">
+                  {f.name}
+                </button>
+                <button onClick={() => removePreset(f.name)} className="pr-2 text-beetz-dark/30 hover:text-red-600" title="Excluir filtro salvo">
+                  <X size={11} />
+                </button>
+              </span>
+            ))}
+            {hasFilters && !savingPreset && (
+              <button
+                onClick={() => setSavingPreset(true)}
+                className="text-xs font-semibold text-beetz-dark/50 hover:text-beetz-dark border border-dashed border-beetz-dark/20 rounded-full px-3 py-1.5"
+              >
+                + Salvar filtro atual
+              </button>
+            )}
+            {savingPreset && (
+              <span className="inline-flex items-center gap-1">
+                <input
+                  autoFocus
+                  className="border border-beetz-dark/15 rounded-full px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-beetz-yellow w-44"
+                  placeholder="Nome (ex: Pendentes do mês)"
+                  value={presetName}
+                  onChange={(e) => setPresetName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') savePreset(); if (e.key === 'Escape') setSavingPreset(false) }}
+                />
+                <button onClick={savePreset} disabled={!presetName.trim()}
+                  className="bg-beetz-dark text-white text-xs font-semibold px-3 py-1.5 rounded-full disabled:opacity-40">
+                  Salvar
+                </button>
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {loading ? (
