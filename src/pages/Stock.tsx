@@ -4,9 +4,9 @@ import {
   Clock3, ArrowLeftRight, ChevronLeft, ChevronRight, Filter, Wallet, CalendarDays
 } from 'lucide-react'
 import {
-  approveTransferRequest, createProduct, createStockLocation, createTransferRequest, deleteProduct,
+  approveTransferRequest, createStockLocation, createTransferRequest,
   deleteStockLocation, getStockBalances, listProductAvgCosts, listStockAvailability, isPositiveMovementType, listEvents, listProducts, listProfiles,
-  listStockLocations, listStockMovements, listTransferRequests, registerTransferReturn, updateProduct,
+  listStockLocations, listStockMovements, listTransferRequests, registerTransferReturn,
   updateStockLocation, updateStockMovement, updateTransferRequestStatus
 } from '../lib/dataService'
 import type { EventItem, Product, ProductAvgCost, Profile, StockAvailable, StockBalance, StockLocation, StockMovement, TransferRequest, TransferRequestStatus } from '../lib/types'
@@ -14,11 +14,11 @@ import StockMovementForm from '../components/stock/StockMovementForm'
 import ProductTimeline from '../components/stock/ProductTimeline'
 import ReservationsSection from '../components/stock/ReservationsSection'
 import InventoryCount from '../components/stock/InventoryCount'
+import ProductCatalog from '../components/stock/ProductCatalog'
 import { useAuth } from '../contexts/AuthContext'
 import { canEditOwnStock, canEditStock, canManageStockCatalog, canManageUsers, canViewStockTab } from '../lib/permissions'
 
 const inputClass = 'flex-1 border border-beetz-dark/15 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
-const COMMON_UNITS = ['un', 'kg', 'g', 'L', 'ml', 'caixa', 'pacote', 'saco', 'garrafa', 'fardo', 'dúzia']
 const LOW_STOCK_THRESHOLD = 5
 const MOVEMENTS_PAGE_SIZE = 20
 
@@ -69,10 +69,6 @@ export default function Stock() {
   const [movementFilterTo, setMovementFilterTo] = useState('')
   const [movementPage, setMovementPage] = useState(1)
 
-  const [newProductName, setNewProductName] = useState('')
-  const [newProductUnit, setNewProductUnit] = useState('un')
-  const [newProductCustomUnit, setNewProductCustomUnit] = useState('')
-  const [newProductThreshold, setNewProductThreshold] = useState('')
   const [newLocationName, setNewLocationName] = useState('')
 
   const canManageCatalog = canManageStockCatalog(accessRole)
@@ -94,13 +90,10 @@ export default function Stock() {
   const [transferNotes, setTransferNotes] = useState('')
 
   // Produto/estoque em edição inline (cadastro rápido)
-  const [editingProductId, setEditingProductId] = useState<string | null>(null)
-  const [editProductName, setEditProductName] = useState('')
-  const [editProductUnit, setEditProductUnit] = useState('')
-  const [editProductThreshold, setEditProductThreshold] = useState('')
+  // Erros do cadastro de estoques (o de produtos vive no ProductCatalog).
+  const [catalogError, setCatalogError] = useState<string | null>(null)
   const [editingLocationId, setEditingLocationId] = useState<string | null>(null)
   const [editLocationName, setEditLocationName] = useState('')
-  const [catalogError, setCatalogError] = useState<string | null>(null)
 
   async function load() {
     setLoading(true)
@@ -204,15 +197,6 @@ export default function Stock() {
     return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
   }
 
-  async function handleAddProduct(e: React.FormEvent) {
-    e.preventDefault()
-    if (!newProductName.trim()) return
-    const unit = newProductUnit === 'outro' ? (newProductCustomUnit.trim() || 'un') : newProductUnit
-    const threshold = newProductThreshold.trim() ? Number(newProductThreshold) : null
-    await createProduct(newProductName.trim(), unit, null, threshold)
-    setNewProductName(''); setNewProductUnit('un'); setNewProductCustomUnit(''); setNewProductThreshold('')
-    load()
-  }
 
   // Cada produto pode ter seu próprio limite de "saldo baixo" — null usa o
   // padrão (LOW_STOCK_THRESHOLD). Latas de cerveja e pacotes de guardanapo
@@ -294,29 +278,8 @@ export default function Stock() {
     return canEditStock(accessRole) || (canEditOwnStock(accessRole) && m.created_by === userId)
   }
 
-  function startEditProduct(p: Product) {
-    setEditingProductId(p.id); setEditProductName(p.name); setEditProductUnit(p.unit)
-    setEditProductThreshold(p.low_stock_threshold != null ? String(p.low_stock_threshold) : '')
-    setCatalogError(null)
-  }
 
-  async function saveProductEdit(id: string) {
-    if (!editProductName.trim()) return
-    const threshold = editProductThreshold.trim() ? Number(editProductThreshold) : null
-    await updateProduct(id, { name: editProductName.trim(), unit: editProductUnit.trim() || 'un', low_stock_threshold: threshold })
-    setEditingProductId(null)
-    load()
-  }
 
-  async function removeProduct(id: string) {
-    setCatalogError(null)
-    try {
-      await deleteProduct(id)
-      load()
-    } catch (err) {
-      setCatalogError(err instanceof Error ? err.message : 'Erro ao excluir produto.')
-    }
-  }
 
   function startEditLocation(l: StockLocation) {
     setEditingLocationId(l.id); setEditLocationName(l.name); setCatalogError(null)
@@ -469,70 +432,11 @@ export default function Stock() {
           </section>
 
           <section className="grid md:grid-cols-2 gap-6">
-            <div className="bg-white rounded-2xl p-5 shadow-soft border border-beetz-dark/5">
-              <h2 className="font-bold mb-3">Produtos</h2>
-              {canManageCatalog && (
-                <form onSubmit={handleAddProduct} className="flex flex-wrap gap-2 mb-4">
-                  <input className={inputClass} placeholder="Nome do produto" value={newProductName} onChange={(e) => setNewProductName(e.target.value)} />
-                  <select className="border border-beetz-dark/15 rounded-xl px-2 py-2 text-sm" value={newProductUnit} onChange={(e) => setNewProductUnit(e.target.value)}>
-                    {COMMON_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
-                    <option value="outro">Outra...</option>
-                  </select>
-                  {newProductUnit === 'outro' && (
-                    <input className="w-24 border border-beetz-dark/15 rounded-xl px-2 py-2 text-sm" placeholder="unidade" value={newProductCustomUnit} onChange={(e) => setNewProductCustomUnit(e.target.value)} />
-                  )}
-                  <input
-                    type="number" min={0} step="1" className="w-32 border border-beetz-dark/15 rounded-xl px-2 py-2 text-sm"
-                    placeholder="Alerta (padrão 5)" value={newProductThreshold} onChange={(e) => setNewProductThreshold(e.target.value)}
-                  />
-                  <button className="bg-beetz-dark text-white text-sm font-semibold px-3 rounded-xl">+</button>
-                </form>
-              )}
-              {catalogError && <p className="text-xs text-red-600 mb-3">{catalogError}</p>}
-              <div className="space-y-1.5">
-                {products.map((p) => (
-                  <div key={p.id} className="flex items-center gap-2">
-                    {editingProductId === p.id ? (
-                      <>
-                        <input className="flex-1 border border-beetz-dark/15 rounded-lg px-2 py-1 text-xs" value={editProductName} onChange={(e) => setEditProductName(e.target.value)} />
-                        <select className="border border-beetz-dark/15 rounded-lg px-1.5 py-1 text-xs" value={COMMON_UNITS.includes(editProductUnit) ? editProductUnit : 'outro'} onChange={(e) => setEditProductUnit(e.target.value === 'outro' ? '' : e.target.value)}>
-                          {COMMON_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
-                          <option value="outro">Outra...</option>
-                        </select>
-                        {!COMMON_UNITS.includes(editProductUnit) && (
-                          <input className="w-16 border border-beetz-dark/15 rounded-lg px-2 py-1 text-xs" placeholder="unidade" value={editProductUnit} onChange={(e) => setEditProductUnit(e.target.value)} />
-                        )}
-                        <input
-                          type="number" min={0} step="1" className="w-20 border border-beetz-dark/15 rounded-lg px-2 py-1 text-xs"
-                          placeholder="Alerta" value={editProductThreshold} onChange={(e) => setEditProductThreshold(e.target.value)}
-                        />
-                        <button onClick={() => saveProductEdit(p.id)} className="text-green-600 p-1 rounded hover:bg-green-50"><Check size={14} /></button>
-                        <button onClick={() => setEditingProductId(null)} className="text-beetz-dark/40 p-1 rounded hover:bg-beetz-gray"><X size={14} /></button>
-                      </>
-                    ) : (
-                      <>
-                        {/* O nome abre a timeline — a história do produto a um
-                            clique, sem sair da tela. */}
-                        <button
-                          onClick={() => setTimelineProduct(p)}
-                          className="text-xs font-medium bg-beetz-gray hover:bg-beetz-yellow/30 px-3 py-1.5 rounded-full flex-1 text-left transition-colors"
-                          title="Ver linha do tempo"
-                        >
-                          {p.name} ({p.unit}) <span className="text-beetz-dark/40">· alerta ≤ {p.low_stock_threshold ?? LOW_STOCK_THRESHOLD}</span>
-                        </button>
-                        {canManageCatalog && (
-                          <>
-                            <button onClick={() => startEditProduct(p)} className="text-beetz-dark/40 hover:text-beetz-dark p-1 rounded hover:bg-beetz-gray"><Pencil size={13} /></button>
-                            <button onClick={() => removeProduct(p.id)} className="text-beetz-dark/40 hover:text-red-600 p-1 rounded hover:bg-beetz-gray"><Trash2 size={13} /></button>
-                          </>
-                        )}
-                      </>
-                    )}
-                  </div>
-                ))}
-                {products.length === 0 && <p className="text-sm text-beetz-dark/40">Nenhum produto cadastrado.</p>}
-              </div>
-            </div>
+            <ProductCatalog
+              products={products} balances={balances} avgCosts={avgCosts}
+              defaultThreshold={LOW_STOCK_THRESHOLD} canManage={canManageCatalog}
+              onChanged={load} onOpenTimeline={setTimelineProduct}
+            />
 
             <div className="bg-white rounded-2xl p-5 shadow-soft border border-beetz-dark/5">
               <h2 className="font-bold mb-3">Estoques / Almoxarifados</h2>
