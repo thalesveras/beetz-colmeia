@@ -117,22 +117,10 @@ export default function EventDetail() {
     <div className="space-y-6 max-w-4xl">
       <Link to="/eventos" className="text-sm text-beetz-dark/50 hover:text-beetz-dark">← Voltar para eventos</Link>
 
-      <EventSummaryCard event={event} canEdit={canManageUsers(accessRole)} onSaved={setEvent} onStaffingChanged={load} />
-
-      {leader && (
-        <div className="bg-white rounded-2xl shadow-soft border border-beetz-dark/5 p-5 flex items-center gap-3">
-          <Avatar src={leader.avatar_url} name={`${leader.first_name} ${leader.last_name}`} size="md" />
-          <div>
-            <p className="text-xs text-beetz-dark/50">Líder responsável</p>
-            <Link to={`/perfil/${leader.id}`} className="font-semibold hover:underline">{leader.first_name} {leader.last_name}</Link>
-          </div>
-        </div>
-      )}
-
-      {canViewFinancialSummary(accessRole) && (
-        <ContractCard event={event} onEventUpdated={setEvent} />
-      )}
-
+      {/* Barra de abas no TOPO da página (pedido do dono: embaixo do cartão
+          gigante do evento ela ficava invisível sem rolar). O cartão do evento,
+          o líder e o contrato moraram pra dentro da aba Resumo — que agora é
+          a capa completa do evento. */}
       <div className="bg-white rounded-2xl p-1.5 shadow-soft border border-beetz-dark/5">
         {/* flex-wrap: todas as abas visíveis de uma vez, inclusive no celular —
             a rolagem horizontal escondida cortava "Fechamento" pra fora da
@@ -153,14 +141,32 @@ export default function EventDetail() {
       </div>
 
       {activeTab === 'resumo' && (
-        <EventResumoTab
-          eventId={id}
-          canExpenses={canViewExpensesTab(accessRole)}
-          canCashier={canViewCashierTab(accessRole)}
-          canStock={canViewStockTab(accessRole)}
-          canFinance={canViewFinancialSummary(accessRole)}
-          onNavigate={(t) => setActiveTab(t as TabKey)}
-        />
+        <div className="space-y-6">
+          <EventSummaryCard event={event} canEdit={canManageUsers(accessRole)} onSaved={setEvent} onStaffingChanged={load} />
+
+          {leader && (
+            <div className="bg-white rounded-2xl shadow-soft border border-beetz-dark/5 p-5 flex items-center gap-3">
+              <Avatar src={leader.avatar_url} name={`${leader.first_name} ${leader.last_name}`} size="md" />
+              <div>
+                <p className="text-xs text-beetz-dark/50">Líder responsável</p>
+                <Link to={`/perfil/${leader.id}`} className="font-semibold hover:underline">{leader.first_name} {leader.last_name}</Link>
+              </div>
+            </div>
+          )}
+
+          <EventResumoTab
+            eventId={id}
+            canExpenses={canViewExpensesTab(accessRole)}
+            canCashier={canViewCashierTab(accessRole)}
+            canStock={canViewStockTab(accessRole)}
+            canFinance={canViewFinancialSummary(accessRole)}
+            onNavigate={(t) => setActiveTab(t as TabKey)}
+          />
+
+          {canViewFinancialSummary(accessRole) && (
+            <ContractCard event={event} onEventUpdated={setEvent} />
+          )}
+        </div>
       )}
 
       {activeTab === 'equipe' && (
