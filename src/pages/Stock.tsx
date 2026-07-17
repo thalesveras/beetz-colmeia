@@ -11,6 +11,8 @@ import {
 } from '../lib/dataService'
 import type { EventItem, Product, ProductAvgCost, Profile, StockAvailable, StockBalance, StockLocation, StockMovement, TransferRequest, TransferRequestStatus } from '../lib/types'
 import StockMovementForm from '../components/stock/StockMovementForm'
+import ProductTimeline from '../components/stock/ProductTimeline'
+import ReservationsSection from '../components/stock/ReservationsSection'
 import { useAuth } from '../contexts/AuthContext'
 import { canEditOwnStock, canEditStock, canManageStockCatalog, canManageUsers, canViewStockTab } from '../lib/permissions'
 
@@ -54,6 +56,7 @@ export default function Stock() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editQuantity, setEditQuantity] = useState(0)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [timelineProduct, setTimelineProduct] = useState<Product | null>(null)
 
   // Filtros + paginação do histórico de movimentações — necessário assim que
   // o volume passa de umas duas dezenas de lançamentos.
@@ -352,6 +355,13 @@ export default function Stock() {
 
       {showMovementForm && <StockMovementForm onSaved={() => { setShowMovementForm(false); load() }} />}
 
+      {timelineProduct && (
+        <ProductTimeline
+          product={timelineProduct} movements={movements} locations={locations}
+          events={events} profiles={profiles} onClose={() => setTimelineProduct(null)}
+        />
+      )}
+
       {loading ? (
         <p className="text-beetz-dark/50">Carregando...</p>
       ) : (
@@ -422,6 +432,11 @@ export default function Stock() {
             </section>
           )}
 
+          <ReservationsSection
+            products={products} locations={locations} events={events} availability={availability}
+            userId={userId} canManage={canManageCatalog} onChanged={load}
+          />
+
           <section>
             <h2 className="text-lg font-bold mb-4">Saldo atual por estoque</h2>
             <div className="grid md:grid-cols-3 gap-4">
@@ -488,9 +503,15 @@ export default function Stock() {
                       </>
                     ) : (
                       <>
-                        <span className="text-xs font-medium bg-beetz-gray px-3 py-1.5 rounded-full flex-1">
+                        {/* O nome abre a timeline — a história do produto a um
+                            clique, sem sair da tela. */}
+                        <button
+                          onClick={() => setTimelineProduct(p)}
+                          className="text-xs font-medium bg-beetz-gray hover:bg-beetz-yellow/30 px-3 py-1.5 rounded-full flex-1 text-left transition-colors"
+                          title="Ver linha do tempo"
+                        >
                           {p.name} ({p.unit}) <span className="text-beetz-dark/40">· alerta ≤ {p.low_stock_threshold ?? LOW_STOCK_THRESHOLD}</span>
-                        </span>
+                        </button>
                         {canManageCatalog && (
                           <>
                             <button onClick={() => startEditProduct(p)} className="text-beetz-dark/40 hover:text-beetz-dark p-1 rounded hover:bg-beetz-gray"><Pencil size={13} /></button>
