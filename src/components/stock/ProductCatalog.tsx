@@ -132,34 +132,41 @@ export default function ProductCatalog({
       </div>
 
       {canManage && (
+        // Grade em vez de flex com larguras fixas: a versão anterior não
+        // quebrava linha e, em coluna estreita, o botão "Adicionar" vazava
+        // por cima do card vizinho. Botão de largura inteira = sem vazamento
+        // em tela nenhuma e alvo confortável pro polegar no celular.
         <form onSubmit={handleAdd} className="bg-beetz-gray/60 rounded-2xl p-3 mb-4 space-y-2">
-          <div className="flex gap-2">
-            <input className={`${inputClass} flex-1`} placeholder="Nome do produto" value={name} onChange={(e) => setName(e.target.value)} />
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+            <input className={`${inputClass} w-full min-w-0`} placeholder="Nome do produto" value={name} onChange={(e) => setName(e.target.value)} />
             <select className={`${inputClass} w-24`} value={unit} onChange={(e) => setUnit(e.target.value)}>
               {COMMON_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
               <option value="outro">Outra...</option>
             </select>
-            {unit === 'outro' && (
-              <input className={`${inputClass} w-24`} placeholder="unidade" value={customUnit} onChange={(e) => setCustomUnit(e.target.value)} />
-            )}
           </div>
-          <div className="flex gap-2">
+          {unit === 'outro' && (
+            <input className={`${inputClass} w-full`} placeholder="Qual unidade? (ex: engradado)" value={customUnit} onChange={(e) => setCustomUnit(e.target.value)} />
+          )}
+          <div className="grid grid-cols-2 gap-2">
             {/* datalist: sugere sem obrigar — dá pra digitar categoria nova */}
             <input
-              className={`${inputClass} flex-1`} list="categorias-produto" placeholder="Categoria (ex: Cerveja)"
+              className={`${inputClass} w-full min-w-0`} list="categorias-produto" placeholder="Categoria (ex: Cerveja)"
               value={category} onChange={(e) => setCategory(e.target.value)}
             />
             <datalist id="categorias-produto">
               {categoryOptions.map((c) => <option key={c} value={c} />)}
             </datalist>
             <input
-              type="number" min={0} step="1" className={`${inputClass} w-36`}
+              type="number" min={0} step="1" className={`${inputClass} w-full min-w-0`}
               placeholder={`Alerta (padrão ${defaultThreshold})`} value={threshold} onChange={(e) => setThreshold(e.target.value)}
             />
-            <button disabled={saving || !name.trim()} className="bg-beetz-dark text-white text-sm font-semibold px-4 rounded-xl disabled:opacity-50">
-              {saving ? '...' : 'Adicionar'}
-            </button>
           </div>
+          <button
+            disabled={saving || !name.trim()}
+            className="w-full bg-beetz-dark text-white text-sm font-semibold py-2.5 rounded-xl disabled:opacity-50 hover:bg-black transition-colors"
+          >
+            {saving ? 'Salvando...' : 'Adicionar produto'}
+          </button>
         </form>
       )}
 
@@ -201,19 +208,21 @@ export default function ProductCatalog({
                   const low = total <= (p.low_stock_threshold ?? defaultThreshold)
                   return editingId === p.id ? (
                     <div key={p.id} className="bg-beetz-gray/60 rounded-xl p-2 space-y-2">
-                      <div className="flex gap-2">
-                        <input className={`${inputClass} flex-1`} value={eName} onChange={(e) => setEName(e.target.value)} />
-                        <input className={`${inputClass} w-20`} value={eUnit} onChange={(e) => setEUnit(e.target.value)} />
+                      <div className="grid grid-cols-[minmax(0,1fr)_5rem] gap-2">
+                        <input className={`${inputClass} w-full min-w-0`} value={eName} onChange={(e) => setEName(e.target.value)} />
+                        <input className={`${inputClass} w-full`} value={eUnit} onChange={(e) => setEUnit(e.target.value)} />
                       </div>
-                      <div className="flex gap-2">
-                        <input className={`${inputClass} flex-1`} list="categorias-produto" placeholder="Categoria"
+                      <div className="grid grid-cols-2 gap-2">
+                        <input className={`${inputClass} w-full min-w-0`} list="categorias-produto" placeholder="Categoria"
                           value={eCategory} onChange={(e) => setECategory(e.target.value)} />
-                        <input type="number" min={0} className={`${inputClass} w-28`} placeholder="Alerta"
+                        <input type="number" min={0} className={`${inputClass} w-full min-w-0`} placeholder="Alerta"
                           value={eThreshold} onChange={(e) => setEThreshold(e.target.value)} />
-                        <button onClick={() => saveEdit(p.id)} disabled={saving}
-                          className="bg-green-600 text-white px-3 rounded-xl disabled:opacity-50"><Check size={14} /></button>
+                      </div>
+                      <div className="flex justify-end gap-2">
                         <button onClick={() => setEditingId(null)}
-                          className="text-beetz-dark/40 px-2 rounded-xl hover:bg-white"><X size={14} /></button>
+                          className="text-beetz-dark/50 text-xs font-semibold px-3 py-1.5 rounded-xl hover:bg-white flex items-center gap-1"><X size={13} /> Cancelar</button>
+                        <button onClick={() => saveEdit(p.id)} disabled={saving}
+                          className="bg-green-600 text-white text-xs font-semibold px-3 py-1.5 rounded-xl disabled:opacity-50 flex items-center gap-1"><Check size={13} /> Salvar</button>
                       </div>
                     </div>
                   ) : (

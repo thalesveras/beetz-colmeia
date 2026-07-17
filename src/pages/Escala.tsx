@@ -135,7 +135,17 @@ export default function Escala() {
               <div key={slot.requirement.id} className="bg-white rounded-2xl shadow-soft border border-beetz-dark/5 p-5">
                 <div className="flex flex-wrap items-start gap-3">
                   <div className="flex-1 min-w-[200px]">
-                    <p className="font-bold">{slot.requirement.role_label}</p>
+                    <p className="font-bold">
+                      {slot.requirement.role_label}
+                      {/* Valor à vista pra quem está decidindo se pega a vaga —
+                          transparência combinada com o dono: atrai candidatura
+                          e evita surpresa na hora do pagamento. */}
+                      {slot.requirement.unit_cost != null && slot.requirement.unit_cost > 0 && (
+                        <span className="ml-2 text-xs font-bold bg-beetz-yellow/25 px-2 py-0.5 rounded-full align-middle">
+                          {slot.requirement.unit_cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        </span>
+                      )}
+                    </p>
                     <Link to={`/eventos/${slot.event.id}`} className="text-sm text-beetz-dark/60 hover:text-beetz-dark font-medium">
                       {slot.event.name}
                     </Link>

@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import Papa from 'papaparse'
 import {
   AlertTriangle, Image, Plus, RefreshCw, Search, Upload, X, Save, Settings as SettingsIcon, ShieldAlert, Trash2,
-  Users, ListChecks, Layers, Trophy, Palette, Database, Mail, Send
+  Users, ListChecks, Layers, Trophy, Palette, Database, Mail, Send, Wallet
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import StaffingRolesSection from '../components/settings/StaffingRolesSection'
 import { useConfig } from '../contexts/ConfigContext'
 import { ACCESS_ROLE_LABELS, ACCESS_ROLES, canManageUsers, departmentToAccessRole, type AccessRole } from '../lib/permissions'
 import {
@@ -84,11 +85,12 @@ const PERMISSION_GROUPS: { title: string; fields: { key: PermissionKey; label: s
 
 const ROLE_ORDER: AccessRole[] = ['diretoria', 'garcom', 'caixa', 'operacional', 'colaborador']
 
-type SettingsTabKey = 'perfis' | 'listas' | 'modalidades' | 'gamificacao' | 'marca' | 'dados' | 'comunicacao'
+type SettingsTabKey = 'perfis' | 'listas' | 'funcoes' | 'modalidades' | 'gamificacao' | 'marca' | 'dados' | 'comunicacao'
 
 const SETTINGS_TABS: { key: SettingsTabKey; label: string; icon: typeof Users }[] = [
   { key: 'perfis', label: 'Perfis de acesso', icon: Users },
   { key: 'listas', label: 'Listas de opções', icon: ListChecks },
+  { key: 'funcoes', label: 'Funções & Valores', icon: Wallet },
   { key: 'modalidades', label: 'Modalidades de serviço', icon: Layers },
   { key: 'gamificacao', label: 'Gamificação', icon: Trophy },
   { key: 'marca', label: 'Dados gerais da marca', icon: Palette },
@@ -138,6 +140,7 @@ export default function Settings() {
       {tab === 'listas' && <ListsSection />}
       {tab === 'modalidades' && <ModalitiesSection />}
       {tab === 'gamificacao' && <GamificationSection onSaved={refreshConfig} />}
+      {tab === 'funcoes' && <StaffingRolesSection />}
       {tab === 'marca' && <BrandSection />}
       {tab === 'dados' && <DataImporterSection />}
       {tab === 'comunicacao' && <EmailDispatcherSection />}

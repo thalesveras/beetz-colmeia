@@ -535,8 +535,10 @@ export default function Stock() {
             />
           )}
 
+          {/* lg (não md): em tablet, duas colunas ficavam apertadas a ponto
+              de formulário vazar de um card pro outro. Melhor empilhar. */}
           {tab === 'cadastros' && (
-          <section className="grid md:grid-cols-2 gap-6">
+          <section className="grid lg:grid-cols-2 gap-6">
             <ProductCatalog
               products={products} balances={balances} avgCosts={avgCosts}
               defaultThreshold={LOW_STOCK_THRESHOLD} canManage={canManageCatalog}
@@ -547,8 +549,10 @@ export default function Stock() {
               <h2 className="font-bold mb-3">Estoques / Almoxarifados</h2>
               {canManageCatalog && (
                 <form onSubmit={handleAddLocation} className="flex gap-2 mb-4">
-                  <input className={inputClass} placeholder="Nome do estoque" value={newLocationName} onChange={(e) => setNewLocationName(e.target.value)} />
-                  <button className="bg-beetz-dark text-white text-sm font-semibold px-3 rounded-xl">+</button>
+                  <input className={`${inputClass} min-w-0`} placeholder="Nome do estoque" value={newLocationName} onChange={(e) => setNewLocationName(e.target.value)} />
+                  <button className="bg-beetz-dark text-white text-sm font-semibold px-4 rounded-xl shrink-0 hover:bg-black transition-colors">
+                    <Plus size={16} />
+                  </button>
                 </form>
               )}
               <div className="space-y-1.5">

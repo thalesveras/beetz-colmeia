@@ -226,6 +226,22 @@ export interface EventStaffingRequirement {
   quantity: number
   unit_cost: number | null
   notes: string | null
+  // De qual função do catálogo (staffing_roles) esta vaga nasceu — preenche
+  // rótulo e valor sozinho. Null = vaga avulsa digitada na mão (ou antiga).
+  role_id: string | null
+  created_at: string
+}
+
+// Catálogo de funções da escala, configurado pela Diretoria em Configurações:
+// "Garçom → Garçons → R$ 150", "Líder de bar → Operacional → R$ 250"...
+// A vaga herda o valor padrão da função; a pessoa herda o valor da vaga; e
+// cada elo pode ser ajustado sem mexer no anterior.
+export interface StaffingRole {
+  id: string
+  name: string
+  department_id: string | null
+  default_value: number
+  active: boolean
   created_at: string
 }
 
@@ -253,6 +269,10 @@ export interface EventStaffingApplication {
   note: string | null
   decided_by: string | null
   decided_at: string | null
+  // Valor combinado com ESTA pessoa neste evento. Null = herda o unit_cost da
+  // vaga (que herda o padrão da função). Existe pro caso real: o líder que
+  // cobra um extra naquele evento específico.
+  agreed_value: number | null
   created_at: string
 }
 
@@ -343,6 +363,9 @@ export interface Expense {
   // claim_pending_profile() migra o valor pra team_member_id automaticamente.
   // Qual Compra de estoque esta despesa paga (opcional; único por compra).
   stock_movement_id?: string | null
+  // Qual pessoa-na-escala este pagamento cobre (opcional; único por pessoa
+  // aprovada — o índice no banco impede clique duplo gerar pagamento dobrado).
+  staffing_application_id?: string | null
   pending_team_member_id: string | null
   supplier_id: string | null
   created_at: string

@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Check, ClipboardList, Users, X } from 'lucide-react'
+import { Check, ClipboardList, Pencil, Users, Wallet, X } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import {
-  applyToStaffingSlot, listEventStaffingApplications, listEventStaffingRequirements,
-  listProfiles, updateStaffingApplicationStatus
+  applyToStaffingSlot, generateScalePayments, listEventStaffingApplications, listEventStaffingRequirements,
+  listProfiles, updateStaffingApplicationStatus, updateStaffingApplicationValue
 } from '../../lib/dataService'
+
+function brl(v: number) {
+  return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
 import type {
   EventStaffingApplication, EventStaffingRequirement, Profile, StaffingApplicationStatus
 } from '../../lib/types'
@@ -43,6 +47,12 @@ export default function StaffingTab({ eventId, canManage, onTeamChanged }: Props
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // Valor por pessoa: herda o da vaga, mas o líder pode ajustar caso a caso.
+  const [editingValueId, setEditingValueId] = useState<string | null>(null)
+  const [valueDraft, setValueDraft] = useState('')
+  const [generating, setGenerating] = useState(false)
+  const [payMessage, setPayMessage] = useState<string | null>(null)
+
   async function load() {
     try {
       const [reqs, apps, profs] = await Promise.all([
@@ -79,6 +89,57 @@ export default function StaffingTab({ eventId, canManage, onTeamChanged }: Props
     return profiles.find((x) => x.id === profileId)?.avatar_url ?? null
   }
 
+  // Cadeia de herança do valor: pessoa (agreed_value) → vaga (unit_cost).
+  // O padrão da função já entrou no unit_cost quando a vaga foi criada.
+  function resolvedValue(app: EventStaffingApplication): number {
+    if (app.agreed_value != null) return app.agreed_value
+    const req = requirements.find((r) => r.id === app.requirement_id)
+    return req?.unit_cost ?? 0
+  }
+
+  const confirmedApps = useMemo(
+    () => applications.filter((a) => a.status === 'Confirmado'),
+    [applications]
+  )
+  const scaleTotal = useMemo(
+    () => confirmedApps.reduce((sum, a) => sum + resolvedValue(a), 0),
+    [confirmedApps, requirements]
+  )
+
+  async function saveValue(app: EventStaffingApplication) {
+    const parsed = valueDraft.trim() ? Number(valueDraft.replace(',', '.')) : null
+    setBusyId(app.id)
+    try {
+      await updateStaffingApplicationValue(app.id, parsed != null && !Number.isNaN(parsed) ? parsed : null)
+      setEditingValueId(null)
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao salvar o valor.')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function handleGeneratePayments() {
+    setGenerating(true)
+    setPayMessage(null)
+    setError(null)
+    try {
+      const res = await generateScalePayments(eventId, userId ?? null)
+      const parts: string[] = []
+      parts.push(res.created > 0
+        ? `${res.created} pagamento${res.created > 1 ? 's' : ''} criado${res.created > 1 ? 's' : ''} como despesa Pendente`
+        : 'Nenhum pagamento novo pra criar')
+      if (res.skippedExisting > 0) parts.push(`${res.skippedExisting} já tinha${res.skippedExisting > 1 ? 'm' : ''} despesa`)
+      if (res.skippedNoValue > 0) parts.push(`${res.skippedNoValue} sem valor definido (pulado${res.skippedNoValue > 1 ? 's' : ''})`)
+      setPayMessage(parts.join(' · '))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao gerar os pagamentos.')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
   async function decide(app: EventStaffingApplication, status: StaffingApplicationStatus) {
     setBusyId(app.id)
     setError(null)
@@ -113,6 +174,27 @@ export default function StaffingTab({ eventId, canManage, onTeamChanged }: Props
     <div className="space-y-4">
       {error && <p className="text-sm text-red-600">{error}</p>}
 
+      {confirmedApps.length > 0 && (
+        <div className="bg-beetz-dark text-white rounded-2xl p-5 shadow-soft flex flex-wrap items-center gap-4">
+          <div className="bg-beetz-yellow/20 text-beetz-yellow rounded-xl p-2.5"><Wallet size={20} /></div>
+          <div className="flex-1 min-w-[160px]">
+            <p className="text-xl font-extrabold leading-none">{brl(scaleTotal)}</p>
+            <p className="text-xs text-white/50 mt-1">Custo da escala · {confirmedApps.length} confirmado{confirmedApps.length > 1 ? 's' : ''}</p>
+          </div>
+          {canManage && (
+            <button
+              onClick={handleGeneratePayments}
+              disabled={generating}
+              className="honey-gradient text-beetz-dark font-bold px-4 py-2.5 rounded-xl text-sm disabled:opacity-60"
+              title="Cria uma despesa Pendente por pessoa confirmada, com o valor combinado — sem duplicar quem já tem."
+            >
+              {generating ? 'Gerando...' : 'Gerar pagamentos'}
+            </button>
+          )}
+          {payMessage && <p className="w-full text-xs text-beetz-yellow/90">{payMessage}</p>}
+        </div>
+      )}
+
       {canManage && (
         <div className="bg-white rounded-2xl p-5 shadow-soft border border-beetz-dark/5">
           <StaffingRequirementsEditor
@@ -145,7 +227,12 @@ export default function StaffingTab({ eventId, canManage, onTeamChanged }: Props
             <div key={req.id} className="bg-white rounded-2xl shadow-soft border border-beetz-dark/5 p-5">
               <div className="flex flex-wrap items-center gap-3 mb-3">
                 <div className="flex-1 min-w-[180px]">
-                  <p className="font-bold">{req.role_label}</p>
+                  <p className="font-bold">
+                    {req.role_label}
+                    {req.unit_cost != null && req.unit_cost > 0 && (
+                      <span className="ml-2 text-xs font-bold bg-beetz-yellow/25 px-2 py-0.5 rounded-full align-middle">{brl(req.unit_cost)}/pessoa</span>
+                    )}
+                  </p>
                   {req.notes && <p className="text-xs text-beetz-dark/50 mt-0.5">{req.notes}</p>}
                 </div>
                 <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
@@ -191,6 +278,34 @@ export default function StaffingTab({ eventId, canManage, onTeamChanged }: Props
                       <Link to={`/perfil/${app.profile_id}`} className="flex-1 min-w-[120px] text-sm font-semibold hover:text-beetz-dark/60">
                         {personName(app.profile_id)}
                       </Link>
+                      {app.status === 'Confirmado' && (
+                        editingValueId === app.id ? (
+                          <span className="flex items-center gap-1">
+                            <input
+                              type="text" inputMode="decimal" autoFocus
+                              className="w-20 border border-beetz-dark/15 rounded-lg px-2 py-1 text-xs"
+                              value={valueDraft} onChange={(e) => setValueDraft(e.target.value)}
+                              placeholder="R$"
+                            />
+                            <button onClick={() => saveValue(app)} disabled={busyId === app.id} className="text-green-600 p-1 rounded hover:bg-green-50"><Check size={13} /></button>
+                            <button onClick={() => setEditingValueId(null)} className="text-beetz-dark/40 p-1 rounded hover:bg-beetz-gray"><X size={13} /></button>
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-xs font-bold">
+                            {brl(resolvedValue(app))}
+                            {app.agreed_value != null && <span className="text-[10px] font-semibold text-beetz-dark/40" title="Valor ajustado só pra essa pessoa">ajustado</span>}
+                            {canManage && (
+                              <button
+                                onClick={() => { setEditingValueId(app.id); setValueDraft(app.agreed_value != null ? String(app.agreed_value) : '') }}
+                                className="text-beetz-dark/30 hover:text-beetz-dark p-0.5 rounded"
+                                title="Ajustar valor só desta pessoa (vazio volta a herdar o da vaga)"
+                              >
+                                <Pencil size={12} />
+                              </button>
+                            )}
+                          </span>
+                        )
+                      )}
                       <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${STATUS_STYLES[app.status]}`}>
                         {app.status}
                       </span>

@@ -2,9 +2,13 @@ import { useEffect, useState } from 'react'
 import { Check, ClipboardList, Pencil, Plus, Trash2, X } from 'lucide-react'
 import {
   createEventStaffingRequirement, deleteEventStaffingRequirement,
-  listEventStaffingRequirements, updateEventStaffingRequirement
+  listEventStaffingRequirements, listStaffingRoles, updateEventStaffingRequirement
 } from '../../lib/dataService'
-import type { EventStaffingRequirement } from '../../lib/types'
+import type { EventStaffingRequirement, StaffingRole } from '../../lib/types'
+
+function brl(v: number) {
+  return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
 
 // CRUD das vagas do evento ("preciso de 10 garçons"). Vive em dois lugares —
 // no editar evento (vaga é parte da definição do evento) e na aba Equipe (onde
@@ -26,20 +30,38 @@ export default function StaffingRequirementsEditor({ eventId, confirmedByRequire
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // Catálogo de funções com valores (Configurações → Funções & Valores).
+  // Escolher uma função preenche rótulo e valor sozinho — e ambos continuam
+  // editáveis, porque todo evento tem sua exceção.
+  const [roles, setRoles] = useState<StaffingRole[]>([])
+  const [newRoleId, setNewRoleId] = useState('')
   const [newLabel, setNewLabel] = useState('')
   const [newQty, setNewQty] = useState('1')
+  const [newValue, setNewValue] = useState('')
   const [newNotes, setNewNotes] = useState('')
   const [saving, setSaving] = useState(false)
 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editLabel, setEditLabel] = useState('')
   const [editQty, setEditQty] = useState('1')
+  const [editValue, setEditValue] = useState('')
   const [editNotes, setEditNotes] = useState('')
+
+  function pickRole(id: string) {
+    setNewRoleId(id)
+    const role = roles.find((r) => r.id === id)
+    if (role) {
+      setNewLabel(role.name)
+      setNewValue(role.default_value > 0 ? String(role.default_value) : '')
+    }
+  }
 
   async function load() {
     setLoading(true)
     try {
-      setRequirements(await listEventStaffingRequirements(eventId))
+      const [reqs, roleList] = await Promise.all([listEventStaffingRequirements(eventId), listStaffingRoles()])
+      setRequirements(reqs)
+      setRoles(roleList.filter((r) => r.active))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar as vagas.')
     } finally {
@@ -60,10 +82,11 @@ export default function StaffingRequirementsEditor({ eventId, confirmedByRequire
         event_id: eventId,
         role_label: newLabel.trim(),
         quantity: qty,
-        unit_cost: null,
-        notes: newNotes.trim() || null
+        unit_cost: newValue.trim() ? Number(newValue.replace(',', '.')) : null,
+        notes: newNotes.trim() || null,
+        role_id: newRoleId || null
       })
-      setNewLabel(''); setNewQty('1'); setNewNotes('')
+      setNewRoleId(''); setNewLabel(''); setNewQty('1'); setNewValue(''); setNewNotes('')
       await load()
       onChanged?.()
     } catch (err) {
@@ -77,6 +100,7 @@ export default function StaffingRequirementsEditor({ eventId, confirmedByRequire
     setEditingId(r.id)
     setEditLabel(r.role_label)
     setEditQty(String(r.quantity))
+    setEditValue(r.unit_cost != null ? String(r.unit_cost) : '')
     setEditNotes(r.notes ?? '')
   }
 
@@ -85,7 +109,9 @@ export default function StaffingRequirementsEditor({ eventId, confirmedByRequire
     if (!editLabel.trim() || !qty || qty < 1) return
     try {
       await updateEventStaffingRequirement(id, {
-        role_label: editLabel.trim(), quantity: qty, notes: editNotes.trim() || null
+        role_label: editLabel.trim(), quantity: qty,
+        unit_cost: editValue.trim() ? Number(editValue.replace(',', '.')) : null,
+        notes: editNotes.trim() || null
       })
       setEditingId(null)
       await load()
@@ -129,6 +155,16 @@ export default function StaffingRequirementsEditor({ eventId, confirmedByRequire
       {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
 
       <form onSubmit={handleCreate} className="bg-beetz-gray rounded-2xl p-3 mb-3 space-y-2">
+        {roles.length > 0 && (
+          <select value={newRoleId} onChange={(e) => pickRole(e.target.value)} className={`${inputClass} w-full bg-white`}>
+            <option value="">Função avulsa (digitar na mão)</option>
+            {roles.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}{r.default_value > 0 ? ` — ${brl(r.default_value)}` : ''}
+              </option>
+            ))}
+          </select>
+        )}
         <div className="flex flex-col sm:flex-row gap-2">
           <input
             placeholder="Função (ex: Garçom)"
@@ -141,6 +177,12 @@ export default function StaffingRequirementsEditor({ eventId, confirmedByRequire
             value={newQty}
             onChange={(e) => setNewQty(e.target.value)}
             className={`${inputClass} sm:w-24 bg-white`}
+          />
+          <input
+            type="text" inputMode="decimal" placeholder="R$ por pessoa"
+            value={newValue}
+            onChange={(e) => setNewValue(e.target.value)}
+            className={`${inputClass} sm:w-32 bg-white`}
           />
         </div>
         <input
@@ -174,6 +216,7 @@ export default function StaffingRequirementsEditor({ eventId, confirmedByRequire
                     <div className="flex flex-col sm:flex-row gap-2">
                       <input value={editLabel} onChange={(e) => setEditLabel(e.target.value)} className={`${inputClass} flex-1`} />
                       <input type="number" min="1" value={editQty} onChange={(e) => setEditQty(e.target.value)} className={`${inputClass} sm:w-24`} />
+                      <input type="text" inputMode="decimal" placeholder="R$ por pessoa" value={editValue} onChange={(e) => setEditValue(e.target.value)} className={`${inputClass} sm:w-32`} />
                     </div>
                     <input placeholder="Observação" value={editNotes} onChange={(e) => setEditNotes(e.target.value)} className={`${inputClass} w-full`} />
                     <div className="flex gap-2">
@@ -191,6 +234,9 @@ export default function StaffingRequirementsEditor({ eventId, confirmedByRequire
                       <p className="font-semibold text-sm">
                         {r.role_label}
                         <span className="text-beetz-dark/40 font-normal"> · {r.quantity} {r.quantity === 1 ? 'vaga' : 'vagas'}</span>
+                        {r.unit_cost != null && r.unit_cost > 0 && (
+                          <span className="ml-2 text-xs font-bold bg-beetz-yellow/25 px-2 py-0.5 rounded-full">{brl(r.unit_cost)}/pessoa</span>
+                        )}
                       </p>
                       {r.notes && <p className="text-xs text-beetz-dark/50 mt-0.5">{r.notes}</p>}
                       {confirmedByRequirement && (

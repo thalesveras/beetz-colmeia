@@ -356,9 +356,9 @@ export const mockEventModalities: EventModality[] = [
 ]
 
 export const mockEventStaffingRequirements: EventStaffingRequirement[] = [
-  { id: 'esr1', event_id: 'e1', role_label: 'Garçom', quantity: 8, unit_cost: 150, notes: null, created_at: '2025-11-02T10:00:00Z' },
-  { id: 'esr2', event_id: 'e1', role_label: 'Caixa', quantity: 3, unit_cost: 150, notes: null, created_at: '2025-11-02T10:00:00Z' },
-  { id: 'esr3', event_id: 'e1', role_label: 'Segurança', quantity: 4, unit_cost: 180, notes: null, created_at: '2025-11-02T10:00:00Z' }
+  { id: 'esr1', event_id: 'e1', role_label: 'Garçom', quantity: 8, unit_cost: 150, notes: null, role_id: null, created_at: '2025-11-02T10:00:00Z' },
+  { id: 'esr2', event_id: 'e1', role_label: 'Caixa', quantity: 3, unit_cost: 150, notes: null, role_id: null, created_at: '2025-11-02T10:00:00Z' },
+  { id: 'esr3', event_id: 'e1', role_label: 'Segurança', quantity: 4, unit_cost: 180, notes: null, role_id: null, created_at: '2025-11-02T10:00:00Z' }
 ]
 
 // ---------- Configurações (perfis de acesso, listas, gamificação, marca) ----------

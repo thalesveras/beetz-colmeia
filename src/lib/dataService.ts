@@ -14,7 +14,7 @@ import type {
   EventChangeLogEntry, EventItem, EventMember, EventModality, EventProduct, EventRepasse, EventStaffingApplication, EventStaffingRequirement, Expense,
   ExpenseCategory, ExpenseStatus, HiveLevelConfig, HoneyPoint, LinkRedirect, MovementType, OpenStaffingSlot, PaymentMethodOption, Product,
   ProductionConsumption, Producer, Profile, ProfileStats, RolePermissions, ServiceModality,
-  PendingProfileDirectoryItem, PendingProfilePickerItem, PendingProfileSensitive, StaffingApplicationStatus, StockAvailable, StockBalance, StockReservation, ReservationStatus, ProductAvgCost, StockLocation, StockMovement,
+  PendingProfileDirectoryItem, PendingProfilePickerItem, PendingProfileSensitive, StaffingApplicationStatus, StaffingRole, StockAvailable, StockBalance, StockReservation, ReservationStatus, ProductAvgCost, StockLocation, StockMovement,
   Supplier, TransferRequest, TransferRequestStatus, ZohoPendingProfile, EmailKind, EmailLogEntry
 } from './types'
 
@@ -2043,6 +2043,116 @@ export async function deleteEventStaffingRequirement(id: string): Promise<void> 
   if (error) throw error
 }
 
+// ---------- Funções & valores de escala (catálogo) ----------
+
+export type NewStaffingRoleInput = Pick<StaffingRole, 'name' | 'department_id' | 'default_value'>
+
+export async function listStaffingRoles(): Promise<StaffingRole[]> {
+  if (isDemoMode) return []
+  const { data, error } = await supabase.from('staffing_roles').select('*').order('name')
+  if (error) throw error
+  return data as StaffingRole[]
+}
+
+export async function createStaffingRole(input: NewStaffingRoleInput): Promise<StaffingRole> {
+  const { data, error } = await supabase.from('staffing_roles').insert(input).select().single()
+  if (error) throw error
+  return data as StaffingRole
+}
+
+export async function updateStaffingRole(
+  id: string, patch: Partial<Pick<StaffingRole, 'name' | 'department_id' | 'default_value' | 'active'>>
+): Promise<StaffingRole> {
+  const { data, error } = await supabase.from('staffing_roles').update(patch).eq('id', id).select().single()
+  if (error) throw error
+  return data as StaffingRole
+}
+
+// Função com vaga apontando pra ela não some do histórico: o FK é on delete
+// set null, então a vaga vira "avulsa" mas mantém rótulo e valor copiados.
+export async function deleteStaffingRole(id: string): Promise<void> {
+  const { error } = await supabase.from('staffing_roles').delete().eq('id', id)
+  if (error) throw error
+}
+
+// Valor combinado com UMA pessoa da escala (null volta a herdar o da vaga).
+export async function updateStaffingApplicationValue(id: string, agreedValue: number | null): Promise<void> {
+  const { error } = await supabase.from('event_staffing_applications').update({ agreed_value: agreedValue }).eq('id', id)
+  if (error) throw error
+}
+
+// Botão "gerar pagamentos": UMA despesa Pendente por pessoa CONFIRMADA na
+// escala do evento, com o valor resolvido na cadeia pessoa → vaga → função.
+// Quem já tem despesa vinculada é pulado (e o índice único no banco segura
+// qualquer corrida de clique duplo). Pessoa sem valor em elo nenhum também é
+// pulada — pagamento de R$ 0 é erro esperando pra ser pago.
+export async function generateScalePayments(eventId: string, createdBy: string | null): Promise<{
+  created: number; skippedExisting: number; skippedNoValue: number
+}> {
+  if (isDemoMode) return { created: 0, skippedExisting: 0, skippedNoValue: 0 }
+  const [appsRes, reqsRes] = await Promise.all([
+    supabase.from('event_staffing_applications').select('*').eq('event_id', eventId).eq('status', 'Confirmado'),
+    supabase.from('event_staffing_requirements').select('*').eq('event_id', eventId)
+  ])
+  if (appsRes.error) throw appsRes.error
+  if (reqsRes.error) throw reqsRes.error
+  const apps = (appsRes.data ?? []) as EventStaffingApplication[]
+  const reqs = (reqsRes.data ?? []) as EventStaffingRequirement[]
+  if (apps.length === 0) return { created: 0, skippedExisting: 0, skippedNoValue: 0 }
+
+  const roleIds = reqs.map((r) => r.role_id).filter((x): x is string => !!x)
+  const [rolesRes, existingRes, profilesRes] = await Promise.all([
+    roleIds.length > 0
+      ? supabase.from('staffing_roles').select('*').in('id', roleIds)
+      : Promise.resolve({ data: [], error: null } as { data: StaffingRole[]; error: null }),
+    supabase.from('expenses').select('staffing_application_id').in('staffing_application_id', apps.map((a) => a.id)),
+    supabase.from('profiles').select('id, first_name, last_name').in('id', apps.map((a) => a.profile_id))
+  ])
+  if (rolesRes.error) throw rolesRes.error
+  if (existingRes.error) throw existingRes.error
+  if (profilesRes.error) throw profilesRes.error
+
+  const roleById = new Map(((rolesRes.data ?? []) as StaffingRole[]).map((r) => [r.id, r]))
+  const reqById = new Map(reqs.map((r) => [r.id, r]))
+  const paidAppIds = new Set(((existingRes.data ?? []) as { staffing_application_id: string | null }[])
+    .map((e) => e.staffing_application_id).filter((x): x is string => !!x))
+  const personById = new Map(((profilesRes.data ?? []) as { id: string; first_name: string; last_name: string }[])
+    .map((pr) => [pr.id, `${pr.first_name} ${pr.last_name}`.trim()]))
+
+  let skippedExisting = 0
+  let skippedNoValue = 0
+  const toInsert: NewExpenseInput[] = []
+  for (const app of apps) {
+    if (paidAppIds.has(app.id)) { skippedExisting++; continue }
+    const req = reqById.get(app.requirement_id)
+    const role = req?.role_id ? roleById.get(req.role_id) : undefined
+    const value = app.agreed_value ?? req?.unit_cost ?? role?.default_value ?? 0
+    if (!(value > 0)) { skippedNoValue++; continue }
+    toInsert.push({
+      event_id: eventId,
+      status: 'Pendente',
+      category: 'Equipe',
+      payment_method: null,
+      description: `Escala — ${req?.role_label ?? 'Função'}: ${personById.get(app.profile_id) ?? 'colaborador(a)'}`,
+      quantity: 1,
+      unit_value: value,
+      dex_fee: 0,
+      receipt_data: null, signature_data: null, repasse_data: null,
+      created_by: createdBy,
+      team_member_id: app.profile_id,
+      pending_team_member_id: null,
+      supplier_id: null,
+      stock_movement_id: null,
+      staffing_application_id: app.id
+    })
+  }
+  if (toInsert.length > 0) {
+    const { error } = await supabase.from('expenses').insert(toInsert)
+    if (error) throw error
+  }
+  return { created: toInsert.length, skippedExisting, skippedNoValue }
+}
+
 // ---------- Contrato via ZapSign ----------
 // Em modo demo simulamos a criação do documento (não existe ZapSign de verdade
 // pra chamar); em produção isso invoca a Edge Function que fala com a API real.
@@ -2392,7 +2502,7 @@ export async function applyToStaffingSlot(
     }
     const record: EventStaffingApplication = {
       id: uid('app'), requirement_id: requirementId, event_id: eventId, profile_id: profileId,
-      status: 'Candidatado', note, decided_by: null, decided_at: null, created_at: new Date().toISOString()
+      status: 'Candidatado', note, decided_by: null, decided_at: null, agreed_value: null, created_at: new Date().toISOString()
     }
     demoState.staffingApplications.push(record)
     return record

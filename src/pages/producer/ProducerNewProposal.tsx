@@ -134,7 +134,7 @@ export default function ProducerNewProposal() {
 
       for (const row of staffing) {
         await createEventStaffingRequirement({
-          event_id: event.id, role_label: row.role_label, quantity: row.quantity,
+          event_id: event.id, role_id: null, role_label: row.role_label, quantity: row.quantity,
           unit_cost: row.unit_cost || null, notes: null
         })
       }
