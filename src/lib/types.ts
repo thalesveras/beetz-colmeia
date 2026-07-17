@@ -537,6 +537,10 @@ export interface StockLocation {
   id: string
   name: string
   description: string | null
+  // Quando preenchido, este local É um evento — nasce sozinho no primeiro
+  // envio e morre com o evento. É o que permite transferir festa→festa e
+  // perguntar "quanto tem na Vaquejada agora?".
+  event_id: string | null
   created_at: string
 }
 

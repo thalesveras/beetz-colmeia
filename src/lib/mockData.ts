@@ -294,9 +294,9 @@ export const mockCashierSettlements: CashierSettlement[] = [
 
 // ---------- Estoque multi-almoxarifado ----------
 export const mockStockLocations: StockLocation[] = [
-  { id: 'sl1', name: 'Estoque Central', description: 'Almoxarifado principal da Beetz', created_at: '2025-01-01T10:00:00Z' },
-  { id: 'sl2', name: 'Estoque Bar', description: 'Estoque usado pelo setor de bar nos eventos', created_at: '2025-01-01T10:00:00Z' },
-  { id: 'sl3', name: 'Estoque Cozinha', description: 'Estoque de insumos de cozinha/produção', created_at: '2025-01-01T10:00:00Z' }
+  { id: 'sl1', name: 'Estoque Central', description: 'Almoxarifado principal da Beetz', event_id: null, created_at: '2025-01-01T10:00:00Z' },
+  { id: 'sl2', name: 'Estoque Bar', description: 'Estoque usado pelo setor de bar nos eventos', event_id: null, created_at: '2025-01-01T10:00:00Z' },
+  { id: 'sl3', name: 'Estoque Cozinha', description: 'Estoque de insumos de cozinha/produção', event_id: null, created_at: '2025-01-01T10:00:00Z' }
 ]
 
 export const mockProducts: Product[] = [

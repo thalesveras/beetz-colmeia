@@ -625,7 +625,7 @@ export default function Stock() {
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h2 className="text-lg font-bold flex items-center gap-2"><ArrowLeftRight size={18} /> Transferências entre estoques</h2>
-                <p className="text-sm text-beetz-dark/50 mt-0.5">Pedidos de mudança de produto entre almoxarifados, vinculados a um evento.</p>
+                <p className="text-sm text-beetz-dark/50 mt-0.5">Mudança de produto entre almoxarifados e eventos — inclusive de uma festa direto pra outra, sem passar pelo depósito.</p>
               </div>
               <button
                 onClick={() => setShowTransferForm((v) => !v)}
@@ -662,14 +662,28 @@ export default function Stock() {
                     <label className="text-sm font-medium block mb-1">De (estoque de origem)</label>
                     <select className={inputClass + ' w-full'} value={transferFromId} onChange={(e) => setTransferFromId(e.target.value)}>
                       <option value="">Selecionar...</option>
-                      {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                      <optgroup label="Almoxarifados">
+                        {locations.filter((l) => !l.event_id).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                      </optgroup>
+                      {locations.some((l) => l.event_id) && (
+                        <optgroup label="Eventos (estoque na festa)">
+                          {locations.filter((l) => l.event_id).map((l) => <option key={l.id} value={l.id}>🎪 {l.name}</option>)}
+                        </optgroup>
+                      )}
                     </select>
                   </div>
                   <div>
                     <label className="text-sm font-medium block mb-1">Para (estoque de destino)</label>
                     <select className={inputClass + ' w-full'} value={transferToId} onChange={(e) => setTransferToId(e.target.value)}>
                       <option value="">Selecionar...</option>
-                      {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                      <optgroup label="Almoxarifados">
+                        {locations.filter((l) => !l.event_id).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                      </optgroup>
+                      {locations.some((l) => l.event_id) && (
+                        <optgroup label="Eventos (estoque na festa)">
+                          {locations.filter((l) => l.event_id).map((l) => <option key={l.id} value={l.id}>🎪 {l.name}</option>)}
+                        </optgroup>
+                      )}
                     </select>
                   </div>
                 </div>

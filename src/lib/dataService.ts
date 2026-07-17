@@ -1005,7 +1005,7 @@ export async function listStockLocations(): Promise<StockLocation[]> {
 
 export async function createStockLocation(name: string, description: string | null): Promise<StockLocation> {
   if (isDemoMode) {
-    const loc: StockLocation = { id: uid('sl'), name, description, created_at: new Date().toISOString() }
+    const loc: StockLocation = { id: uid('sl'), name, description, event_id: null, created_at: new Date().toISOString() }
     demoState.stockLocations.push(loc)
     return loc
   }
