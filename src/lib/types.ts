@@ -643,6 +643,11 @@ export interface RolePermissions {
   can_receive_alert_stock_low: boolean
   can_receive_alert_expense_reviewed: boolean
   can_receive_alert_event_changed: boolean
+  // Fase 3: os dois primeiros nascem de rotina diária (ausência de movimento
+  // não dispara trigger); divergência é trigger no ajuste de inventário.
+  can_receive_alert_stock_idle: boolean
+  can_receive_alert_inventory_diff: boolean
+  can_receive_alert_pending_return: boolean
   updated_at: string
 }
 
@@ -656,6 +661,9 @@ export type AlertFlagKey =
   | 'can_receive_alert_stock_low'
   | 'can_receive_alert_expense_reviewed'
   | 'can_receive_alert_event_changed'
+  | 'can_receive_alert_stock_idle'
+  | 'can_receive_alert_inventory_diff'
+  | 'can_receive_alert_pending_return'
 
 export interface AlertTypeDef {
   key: AlertFlagKey

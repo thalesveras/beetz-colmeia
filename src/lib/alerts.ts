@@ -55,6 +55,30 @@ export const ALERT_TYPES: AlertTypeDef[] = [
     kind: 'Evento',
     escopo: 'global',
     gatilho: 'Quando a data ou o status do evento é alterado.'
+  },
+  {
+    key: 'can_receive_alert_inventory_diff',
+    label: 'Divergência de inventário',
+    description: 'Avisa quando a contagem física não bate com o sistema e gera ajuste.',
+    kind: 'Estoque',
+    escopo: 'global',
+    gatilho: 'Quando o inventário físico gera um ajuste. Correção avulsa não conta.'
+  },
+  {
+    key: 'can_receive_alert_stock_idle',
+    label: 'Produto parado',
+    description: 'Avisa quando um produto tem saldo mas ninguém movimenta há mais de 30 dias.',
+    kind: 'Estoque',
+    escopo: 'global',
+    gatilho: 'Rotina diária às 9h. Não repete o mesmo produto por 7 dias.'
+  },
+  {
+    key: 'can_receive_alert_pending_return',
+    label: 'Devolução pendente',
+    description: 'Avisa quando um evento já passou e saiu mais produto do que voltou.',
+    kind: 'Estoque',
+    escopo: 'global',
+    gatilho: 'Rotina diária às 9h, em eventos com data passada. Não repete por 7 dias.'
   }
 ]
 

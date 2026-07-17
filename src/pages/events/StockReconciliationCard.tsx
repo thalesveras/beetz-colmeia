@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, ClipboardList } from 'lucide-react'
-import { listProducts, listStockMovements } from '../../lib/dataService'
-import type { Product, StockMovement } from '../../lib/types'
+import { listProductAvgCosts, listProducts, listStockMovements } from '../../lib/dataService'
+import type { Product, ProductAvgCost, StockMovement } from '../../lib/types'
 
 // Reconciliação automática do estoque desse evento: soma tudo que foi
 // "Envio para Evento" (estoque inicial + qualquer reforço mandado depois,
@@ -14,19 +14,26 @@ import type { Product, StockMovement } from '../../lib/types'
 export default function StockReconciliationCard({ eventId }: { eventId: string }) {
   const [movements, setMovements] = useState<StockMovement[]>([])
   const [products, setProducts] = useState<Product[]>([])
+  const [avgCosts, setAvgCosts] = useState<ProductAvgCost[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     setLoading(true)
-    Promise.all([listStockMovements(eventId), listProducts()]).then(([m, p]) => {
+    Promise.all([listStockMovements(eventId), listProducts(), listProductAvgCosts()]).then(([m, p, c]) => {
       setMovements(m)
       setProducts(p)
+      setAvgCosts(c)
       setLoading(false)
     })
   }, [eventId])
 
   const productName = (id: string) => products.find((p) => p.id === id)?.name ?? '—'
   const productUnit = (id: string) => products.find((p) => p.id === id)?.unit ?? ''
+  // O custo vem do ESTOQUE (custo médio das compras), não do evento. É o que
+  // torna dois eventos comparáveis: o mesmo insumo custa o mesmo nos dois,
+  // independente de qual compra o abasteceu.
+  const costOf = (id: string) => avgCosts.find((c) => c.product_id === id)?.avg_cost ?? null
+  const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
   const rows = useMemo(() => {
     const byProduct = new Map<string, { enviado: number; sobra: number; perda: number }>()
@@ -57,8 +64,23 @@ export default function StockReconciliationCard({ eventId }: { eventId: string }
     const enviado = rows.reduce((s, r) => s + r.enviado, 0)
     const sobra = rows.reduce((s, r) => s + r.sobra, 0)
     const perda = rows.reduce((s, r) => s + r.perda, 0)
-    return { enviado, sobra, perda, retorno: enviado > 0 ? Math.round((sobra / enviado) * 100) : null }
-  }, [rows])
+    // Só entra no R$ o produto que tem custo médio. Se nenhum tiver, o card
+    // não mostra a coluna — melhor calar que exibir R$ 0,00 e passar por preciso.
+    const custoConsumo = rows.reduce((s, r) => {
+      const c = costOf(r.productId)
+      return c ? s + r.consumo * c : s
+    }, 0)
+    const custoPerda = rows.reduce((s, r) => {
+      const c = costOf(r.productId)
+      return c ? s + r.perda * c : s
+    }, 0)
+    const comCusto = rows.some((r) => costOf(r.productId) != null)
+    return {
+      enviado, sobra, perda, custoConsumo, custoPerda, comCusto,
+      retorno: enviado > 0 ? Math.round((sobra / enviado) * 100) : null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, avgCosts])
 
   if (loading) return null
   if (rows.length === 0) return null
@@ -88,6 +110,19 @@ export default function StockReconciliationCard({ eventId }: { eventId: string }
           <p className="text-[11px] text-white/50 mt-1">Taxa de retorno</p>
         </div>
       </div>
+
+      {totals.comCusto && (
+        <div className="grid grid-cols-2 gap-3 mb-5">
+          <div className="bg-beetz-yellow/15 border border-beetz-yellow/40 rounded-xl p-3">
+            <p className="text-lg font-extrabold leading-none">{brl(totals.custoConsumo)}</p>
+            <p className="text-[11px] text-beetz-dark/50 mt-1">Custo do produto consumido</p>
+          </div>
+          <div className={`rounded-xl p-3 border ${totals.custoPerda > 0 ? 'bg-red-50 border-red-100' : 'bg-beetz-gray/60 border-transparent'}`}>
+            <p className={`text-lg font-extrabold leading-none ${totals.custoPerda > 0 ? 'text-red-600' : ''}`}>{brl(totals.custoPerda)}</p>
+            <p className="text-[11px] text-beetz-dark/50 mt-1">Custo das perdas</p>
+          </div>
+        </div>
+      )}
 
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
