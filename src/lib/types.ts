@@ -380,10 +380,13 @@ export interface PendingProfileDirectoryItem {
   work_location: string | null
   experience_level: ExperienceLevel | null
   entry_date: string | null
-  // Só mês/dia — nunca ano (minimização: não expõe idade de quem ainda nem
-  // se cadastrou de verdade). Ver birth_date em Profile pra quem já tem conta.
+  // Aniversário completo. O ano era descartado de propósito (minimização),
+  // mas o dono pediu idade na página de aniversariantes — birth_year vem da
+  // sincronização do Zoho e pode ser null (registro ainda não ressincronizado
+  // ou ano ilegível/implausível na origem).
   birth_month: number | null
   birth_day: number | null
+  birth_year: number | null
 }
 
 // Campos sensíveis do pré-cadastro (vieram do Zoho junto com o resto, mas

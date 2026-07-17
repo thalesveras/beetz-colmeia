@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Plus, X } from 'lucide-react'
 import { createExpense, createSupplier } from '../../lib/dataService'
+import PersonPicker from './PersonPicker'
 import type {
   EventItem, ExpenseCategory, ExpenseStatus, PaymentMethod, PaymentMethodOption,
   PendingProfilePickerItem, Profile, Supplier
@@ -57,13 +58,6 @@ export default function CreateExpenseModal({
   const parsedUnit = Number(unitValue.replace(',', '.')) || 0
   const parsedFee = Number(dexFee.replace(',', '.')) || 0
   const total = quantity * parsedUnit + parsedFee
-
-  // Uma lista só de "quem recebeu": perfis reais (p:) e pré-cadastros (z:).
-  // Prefixo no value porque os ids podem colidir entre tabelas diferentes.
-  const personOptions = [
-    ...profiles.map((p) => ({ key: `p:${p.id}`, label: `${p.first_name} ${p.last_name}` })),
-    ...pendingProfiles.map((p) => ({ key: `z:${p.id}`, label: `${p.first_name ?? ''} ${p.last_name ?? ''} (pré-cadastro)`.trim() }))
-  ]
 
   async function handleQuickSupplier() {
     const name = newSupplierName.trim()
@@ -174,10 +168,12 @@ export default function CreateExpenseModal({
           </div>
 
           <Field label="Pessoa (quem recebeu — equipe ou pré-cadastro)">
-            <select className={inputClass} value={personKey} onChange={(e) => setPersonKey(e.target.value)}>
-              <option value="">Nenhuma</option>
-              {personOptions.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
-            </select>
+            <PersonPicker
+              profiles={profiles}
+              pendingProfiles={pendingProfiles}
+              value={personKey}
+              onChange={setPersonKey}
+            />
           </Field>
 
           <Field label="Fornecedor">

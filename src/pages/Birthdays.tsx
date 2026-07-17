@@ -17,15 +17,27 @@ const MONTHS = [
 
 const inputClass = 'rounded-xl border border-beetz-dark/15 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
 
-// Lê só dia e mês do birth_date (formato YYYY-MM-DD), nunca o ano —
-// aqui a gente celebra aniversário, não expõe idade de ninguém.
-function dayAndMonth(birthDate: string): { day: number; month: number } | null {
+// Lê o birth_date (formato YYYY-MM-DD) inteiro: dia e mês posicionam o card,
+// ano vira a idade no card — pedido do dono, que trocou o antigo selo
+// "Ainda não se cadastrou" pela idade de cada pessoa.
+function parseBirthDate(birthDate: string): { day: number; month: number; year: number | null } | null {
   const parts = birthDate.split('-')
   if (parts.length !== 3) return null
+  const year = Number(parts[0])
   const month = Number(parts[1])
   const day = Number(parts[2])
   if (!month || !day) return null
-  return { day, month }
+  return { day, month, year: year || null }
+}
+
+// Idade que a pessoa COMPLETA no aniversário deste ano (é o número que se
+// canta no parabéns, mesmo que o dia ainda não tenha chegado). Fora de
+// 14–100 vira null: idade absurda é typo de cadastro, e typo não ganha
+// vitrine no card.
+function turningAge(year: number | null, currentYear: number): number | null {
+  if (!year) return null
+  const age = currentYear - year
+  return age >= 14 && age <= 100 ? age : null
 }
 
 function normalize(s: string) {
@@ -33,8 +45,8 @@ function normalize(s: string) {
 }
 
 type BirthdayItem =
-  | { kind: 'real'; day: number; month: number; profile: Profile }
-  | { kind: 'pending'; day: number; month: number; profile: PendingProfileDirectoryItem }
+  | { kind: 'real'; day: number; month: number; year: number | null; profile: Profile }
+  | { kind: 'pending'; day: number; month: number; year: number | null; profile: PendingProfileDirectoryItem }
 
 type KindFilter = 'todos' | 'cadastrados' | 'pre'
 
@@ -84,18 +96,20 @@ export default function Birthdays() {
     const real: BirthdayItem[] = profiles
       .map((p) => {
         if (!p.birth_date) return null
-        const dm = dayAndMonth(p.birth_date)
+        const dm = parseBirthDate(p.birth_date)
         if (!dm) return null
-        return { kind: 'real' as const, day: dm.day, month: dm.month, profile: p }
+        return { kind: 'real' as const, day: dm.day, month: dm.month, year: dm.year, profile: p }
       })
       .filter((x): x is BirthdayItem & { kind: 'real' } => x !== null)
 
-    // Pré-cadastro já vem só com mês/dia (nunca ano) — a pessoa ainda não se
-    // cadastrou, mas já faz parte da Beetz, então merece aparecer aqui também.
+    // Pré-cadastro: a pessoa ainda não se cadastrou, mas já faz parte da
+    // Beetz, então merece aparecer aqui também. O birth_year pode ser null
+    // enquanto a sincronização do Zoho não rodar de novo — aí o card sai sem
+    // idade, nunca com idade inventada.
     const pend: BirthdayItem[] = pending
       .map((p) => {
         if (!p.birth_month || !p.birth_day) return null
-        return { kind: 'pending' as const, day: p.birth_day, month: p.birth_month, profile: p }
+        return { kind: 'pending' as const, day: p.birth_day, month: p.birth_month, year: p.birth_year, profile: p }
       })
       .filter((x): x is BirthdayItem & { kind: 'pending' } => x !== null)
 
@@ -255,6 +269,14 @@ export default function Birthdays() {
             {filtered.map((item) => {
               const { day } = item
               const isToday = day === today && item.month === thisMonth
+              const age = turningAge(item.year, now.getFullYear())
+              // No lugar do antigo "Ainda não se cadastrou": a idade que a
+              // pessoa faz — em cadastrados e pré-cadastros igualmente.
+              const ageLine = age !== null ? (
+                <span className="mt-2 text-[11px] font-semibold text-beetz-dark/45">
+                  {isToday ? `${age} anos hoje! 🎂` : `Faz ${age} anos`}
+                </span>
+              ) : null
               const cardClass = `bg-white rounded-2xl p-5 shadow-soft border flex flex-col items-center text-center transition-shadow ${
                 isToday ? 'border-beetz-yellow ring-2 ring-beetz-yellow/40' : 'border-beetz-dark/5'
               } ${item.kind === 'pending' ? 'border-dashed opacity-90' : 'hover:shadow-glow'}`
@@ -301,6 +323,7 @@ export default function Birthdays() {
                         <p className="text-xs text-beetz-dark/40 mt-0.5">{deptName(profile.department_id)}</p>
                       )}
                       {badge}
+                      {ageLine}
                     </Link>
                     {emailButton}
                   </div>
@@ -314,7 +337,7 @@ export default function Birthdays() {
                   <h3 className="mt-3 font-bold text-base">{name}</h3>
                   <p className="text-xs text-beetz-dark/40 mt-0.5">{pendingDeptName(profile.department_hint) || profile.role_hint || 'Colaborador(a)'}</p>
                   {badge}
-                  <span className="mt-2 text-[10px] font-semibold text-beetz-dark/40">Ainda não se cadastrou</span>
+                  {ageLine}
                 </>
               )
               return (
