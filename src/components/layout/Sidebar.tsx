@@ -1,88 +1,17 @@
 import { useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
-import {
-  Home, Users, UserCircle, Hexagon, CalendarDays, Trophy, Info, LogOut, Package,
-  ShieldCheck, Settings, ChevronDown, Wallet, Cake, Truck, HandCoins, Receipt, ClipboardList,
-  BarChart3, Building2
-} from 'lucide-react'
+import { ChevronDown, LogOut } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
-import {
-  canApproveUsers, canManageUsers, canViewBirthdays, canViewFinancialSummary, canViewHiveMap, canViewRanking,
-  canViewStockTab, canViewTeamDirectory
-} from '../../lib/permissions'
+import { groupHasActive, isItemActive, navGroupsFor, HOME_LINK, INFO_LINK } from '../../lib/navigation'
+import type { NavGroup, NavItem } from '../../lib/navigation'
 import Avatar from '../ui/Avatar'
-
-interface NavItem {
-  to: string
-  label: string
-  icon: any
-}
-
-interface NavGroupDef {
-  key: string
-  label: string
-  icon: any
-  items: NavItem[]
-}
 
 export default function Sidebar() {
   const { profile, email, signOut, accessRole } = useAuth()
   const location = useLocation()
 
-  const topLink: NavItem = { to: '/dashboard', label: 'Início', icon: Home }
-  const bottomLink: NavItem = { to: '/informacoes', label: 'Informações', icon: Info }
-
-  const groups: NavGroupDef[] = [
-    {
-      key: 'comunidade',
-      label: 'Comunidade',
-      icon: Users,
-      items: [
-        ...(canViewTeamDirectory(accessRole) ? [{ to: '/turma', label: 'Conhecer a turma', icon: Users }] : []),
-        { to: '/perfil/me', label: 'Meu perfil', icon: UserCircle },
-        ...(canViewHiveMap(accessRole) ? [{ to: '/mapa', label: 'Mapa da colmeia', icon: Hexagon }] : []),
-        ...(canViewBirthdays(accessRole) ? [{ to: '/aniversariantes', label: 'Aniversariantes do mês', icon: Cake }] : []),
-        ...(canViewRanking(accessRole) ? [{ to: '/ranking', label: 'Ranking', icon: Trophy }] : [])
-      ]
-    },
-    {
-      key: 'eventos',
-      label: 'Eventos',
-      icon: CalendarDays,
-      items: [
-        { to: '/eventos', label: 'Eventos', icon: CalendarDays },
-        { to: '/escala', label: 'Escala', icon: ClipboardList },
-        ...(canViewFinancialSummary(accessRole) ? [{ to: '/produtoras', label: 'Produtoras', icon: Building2 }] : []),
-        ...(canViewStockTab(accessRole) ? [{ to: '/estoque', label: 'Estoque', icon: Package }] : [])
-      ]
-    },
-    ...(canViewFinancialSummary(accessRole)
-      ? [{
-          key: 'financeiro',
-          label: 'Financeiro',
-          icon: Wallet,
-          items: [
-            { to: '/financeiro', label: 'Painel', icon: BarChart3 },
-            { to: '/financeiro/despesas', label: 'Despesas', icon: Wallet },
-            { to: '/financeiro/fornecedores', label: 'Fornecedores', icon: Truck },
-            { to: '/financeiro/repasses', label: 'Repasses', icon: HandCoins },
-            { to: '/financeiro/recebimentos', label: 'Recebimentos', icon: Receipt },
-            { to: '/financeiro/fechamentos', label: 'Todos os fechamentos', icon: ClipboardList }
-          ]
-        }]
-      : []),
-    ...(canManageUsers(accessRole) || canApproveUsers(accessRole)
-      ? [{
-          key: 'gestao',
-          label: 'Gestão',
-          icon: ShieldCheck,
-          items: [
-            { to: '/admin', label: 'Administração', icon: ShieldCheck },
-            ...(canManageUsers(accessRole) ? [{ to: '/configuracoes', label: 'Configurações', icon: Settings }] : [])
-          ]
-        }]
-      : [])
-  ]
+  // Quem monta a lista e aplica as permissões é lib/navigation.ts — aqui só desenha.
+  const groups = navGroupsFor(accessRole)
 
   return (
     <aside className="hidden md:flex md:flex-col w-64 shrink-0 h-screen sticky top-0 bg-beetz-dark text-white p-5">
@@ -94,17 +23,17 @@ export default function Sidebar() {
         </div>
       </div>
 
-      <nav className="flex-1 space-y-1 overflow-y-auto">
-        <TopLevelLink item={topLink} />
+      <nav className="flex-1 space-y-1 overflow-y-auto -mr-2 pr-2">
+        <TopLevelLink item={HOME_LINK} />
 
-        <div className="pt-2 mt-1 space-y-1">
+        <div className="pt-2 mt-1 space-y-0.5">
           {groups.map((group) => (
-            <NavGroup key={group.key} group={group} currentPath={location.pathname} />
+            <NavGroupBlock key={group.key} group={group} currentPath={location.pathname} />
           ))}
         </div>
 
         <div className="pt-2 mt-1 border-t border-white/10">
-          <TopLevelLink item={bottomLink} />
+          <TopLevelLink item={INFO_LINK} />
         </div>
       </nav>
 
@@ -144,8 +73,8 @@ function TopLevelLink({ item }: { item: NavItem }) {
   )
 }
 
-function NavGroup({ group, currentPath }: { group: NavGroupDef; currentPath: string }) {
-  const containsActive = group.items.some((item) => currentPath.startsWith(item.to))
+function NavGroupBlock({ group, currentPath }: { group: NavGroup; currentPath: string }) {
+  const containsActive = groupHasActive(group, currentPath)
   const [open, setOpen] = useState(containsActive)
   const GroupIcon = group.icon
 
@@ -153,32 +82,33 @@ function NavGroup({ group, currentPath }: { group: NavGroupDef; currentPath: str
     <div>
       <button
         onClick={() => setOpen((v) => !v)}
-        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
-          containsActive && !open ? 'text-beetz-yellow' : 'text-white/80'
-        } hover:bg-white/10`}
+        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors hover:bg-white/10 ${
+          containsActive ? 'text-beetz-yellow' : 'text-white/80'
+        }`}
       >
         <GroupIcon size={18} />
         <span className="flex-1 text-left">{group.label}</span>
-        <ChevronDown size={15} className={`transition-transform text-white/50 ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown size={15} className={`transition-transform text-white/40 ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
-        <div className="mt-1 ml-4 pl-3 border-l border-white/10 space-y-1">
+        <div className="mt-0.5 mb-1 ml-[26px] pl-3 border-l border-white/10 space-y-0.5">
           {group.items.map((item) => {
             const Icon = item.icon
+            // O item ativo é decidido no navigation.ts (prefixo mais específico
+            // vence), não pelo `end` do NavLink — /financeiro e
+            // /financeiro/despesas se atrapalhavam.
+            const active = isItemActive(item, currentPath, group.items)
             return (
               <NavLink
                 key={item.to}
                 to={item.to}
-                end
-                className={({ isActive }) =>
-                  `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    isActive ? 'bg-beetz-yellow text-beetz-dark' : 'text-white/70 hover:bg-white/10'
-                  }`
-                }
+                className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors ${
+                  active ? 'bg-beetz-yellow text-beetz-dark' : 'text-white/65 hover:bg-white/10 hover:text-white'
+                }`}
               >
-                <Icon size={16} />
-                {item.label}
+                <Icon size={15} className="shrink-0" />
+                <span className="truncate">{item.label}</span>
               </NavLink>
             )
           })}

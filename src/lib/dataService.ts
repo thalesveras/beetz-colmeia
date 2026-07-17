@@ -98,12 +98,26 @@ export async function updateDepartmentDetails(
 // ---------- Perfis ----------
 // A Turma e os seletores de escalação só mostram gente com o perfil completo
 // E já aprovada pela Diretoria — quem está pendente ainda não aparece pra equipe.
+// Ordena por nome no banco: sem .order() o Postgres devolve na ordem que for
+// mais barata pra ele, que muda sozinha conforme a tabela é escrita. Como 18
+// telas leem daqui (e várias viram <select> de gente), ordenar aqui conserta
+// todas de uma vez — ordenar em cada tela seria a mesma regra escrita 18 vezes.
 export async function listProfiles(): Promise<Profile[]> {
-  if (isDemoMode) return demoState.profiles.filter((p) => p.onboarding_completed && p.approval_status === 'Aprovado')
+  if (isDemoMode) return demoState.profiles
+    .filter((p) => p.onboarding_completed && p.approval_status === 'Aprovado')
+    .sort(byProfileName)
   const { data, error } = await supabase.from('profiles').select('*')
     .eq('onboarding_completed', true).eq('approval_status', 'Aprovado')
+    .order('first_name', { ascending: true }).order('last_name', { ascending: true })
   if (error) throw error
   return data as Profile[]
+}
+
+// pt-BR pra "Álvaro" vir antes de "Bruno" em vez de depois de "Zeca".
+function byProfileName(a: { first_name?: string | null; last_name?: string | null }, b: { first_name?: string | null; last_name?: string | null }) {
+  const name = (p: { first_name?: string | null; last_name?: string | null }) =>
+    `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim()
+  return name(a).localeCompare(name(b), 'pt-BR')
 }
 
 export async function listPendingProfiles(): Promise<Profile[]> {

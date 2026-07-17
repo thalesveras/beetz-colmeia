@@ -1,26 +1,20 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
-  Home, Users, UserCircle, Hexagon, CalendarDays, Trophy, Package, ShieldCheck, Settings, Wallet,
-  MoreHorizontal, ClipboardList, Cake, Truck, HandCoins, Receipt, Info, X, LogOut, BarChart3, Building2
+  Home, Users, CalendarDays, Package, ShieldCheck, Wallet, MoreHorizontal, ClipboardList, X, LogOut
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
-import {
-  canApproveUsers, canManageUsers, canViewBirthdays, canViewFinancialSummary, canViewHiveMap, canViewRanking,
-  canViewStockTab, canViewTeamDirectory
-} from '../../lib/permissions'
+import { groupHasActive, isItemActive, navGroupsFor, INFO_LINK } from '../../lib/navigation'
+import type { NavItem } from '../../lib/navigation'
 import type { AccessRole } from '../../lib/permissions'
-
-interface NavItem {
-  to: string
-  label: string
-  icon: any
-}
 
 // A barra do celular só cabe 5 alvos de toque de forma confortável — antes
 // eram até 10 itens espremidos com fonte de 9px e rolagem lateral. Agora são
 // 4 fixos + "Mais", e os 4 fixos mudam conforme o cargo: quem é da diretoria
 // vive no Financeiro, quem é do bar vive no Estoque, e a turma vive na Escala.
+//
+// Estes 4 NÃO são alfabéticos de propósito: é atalho por frequência de uso, não
+// índice. O alfabético vale pra folha do "Mais", que é onde se procura algo.
 function primaryLinksFor(role: AccessRole): NavItem[] {
   switch (role) {
     case 'diretoria':
@@ -50,78 +44,25 @@ function primaryLinksFor(role: AccessRole): NavItem[] {
   }
 }
 
-interface NavGroup {
-  label: string
-  items: NavItem[]
-}
-
-// Tudo o que não está fixo na barra vive aqui dentro, agrupado igual ao menu
-// do desktop pra não ter duas lógicas de navegação diferentes na cabeça.
-function groupsFor(role: AccessRole, primary: NavItem[]): NavGroup[] {
-  const taken = new Set(primary.map((p) => p.to))
-  const groups: NavGroup[] = [
-    {
-      label: 'Comunidade',
-      items: [
-        ...(canViewTeamDirectory(role) ? [{ to: '/turma', label: 'Conhecer a turma', icon: Users }] : []),
-        { to: '/perfil/me', label: 'Meu perfil', icon: UserCircle },
-        ...(canViewHiveMap(role) ? [{ to: '/mapa', label: 'Mapa da colmeia', icon: Hexagon }] : []),
-        ...(canViewBirthdays(role) ? [{ to: '/aniversariantes', label: 'Aniversariantes', icon: Cake }] : []),
-        ...(canViewRanking(role) ? [{ to: '/ranking', label: 'Ranking', icon: Trophy }] : [])
-      ]
-    },
-    {
-      label: 'Eventos',
-      items: [
-        { to: '/eventos', label: 'Eventos', icon: CalendarDays },
-        { to: '/escala', label: 'Escala', icon: ClipboardList },
-        ...(canViewFinancialSummary(role) ? [{ to: '/produtoras', label: 'Produtoras', icon: Building2 }] : []),
-        ...(canViewStockTab(role) ? [{ to: '/estoque', label: 'Estoque', icon: Package }] : [])
-      ]
-    },
-    ...(canViewFinancialSummary(role)
-      ? [{
-          label: 'Financeiro',
-          items: [
-            { to: '/financeiro', label: 'Painel', icon: BarChart3 },
-            { to: '/financeiro/despesas', label: 'Despesas', icon: Wallet },
-            { to: '/financeiro/fornecedores', label: 'Fornecedores', icon: Truck },
-            { to: '/financeiro/repasses', label: 'Repasses', icon: HandCoins },
-            { to: '/financeiro/recebimentos', label: 'Recebimentos', icon: Receipt },
-            { to: '/financeiro/fechamentos', label: 'Fechamentos', icon: ClipboardList }
-          ]
-        }]
-      : []),
-    ...(canManageUsers(role) || canApproveUsers(role)
-      ? [{
-          label: 'Gestão',
-          items: [
-            { to: '/admin', label: 'Administração', icon: ShieldCheck },
-            ...(canManageUsers(role) ? [{ to: '/configuracoes', label: 'Configurações', icon: Settings }] : [])
-          ]
-        }]
-      : []),
-    { label: 'Sobre', items: [{ to: '/informacoes', label: 'Informações', icon: Info }] }
-  ]
-
-  // Não repete no "Mais" o que já está fixo na barra.
-  return groups
-    .map((g) => ({ ...g, items: g.items.filter((i) => !taken.has(i.to)) }))
-    .filter((g) => g.items.length > 0)
-}
-
 export default function MobileNav() {
   const { accessRole, signOut } = useAuth()
   const location = useLocation()
   const [sheetOpen, setSheetOpen] = useState(false)
 
   const primary = primaryLinksFor(accessRole)
-  const groups = groupsFor(accessRole, primary)
+
+  // Mesma lista e mesmas permissões do desktop; aqui só tira o que já está fixo
+  // na barra pra não aparecer duas vezes, e acrescenta Informações no fim.
+  const taken = new Set(primary.map((p) => p.to))
+  const groups = navGroupsFor(accessRole)
+    .map((g) => ({ ...g, items: g.items.filter((i) => !taken.has(i.to)) }))
+    .filter((g) => g.items.length > 0)
+    .concat([{ key: 'sobre', label: 'Sobre', icon: INFO_LINK.icon, items: [INFO_LINK] }])
 
   // Trocar de tela fecha a folha — senão ela fica aberta por cima do destino.
   useEffect(() => { setSheetOpen(false) }, [location.pathname])
 
-  const sheetHasActive = groups.some((g) => g.items.some((i) => location.pathname.startsWith(i.to)))
+  const sheetHasActive = groups.some((g) => groupHasActive(g, location.pathname))
 
   return (
     <>
@@ -140,24 +81,25 @@ export default function MobileNav() {
 
           <div className="p-4 space-y-5">
             {groups.map((group) => (
-              <div key={group.label}>
+              <div key={group.key}>
                 <p className="text-[11px] font-bold uppercase tracking-wide text-beetz-dark/35 px-2 mb-1.5">{group.label}</p>
                 <div className="space-y-0.5">
-                  {group.items.map(({ to, label, icon: Icon }) => (
-                    <NavLink
-                      key={to}
-                      to={to}
-                      end
-                      className={({ isActive }) =>
-                        `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium ${
-                          isActive ? 'bg-beetz-yellow text-beetz-dark' : 'text-beetz-dark/75 hover:bg-beetz-gray'
-                        }`
-                      }
-                    >
-                      <Icon size={17} />
-                      {label}
-                    </NavLink>
-                  ))}
+                  {group.items.map((item) => {
+                    const Icon = item.icon
+                    const active = isItemActive(item, location.pathname, group.items)
+                    return (
+                      <NavLink
+                        key={item.to}
+                        to={item.to}
+                        className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium ${
+                          active ? 'bg-beetz-yellow text-beetz-dark' : 'text-beetz-dark/75 hover:bg-beetz-gray'
+                        }`}
+                      >
+                        <Icon size={17} className="shrink-0" />
+                        {item.label}
+                      </NavLink>
+                    )
+                  })}
                 </div>
               </div>
             ))}
