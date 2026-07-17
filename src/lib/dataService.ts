@@ -1537,30 +1537,61 @@ export async function updateTransferRequestStatus(id: string, status: TransferRe
   if (error) throw error
 }
 
-// Aprovar uma transferência agora GERA a movimentação real de estoque (saída
-// do estoque central, tipo 'Envio para Evento') — antes o pedido só mudava de
-// status sem mexer no saldo de verdade. userId é quem está aprovando
-// (registrado como autor da movimentação).
+// Aprovar transferência gera a movimentação real de estoque.
+//
+// CORREÇÃO DE ERRO CRÍTICO: até aqui isto criava UMA linha só — a saída da
+// origem. O to_location_id era gravado no pedido e nunca virava entrada em
+// lugar nenhum, ou seja, o produto saía de A e não chegava em B: partida
+// simples onde estoque exige partida dobrada, e a mercadoria evaporava. Não
+// doía porque só existe um almoxarifado — no segundo, todo transporte viraria
+// perda invisível.
+//
+// Agora há dois casos, e eles são diferentes de verdade:
+//  - destino é OUTRO estoque  -> par 'Saída' (A) + 'Entrada' (B). Saldo total
+//    da empresa não muda; só mudou de prateleira.
+//  - destino é o evento (sem to_location, ou igual à origem) -> 'Envio para
+//    Evento' só na origem. O produto sai do almoxarifado pra festa.
 export async function approveTransferRequest(request: TransferRequest, approvedBy: string | null): Promise<void> {
   if (!request.from_location_id) {
     throw new Error('Esse pedido não tem estoque de origem definido — não dá pra gerar a movimentação.')
   }
+  const tag = `Transferência aprovada (#${request.id.slice(0, 8)})`
+  const entreEstoques = !!request.to_location_id && request.to_location_id !== request.from_location_id
+
+  const linhas = entreEstoques
+    ? [
+        {
+          product_id: request.product_id, stock_location_id: request.from_location_id,
+          event_id: request.event_id, movement_type: 'Saída' as MovementType, quantity: request.quantity,
+          unit_cost: null, notes: `${tag} — saída`, created_by: approvedBy, status: 'Ativo' as const
+        },
+        {
+          product_id: request.product_id, stock_location_id: request.to_location_id!,
+          event_id: request.event_id, movement_type: 'Entrada' as MovementType, quantity: request.quantity,
+          unit_cost: null, notes: `${tag} — entrada`, created_by: approvedBy, status: 'Ativo' as const
+        }
+      ]
+    : [
+        {
+          product_id: request.product_id, stock_location_id: request.from_location_id,
+          event_id: request.event_id, movement_type: 'Envio para Evento' as MovementType, quantity: request.quantity,
+          unit_cost: null, notes: tag, created_by: approvedBy, status: 'Ativo' as const
+        }
+      ]
+
   if (isDemoMode) {
     const idx = demoState.transferRequests.findIndex((t) => t.id === request.id)
     if (idx >= 0) demoState.transferRequests[idx] = { ...demoState.transferRequests[idx], status: 'Aprovado' }
-    demoState.stockMovements.push({
-      id: uid('sm'), product_id: request.product_id, stock_location_id: request.from_location_id,
-      event_id: request.event_id, movement_type: 'Envio para Evento', quantity: request.quantity, unit_cost: null,
-      notes: `Transferência aprovada (#${request.id.slice(0, 8)})`, created_by: approvedBy,
-      status: 'Ativo', created_at: new Date().toISOString()
-    })
+    for (const l of linhas) {
+      demoState.stockMovements.push({ ...l, id: uid('sm'), created_at: new Date().toISOString() })
+    }
     return
   }
-  const { error: moveErr } = await supabase.from('stock_movements').insert({
-    product_id: request.product_id, stock_location_id: request.from_location_id, event_id: request.event_id,
-    movement_type: 'Envio para Evento', quantity: request.quantity, unit_cost: null,
-    notes: `Transferência aprovada (#${request.id.slice(0, 8)})`, created_by: approvedBy, status: 'Ativo'
-  })
+
+  // Insert em lote: as duas pernas da transferência entram na mesma requisição,
+  // então ou as duas gravam ou nenhuma. Sequencial deixaria a saída gravada e
+  // a entrada não — que é justamente o bug que estou consertando.
+  const { error: moveErr } = await supabase.from('stock_movements').insert(linhas)
   if (moveErr) throw moveErr
   const { error: statusErr } = await supabase.from('transfer_requests').update({ status: 'Aprovado' }).eq('id', request.id)
   if (statusErr) throw statusErr
