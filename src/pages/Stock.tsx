@@ -218,9 +218,18 @@ export default function Stock() {
     items: balances.filter((b) => b.stock_location_id === loc.id && b.balance !== 0)
   }))
 
+  // Saldo baixo só vale pro ALMOXARIFADO: 3 unidades num local de evento não é
+  // estoque acabando, é a festa recebendo o que pediu. Sem esse filtro, todo
+  // envio pequeno viraria alarme vermelho.
+  const eventLocationIds = useMemo(
+    () => new Set(locations.filter((l) => l.event_id).map((l) => l.id)),
+    [locations]
+  )
   const lowStockItems = useMemo(
-    () => balances.filter((b) => b.balance > 0 && b.balance <= effectiveThreshold(b.product_id)),
-    [balances, products]
+    () => balances.filter((b) =>
+      !eventLocationIds.has(b.stock_location_id) &&
+      b.balance > 0 && b.balance <= effectiveThreshold(b.product_id)),
+    [balances, products, eventLocationIds]
   )
 
   const movementsToday = useMemo(() => {
@@ -447,7 +456,10 @@ export default function Stock() {
                 </form>
               )}
               <div className="space-y-1.5">
-                {locations.map((l) => (
+                {/* Só almoxarifados: local de evento nasce e morre com o evento
+                    (e o nome acompanha o evento sozinho) — lápis e lixeira aqui
+                    seriam convite pra quebrar isso sem querer. */}
+                {locations.filter((l) => !l.event_id).map((l) => (
                   <div key={l.id} className="flex items-center gap-2">
                     {editingLocationId === l.id ? (
                       <>
@@ -554,7 +566,9 @@ export default function Stock() {
                     ) : (
                       <span className="font-bold text-sm">{m.quantity}</span>
                     )}
-                    {canEditMovement(m) && editingId !== m.id && (
+                    {/* Espelho não se edita nem cancela direto — a original
+                        manda e o banco recusa. Botão que só dá erro é armadilha. */}
+                    {!m.mirror_of && canEditMovement(m) && editingId !== m.id && (
                       <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                         <button onClick={() => startEdit(m)} className="text-beetz-dark/40 hover:text-beetz-dark p-1.5 rounded-lg hover:bg-beetz-gray">
                           <Pencil size={14} />

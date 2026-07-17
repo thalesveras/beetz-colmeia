@@ -585,6 +585,9 @@ export interface StockMovement {
   created_by: string | null
   status: MovementStatus
   created_at: string
+  // Preenchido = esta linha é o espelho automático de outra (par da partida
+  // dobrada). Espelho não se edita nem se cancela direto — a original manda.
+  mirror_of?: string | null
 }
 
 export interface StockBalance {

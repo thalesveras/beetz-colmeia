@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
+import { canAddExpense } from '../../lib/permissions'
 import { createExpense, createStockMovement, getStockBalances, isPositiveMovementType, listEvents, listProducts, listStockLocations } from '../../lib/dataService'
 import type { EventItem, MovementType, Product, StockBalance, StockLocation } from '../../lib/types'
 
@@ -21,7 +22,7 @@ interface Props {
 }
 
 export default function StockMovementForm({ fixedEventId, onSaved }: Props) {
-  const { userId } = useAuth()
+  const { userId, accessRole } = useAuth()
   const [products, setProducts] = useState<Product[]>([])
   const [locations, setLocations] = useState<StockLocation[]>([])
   const [events, setEvents] = useState<EventItem[]>([])
@@ -38,6 +39,10 @@ export default function StockMovementForm({ fixedEventId, onSaved }: Props) {
   // opcional-desligado é o campo que ninguém preenche. Quem NÃO quiser a
   // despesa desmarca — o caminho comum vira o caminho fácil.
   const [generateExpense, setGenerateExpense] = useState(true)
+  // Quem não pode lançar despesa (ex: Operacional) não gera despesa por
+  // tabela: a Compra entra no estoque e a tela avisa que falta o financeiro.
+  // Sem isso, a flag can_add_expense diria uma coisa e o sistema faria outra.
+  const allowExpense = canAddExpense(accessRole)
   const [notes, setNotes] = useState('')
 
   useEffect(() => {
@@ -81,7 +86,7 @@ export default function StockMovementForm({ fixedEventId, onSaved }: Props) {
     // dois efeitos: estoque ganha quantidade+custo, financeiro ganha o gasto
     // como Pendente pra Diretoria revisar. Se a despesa falhar, a Compra fica
     // — o aviso diz o que faltou, e dá pra lançar a despesa à mão depois.
-    if (movementType === 'Compra' && generateExpense && parsedCost) {
+    if (movementType === 'Compra' && generateExpense && allowExpense && parsedCost) {
       const productName = products.find((p) => p.id === productId)?.name ?? 'produto'
       try {
         await createExpense({
@@ -156,7 +161,12 @@ export default function StockMovementForm({ fixedEventId, onSaved }: Props) {
             <p className="text-xs text-beetz-dark/40 mt-1">
               Alimenta o custo médio e o valor do estoque. Sem preço, a compra entra só em quantidade.
             </p>
-            {unitCost.trim() && (
+            {unitCost.trim() && !allowExpense && (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2">
+                Seu perfil não lança despesas: a compra entra no estoque e alguém do Financeiro registra o gasto.
+              </p>
+            )}
+            {unitCost.trim() && allowExpense && (
               <label className="flex items-center gap-2 mt-2 cursor-pointer">
                 <input type="checkbox" checked={generateExpense} onChange={(e) => setGenerateExpense(e.target.checked)}
                   className="rounded border-beetz-dark/20" />
