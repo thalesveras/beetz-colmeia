@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Plus, Pencil, Ban, RotateCcw, Check, X, Trash2, ChevronDown, ChevronUp, Package, Warehouse, AlertTriangle,
-  Clock3, ArrowLeftRight, ChevronLeft, ChevronRight, Filter, Wallet, CalendarDays
+  Clock3, ArrowLeftRight, ChevronLeft, ChevronRight, Filter, Wallet, CalendarDays, ListChecks
 } from 'lucide-react'
 import {
   approveTransferRequest, createStockLocation, createTransferRequest,
@@ -36,6 +36,21 @@ function getPageNumbers(current: number, total: number): (number | 'ellipsis')[]
   return pages
 }
 
+// Abas no mesmo padrão das Configurações: uma página, um assunto por vez.
+// A tela única anterior empilhava 8 seções — no celular era um pergaminho.
+// "Resumo" é a porta de entrada: números + botões grandes que levam pra aba
+// certa, pensados pro dedo (a operação usa o estoque do celular, no evento).
+type StockTabKey = 'resumo' | 'movimentacoes' | 'transferencias' | 'reservas' | 'inventario' | 'cadastros'
+
+const STOCK_TABS: { key: StockTabKey; label: string; icon: typeof Wallet; managerOnly?: boolean }[] = [
+  { key: 'resumo', label: 'Resumo', icon: Wallet },
+  { key: 'movimentacoes', label: 'Movimentações', icon: Clock3 },
+  { key: 'transferencias', label: 'Transferências', icon: ArrowLeftRight },
+  { key: 'reservas', label: 'Reservas', icon: CalendarDays },
+  { key: 'inventario', label: 'Inventário', icon: ListChecks, managerOnly: true },
+  { key: 'cadastros', label: 'Produtos & Estoques', icon: Package }
+]
+
 const transferStatuses: TransferRequestStatus[] = ['Pendente', 'Aprovado', 'Negado']
 const transferStatusColors: Record<TransferRequestStatus, string> = {
   Pendente: 'bg-beetz-yellow/30 text-beetz-dark',
@@ -53,6 +68,7 @@ export default function Stock() {
   const [movements, setMovements] = useState<StockMovement[]>([])
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
+  const [tab, setTab] = useState<StockTabKey>('resumo')
   const [showMovementForm, setShowMovementForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editQuantity, setEditQuantity] = useState(0)
@@ -237,6 +253,9 @@ export default function Stock() {
     return movements.filter((m) => m.status === 'Ativo' && new Date(m.created_at).toDateString() === today)
   }, [movements])
 
+  // Badge do botão de Transferências no Resumo: pendência é o que pede clique.
+  const pendingTransfers = useMemo(() => transfers.filter((t) => t.status === 'Pendente').length, [transfers])
+
   const movementTypeOptions = useMemo(
     () => Array.from(new Set(movements.map((m) => m.movement_type))).sort(),
     [movements]
@@ -319,14 +338,26 @@ export default function Stock() {
           <p className="text-beetz-dark/60 mt-1">Controle multi-almoxarifado de entradas e saídas.</p>
         </div>
         <button
-          onClick={() => setShowMovementForm((v) => !v)}
+          onClick={() => { setTab('movimentacoes'); setShowMovementForm(true) }}
           className="flex items-center gap-2 honey-gradient text-beetz-dark font-bold px-4 py-2.5 rounded-xl hover:brightness-105 transition"
         >
           <Plus size={18} /> Nova movimentação
         </button>
       </div>
 
-      {showMovementForm && <StockMovementForm onSaved={() => { setShowMovementForm(false); load() }} />}
+      <div className="flex flex-wrap gap-2 border-b border-beetz-dark/10 pb-3">
+        {STOCK_TABS.filter((t) => !t.managerOnly || canManageCatalog).map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`flex items-center gap-1.5 text-sm font-semibold px-3.5 py-2 rounded-xl transition-colors ${
+              tab === key ? 'bg-beetz-dark text-white' : 'bg-beetz-gray text-beetz-dark/70 hover:bg-beetz-dark/10'
+            }`}
+          >
+            <Icon size={15} /> {label}
+          </button>
+        ))}
+      </div>
 
       {timelineProduct && (
         <ProductTimeline
@@ -339,6 +370,7 @@ export default function Stock() {
         <p className="text-beetz-dark/50">Carregando...</p>
       ) : (
         <>
+          {tab === 'resumo' && (<>
           {/* Os dois primeiros KPIs são a Fase 1 da inteligência: R$ em vez de
               contagem. Só somam produtos com custo médio (Compra com preço) —
               melhor um número menor e verdadeiro que um total inventado. */}
@@ -405,17 +437,65 @@ export default function Stock() {
             </section>
           )}
 
-          <ReservationsSection
-            products={products} locations={locations} events={events} availability={availability}
-            userId={userId} canManage={canManageCatalog} onChanged={load}
-          />
-
-          {canManageCatalog && (
-            <InventoryCount
-              products={products} locations={locations} balances={balances}
-              userId={userId} onDone={load}
-            />
-          )}
+          {/* Botões grandes, nascidos pro celular: a operação mexe no estoque
+              do meio da festa, com o polegar. Cada botão leva direto pra aba
+              da tarefa — ninguém precisa decorar onde mora cada coisa. */}
+          <section>
+            <h2 className="text-lg font-bold mb-3">O que você quer fazer?</h2>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              <button
+                onClick={() => { setTab('movimentacoes'); setShowMovementForm(true) }}
+                className="honey-gradient text-beetz-dark rounded-2xl p-4 shadow-soft flex flex-col items-start gap-2.5 min-h-[104px] active:scale-[0.98] transition"
+              >
+                <span className="bg-beetz-dark/10 rounded-xl p-2"><Plus size={20} /></span>
+                <span className="font-bold text-sm text-left leading-tight">Nova movimentação</span>
+              </button>
+              <button
+                onClick={() => setTab('transferencias')}
+                className="bg-white border border-beetz-dark/5 rounded-2xl p-4 shadow-soft flex flex-col items-start gap-2.5 min-h-[104px] hover:shadow-glow active:scale-[0.98] transition"
+              >
+                <span className="relative bg-beetz-yellow/25 rounded-xl p-2">
+                  <ArrowLeftRight size={20} />
+                  {pendingTransfers > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center">
+                      {pendingTransfers}
+                    </span>
+                  )}
+                </span>
+                <span className="font-bold text-sm text-left leading-tight">Transferências{pendingTransfers > 0 ? ` (${pendingTransfers} pendente${pendingTransfers > 1 ? 's' : ''})` : ''}</span>
+              </button>
+              <button
+                onClick={() => setTab('reservas')}
+                className="bg-white border border-beetz-dark/5 rounded-2xl p-4 shadow-soft flex flex-col items-start gap-2.5 min-h-[104px] hover:shadow-glow active:scale-[0.98] transition"
+              >
+                <span className="bg-beetz-yellow/25 rounded-xl p-2"><CalendarDays size={20} /></span>
+                <span className="font-bold text-sm text-left leading-tight">Reservas pra eventos</span>
+              </button>
+              <button
+                onClick={() => setTab('movimentacoes')}
+                className="bg-white border border-beetz-dark/5 rounded-2xl p-4 shadow-soft flex flex-col items-start gap-2.5 min-h-[104px] hover:shadow-glow active:scale-[0.98] transition"
+              >
+                <span className="bg-beetz-yellow/25 rounded-xl p-2"><Clock3 size={20} /></span>
+                <span className="font-bold text-sm text-left leading-tight">Histórico de movimentações</span>
+              </button>
+              {canManageCatalog && (
+                <button
+                  onClick={() => setTab('inventario')}
+                  className="bg-white border border-beetz-dark/5 rounded-2xl p-4 shadow-soft flex flex-col items-start gap-2.5 min-h-[104px] hover:shadow-glow active:scale-[0.98] transition"
+                >
+                  <span className="bg-beetz-yellow/25 rounded-xl p-2"><ListChecks size={20} /></span>
+                  <span className="font-bold text-sm text-left leading-tight">Inventário físico</span>
+                </button>
+              )}
+              <button
+                onClick={() => setTab('cadastros')}
+                className="bg-white border border-beetz-dark/5 rounded-2xl p-4 shadow-soft flex flex-col items-start gap-2.5 min-h-[104px] hover:shadow-glow active:scale-[0.98] transition"
+              >
+                <span className="bg-beetz-yellow/25 rounded-xl p-2"><Package size={20} /></span>
+                <span className="font-bold text-sm text-left leading-tight">Produtos & estoques</span>
+              </button>
+            </div>
+          </section>
 
           <section>
             <h2 className="text-lg font-bold mb-4">Saldo atual por estoque</h2>
@@ -439,7 +519,23 @@ export default function Stock() {
               ))}
             </div>
           </section>
+          </>)}
 
+          {tab === 'reservas' && (
+            <ReservationsSection
+              products={products} locations={locations} events={events} availability={availability}
+              userId={userId} canManage={canManageCatalog} onChanged={load}
+            />
+          )}
+
+          {tab === 'inventario' && canManageCatalog && (
+            <InventoryCount
+              products={products} locations={locations} balances={balances}
+              userId={userId} onDone={load}
+            />
+          )}
+
+          {tab === 'cadastros' && (
           <section className="grid md:grid-cols-2 gap-6">
             <ProductCatalog
               products={products} balances={balances} avgCosts={avgCosts}
@@ -484,6 +580,10 @@ export default function Stock() {
               </div>
             </div>
           </section>
+          )}
+
+          {tab === 'movimentacoes' && (<>
+          {showMovementForm && <StockMovementForm onSaved={() => { setShowMovementForm(false); load() }} />}
 
           <section>
             <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
@@ -634,7 +734,9 @@ export default function Stock() {
               </div>
             )}
           </section>
+          </>)}
 
+          {tab === 'transferencias' && (
           <section>
             <div className="flex items-center justify-between mb-4">
               <div>
@@ -768,6 +870,7 @@ export default function Stock() {
               {transfers.length === 0 && <p className="text-sm text-beetz-dark/50 p-4">Nenhuma transferência solicitada ainda.</p>}
             </div>
           </section>
+          )}
         </>
       )}
     </div>
