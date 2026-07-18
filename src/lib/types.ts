@@ -427,6 +427,11 @@ export interface PendingProfileSensitive {
   pix_key: string | null
   pix_key_type: string | null
   pix_owner_name: string | null
+  // Fase 1 do "baixar tudo": emergência e saúde vêm do Zoho e são sensíveis —
+  // só transitam por esta função gateada por is_diretoria.
+  emergency_contact_name: string | null
+  emergency_contact_phone: string | null
+  health_conditions: string | null
 }
 
 // Redirecionador de caminho pro site público beetz.bar (ex: /cardapio -> um

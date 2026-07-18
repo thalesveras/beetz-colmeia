@@ -257,6 +257,17 @@ export default function PendingProfileModal({ profile, departmentName, onClose }
                       {profile.entry_date ? new Date(profile.entry_date + 'T00:00:00').toLocaleDateString('pt-BR') : '—'}
                     </p>
                   </div>
+                  <div>
+                    <p className="text-xs text-white/40">Contato de emergência</p>
+                    <p className="font-semibold text-white">
+                      {sensitive.emergency_contact_name || '—'}
+                      {sensitive.emergency_contact_phone ? ` · ${sensitive.emergency_contact_phone}` : ''}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-white/40">Saúde</p>
+                    <p className="font-semibold text-white">{sensitive.health_conditions || '—'}</p>
+                  </div>
                   <div className="col-span-2">
                     <p className="text-xs text-white/40">Chave Pix</p>
                     <p className="font-semibold text-white">
