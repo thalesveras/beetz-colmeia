@@ -1487,13 +1487,16 @@ function drawPwaIcon(img: HTMLImageElement, size: number, pad: number, backgroun
 async function generateAndUploadPwaIcons(file: File): Promise<string | null> {
   try {
     const img = await loadLogoImage(file)
-    // "any" mantém o logo como veio (fundo transparente preservado); o
-    // maskable ganha fundo branco e 18% de margem — a zona que o launcher
-    // pode cortar. Branco é a mesma aposta do BrandLogo na interface.
+    // Logo quadrado (caso da Beetz) vira ícone de canto a canto — margem aqui
+    // criava uma moldura branca feia na tela de início. Logo retangular cai
+    // no plano B: contain com margem e fundo branco no maskable, porque
+    // esticar um retângulo até as bordas deformaria a marca.
+    const ratio = img.naturalWidth / img.naturalHeight
+    const isSquare = ratio > 0.92 && ratio < 1.08
     const [i192, i512, mask] = await Promise.all([
-      drawPwaIcon(img, 192, 0.04, null),
-      drawPwaIcon(img, 512, 0.04, null),
-      drawPwaIcon(img, 512, 0.18, '#ffffff')
+      drawPwaIcon(img, 192, isSquare ? 0 : 0.04, null),
+      drawPwaIcon(img, 512, isSquare ? 0 : 0.04, null),
+      drawPwaIcon(img, 512, isSquare ? 0 : 0.18, '#ffffff')
     ])
     const uploads: Array<[string, Blob]> = [['pwa-192.png', i192], ['pwa-512.png', i512], ['pwa-maskable-512.png', mask]]
     for (const [path, blob] of uploads) {

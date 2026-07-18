@@ -21,27 +21,29 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   async function loadConfig() {
-    try {
-      const [permissions, levels, badges, settings] = await Promise.all([
-        listRolePermissions(),
-        listHiveLevelsConfig(),
-        listBadgeDefsConfig(),
-        getAppSettings()
-      ])
-      setRolePermissions(permissions)
-      setHiveLevels(levels)
-      setBadgeDefs(badges)
-      setAppSettings(settings)
+    // allSettled, não all: a marca (app_settings) é PÚBLICA e precisa aparecer
+    // até deslogado — logo, favicon, textos da tela inicial. Já permissões,
+    // níveis e medalhas exigem login; sem sessão essas três falham por RLS.
+    // Com Promise.all, uma falha delas derrubava o pacote inteiro e o app
+    // voltava pro 🐝 de fábrica em toda visita anônima.
+    const [permissions, levels, badges, settings] = await Promise.allSettled([
+      listRolePermissions(),
+      listHiveLevelsConfig(),
+      listBadgeDefsConfig(),
+      getAppSettings()
+    ])
+    if (permissions.status === 'fulfilled') setRolePermissions(permissions.value)
+    if (levels.status === 'fulfilled') setHiveLevels(levels.value)
+    if (badges.status === 'fulfilled') setBadgeDefs(badges.value)
+    if (settings.status === 'fulfilled') {
+      setAppSettings(settings.value)
       // Nome do app instalado e título da aba saem do banco. Só afeta quem
       // instalar daqui pra frente — ver comentário em lib/pwaManifest.ts.
-      applyPwaManifest(settings)
-    } catch (err) {
-      // Se a configuração não carregar (ex: tabelas novas ainda não aplicadas),
-      // seguimos com os valores padrão embutidos no código.
-      console.error('Falha ao carregar configurações:', err)
-    } finally {
-      setLoading(false)
+      applyPwaManifest(settings.value)
+    } else {
+      console.error('Falha ao carregar a marca:', settings.reason)
     }
+    setLoading(false)
   }
 
   useEffect(() => {

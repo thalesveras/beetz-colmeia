@@ -5,7 +5,7 @@
 // conexão. Então só cacheamos o "casco" do app (HTML/JS/CSS), que é o que
 // deixa ele abrir rápido e funcionar como aplicativo de verdade.
 
-const CACHE = 'colmeia-v1'
+const CACHE = 'colmeia-v2'
 const SHELL = ['/', '/index.html', '/icon-192.png', '/icon-512.png', '/manifest.webmanifest']
 
 self.addEventListener('install', (event) => {
