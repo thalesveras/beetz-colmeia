@@ -1440,6 +1440,70 @@ export async function updateAppSettings(patch: Partial<Omit<AppSettings, 'id' | 
 const LOGO_MIME = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml']
 const LOGO_MAX_BYTES = 2 * 1024 * 1024
 
+// Ícones de PWA gerados a partir do logo, no próprio navegador de quem faz o
+// upload. O manifest exige PNGs em tamanhos declarados (192/512) e o maskable
+// precisa de margem de segurança — o Android corta a borda em círculo. Então o
+// upload cru não serve de ícone; a gente desenha os três aqui via canvas.
+function loadLogoImage(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img) }
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Não consegui ler a imagem do logo.')) }
+    img.src = url
+  })
+}
+
+function drawPwaIcon(img: HTMLImageElement, size: number, pad: number, background: string | null): Promise<Blob> {
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')
+  if (!ctx || !img.naturalWidth || !img.naturalHeight) {
+    return Promise.reject(new Error('Canvas indisponível ou imagem sem dimensões.'))
+  }
+  if (background) {
+    ctx.fillStyle = background
+    ctx.fillRect(0, 0, size, size)
+  }
+  const inner = size * (1 - 2 * pad)
+  const scale = Math.min(inner / img.naturalWidth, inner / img.naturalHeight)
+  const w = img.naturalWidth * scale
+  const h = img.naturalHeight * scale
+  ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h)
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Falha ao gerar PNG do ícone.'))), 'image/png')
+  })
+}
+
+// Melhor esforço: se a geração falhar (formato exótico, SVG sem dimensões),
+// o upload do logo segue valendo e o PWA continua com os ícones do repo.
+// Devolve a versão gravada em pwa_icon_version, ou null.
+async function generateAndUploadPwaIcons(file: File): Promise<string | null> {
+  try {
+    const img = await loadLogoImage(file)
+    // "any" mantém o logo como veio (fundo transparente preservado); o
+    // maskable ganha fundo branco e 18% de margem — a zona que o launcher
+    // pode cortar. Branco é a mesma aposta do BrandLogo na interface.
+    const [i192, i512, mask] = await Promise.all([
+      drawPwaIcon(img, 192, 0.04, null),
+      drawPwaIcon(img, 512, 0.04, null),
+      drawPwaIcon(img, 512, 0.18, '#ffffff')
+    ])
+    const uploads: Array<[string, Blob]> = [['pwa-192.png', i192], ['pwa-512.png', i512], ['pwa-maskable-512.png', mask]]
+    for (const [path, blob] of uploads) {
+      const { error } = await supabase.storage
+        .from('brand')
+        .upload(path, blob, { upsert: true, contentType: 'image/png', cacheControl: '3600' })
+      if (error) throw error
+    }
+    return String(Date.now())
+  } catch (err) {
+    console.error('Ícones de PWA não gerados (o logo em si foi salvo):', err)
+    return null
+  }
+}
+
 export async function uploadBrandLogo(file: File): Promise<string> {
   if (!LOGO_MIME.includes(file.type)) {
     throw new Error('Formato não aceito. Use PNG, JPG, WEBP ou SVG.')
@@ -1466,8 +1530,11 @@ export async function uploadBrandLogo(file: File): Promise<string> {
   const { data: pub } = supabase.storage.from('brand').getPublicUrl(path)
   const url = `${pub.publicUrl}?v=${Date.now()}`
 
+  const iconVersion = await generateAndUploadPwaIcons(file)
+
   const { error } = await supabase.from('app_settings')
-    .update({ logo_url: url, updated_at: new Date().toISOString() }).eq('id', true)
+    .update({ logo_url: url, pwa_icon_version: iconVersion, updated_at: new Date().toISOString() })
+    .eq('id', true)
   if (error) throw error
   return url
 }
@@ -1480,11 +1547,13 @@ export async function removeBrandLogo(): Promise<void> {
   // Limpa a referência primeiro: se o arquivo sumir e a coluna ficar, a tela
   // mostra imagem quebrada — pior que voltar pro 🐝.
   const { error } = await supabase.from('app_settings')
-    .update({ logo_url: null, updated_at: new Date().toISOString() }).eq('id', true)
+    .update({ logo_url: null, pwa_icon_version: null, updated_at: new Date().toISOString() }).eq('id', true)
   if (error) throw error
 
   const { data: list } = await supabase.storage.from('brand').list('')
-  const files = (list ?? []).filter((f: any) => f.name.startsWith('logo.')).map((f: any) => f.name)
+  const files = (list ?? [])
+    .filter((f: any) => f.name.startsWith('logo.') || f.name.startsWith('pwa-'))
+    .map((f: any) => f.name)
   if (files.length) await supabase.storage.from('brand').remove(files)
 }
 

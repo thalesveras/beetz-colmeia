@@ -410,6 +410,6 @@ export const mockAppSettings: AppSettings = {
   info_text: null,
   pwa_name: 'Beetz Colmeia',
   pwa_short_name: 'Colmeia',
-  default_tax_percentage: 0, pwa_description: 'A comunidade interna de quem faz os maiores eventos acontecerem.',
+  default_tax_percentage: 0, pwa_icon_version: null, pwa_description: 'A comunidade interna de quem faz os maiores eventos acontecerem.',
   updated_at: '2026-01-01T10:00:00Z'
 }

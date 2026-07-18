@@ -784,6 +784,7 @@ export interface AppSettings {
   pwa_name: string
   pwa_short_name: string
   pwa_description: string
+  pwa_icon_version: string | null
   // Alíquota padrão de imposto sobre a RECEITA da Beetz (comissão + créditos)
   // no fechamento dos eventos. Cada evento pode sobrescrever (tax_percentage).
   default_tax_percentage: number

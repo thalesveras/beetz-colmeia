@@ -8,20 +8,42 @@ import type { AppSettings } from './types'
 // instalação. Quem já instalou continua vendo o nome antigo até desinstalar e
 // instalar de novo. Isso é do sistema operacional, não do nosso código.
 //
-// Os ícones continuam apontando pros PNGs do repo de propósito: um Blob não
-// pode referenciar arquivo do Storage sem CORS, e ícone de PWA precisa ser
-// same-origin pra instalar em iOS.
-const ICONS = [
+// Ícones: com logo enviado em Configurações → Marca, o upload já gerou os
+// PNGs certos (192/512/maskable) no bucket brand — pwa_icon_version marca que
+// eles existem e serve de cache-buster. Sem logo (ou se a geração falhou),
+// valem os PNGs do repo. As URLs dos gerados saem da mesma pasta do logo_url,
+// então não precisamos importar o client do Supabase aqui.
+const REPO_ICONS = [
   { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
   { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
   { src: '/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
 ]
+
+function brandIcons(settings: AppSettings): { icons: typeof REPO_ICONS, appleTouch: string } {
+  if (settings.logo_url && settings.pwa_icon_version) {
+    const base = settings.logo_url.split('?')[0].replace(/\/[^/]*$/, '')
+    const v = `?v=${settings.pwa_icon_version}`
+    return {
+      icons: [
+        { src: `${base}/pwa-192.png${v}`, sizes: '192x192', type: 'image/png', purpose: 'any' },
+        { src: `${base}/pwa-512.png${v}`, sizes: '512x512', type: 'image/png', purpose: 'any' },
+        { src: `${base}/pwa-maskable-512.png${v}`, sizes: '512x512', type: 'image/png', purpose: 'maskable' }
+      ],
+      // O iOS compõe transparência sobre preto — o maskable (fundo branco) é
+      // o único dos três que garante um atalho bonito na tela de início.
+      appleTouch: `${base}/pwa-maskable-512.png${v}`
+    }
+  }
+  return { icons: REPO_ICONS, appleTouch: '/apple-touch-icon.png' }
+}
 
 let currentBlobUrl: string | null = null
 
 export function applyPwaManifest(settings: AppSettings) {
   const link = document.querySelector<HTMLLinkElement>('link[rel="manifest"]')
   if (!link) return
+
+  const { icons, appleTouch } = brandIcons(settings)
 
   const manifest = {
     name: settings.pwa_name,
@@ -34,7 +56,7 @@ export function applyPwaManifest(settings: AppSettings) {
     background_color: '#f4f4f5',
     theme_color: '#050505',
     lang: 'pt-BR',
-    icons: ICONS,
+    icons,
     shortcuts: [
       { name: 'Minha escala', short_name: 'Escala', url: '/escala' },
       { name: 'Eventos', short_name: 'Eventos', url: '/eventos' }
@@ -74,4 +96,9 @@ export function applyPwaManifest(settings: AppSettings) {
       favicon.type = 'image/svg+xml'
     }
   }
+
+  // iOS lê este link na hora do "Adicionar à Tela de Início" — igual ao
+  // manifest, só afeta quem instalar dali em diante.
+  const apple = document.querySelector<HTMLLinkElement>('link[rel="apple-touch-icon"]')
+  if (apple) apple.href = appleTouch
 }

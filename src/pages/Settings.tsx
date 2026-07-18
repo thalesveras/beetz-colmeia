@@ -830,8 +830,9 @@ function BrandSection() {
               <p className="text-white/60">
                 O celular grava o nome e o ícone no momento em que o app é instalado. Quem já
                 instalou continua vendo o antigo até desinstalar e instalar de novo — é regra do
-                sistema, não dá pra forçar daqui. E o <strong className="font-semibold text-white/80">ícone</strong> não
-                está nesta tela de propósito: ele é arquivo publicado junto com o código.
+                sistema, não dá pra forçar daqui. O <strong className="font-semibold text-white/80">ícone</strong> vem
+                do logo enviado na seção acima: ao trocá-lo, geramos os tamanhos de app
+                automaticamente.
               </p>
             </div>
           </div>
