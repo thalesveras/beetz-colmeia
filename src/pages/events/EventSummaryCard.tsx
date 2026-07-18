@@ -128,22 +128,35 @@ export default function EventSummaryCard({ event, canEdit, onSaved, onStaffingCh
   const leader = profiles.find((p) => p.id === event.leader_id)
 
   return (
-    <div className="bg-white rounded-3xl shadow-soft border border-beetz-dark/5 p-6 md:p-8">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <span className="text-xs font-semibold bg-beetz-yellow/30 text-beetz-dark px-2.5 py-1 rounded-full">{event.status}</span>
-          <h1 className="text-2xl md:text-3xl font-extrabold mt-3">{event.name}</h1>
-        </div>
+    <div className="bg-white rounded-3xl shadow-soft border border-beetz-dark/5 overflow-hidden">
+      {/* Capa no mesmo padrão do perfil: o flyer vira o fundo do cabeçalho,
+          com status e edição flutuando sobre ele e o título no rodapé da
+          imagem. Sem flyer, o gradiente escuro da casa assume — o cartão
+          nunca fica sem identidade. Tocar na capa abre o flyer inteiro. */}
+      <div className={`h-40 md:h-52 relative ${event.flyer_url ? 'bg-beetz-dark' : 'dark-gradient'}`}>
+        {event.flyer_url && (
+          <a href={event.flyer_url} target="_blank" rel="noreferrer" title="Abrir o flyer inteiro">
+            <img src={event.flyer_url} alt="Flyer do evento" className="absolute inset-0 w-full h-full object-cover" />
+          </a>
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent pointer-events-none" />
+        <span className="absolute top-4 left-4 text-xs font-semibold bg-beetz-yellow text-beetz-dark px-2.5 py-1 rounded-full shadow">
+          {event.status}
+        </span>
         {canEdit && !editing && (
           <button
             onClick={() => setEditing(true)}
-            className="flex items-center gap-1.5 text-xs font-semibold text-beetz-dark/60 hover:text-beetz-dark bg-beetz-gray px-3 py-2 rounded-xl shrink-0"
+            className="absolute top-4 right-4 flex items-center gap-1.5 text-xs font-semibold bg-white/90 backdrop-blur text-beetz-dark px-3 py-2 rounded-xl hover:bg-white transition-colors shadow"
           >
             <Pencil size={13} /> Editar evento
           </button>
         )}
+        <h1 className="absolute bottom-3 left-5 right-5 text-2xl md:text-3xl font-extrabold text-white drop-shadow-md leading-tight pointer-events-none">
+          {event.name}
+        </h1>
       </div>
 
+      <div className="p-6 md:p-8 pt-5">
       {!editing ? (
         <>
           <div className="grid sm:grid-cols-3 gap-4 mt-5 text-sm">
@@ -195,10 +208,6 @@ export default function EventSummaryCard({ event, canEdit, onSaved, onStaffingCh
                 </div>
               )}
             </div>
-          )}
-
-          {event.flyer_url && (
-            <img src={event.flyer_url} alt="Flyer do evento" className="mt-4 max-h-56 rounded-xl border border-beetz-dark/10" />
           )}
 
           {canEdit && (
@@ -345,6 +354,7 @@ export default function EventSummaryCard({ event, canEdit, onSaved, onStaffingCh
           </div>
         </div>
       )}
+      </div>
     </div>
   )
 }
