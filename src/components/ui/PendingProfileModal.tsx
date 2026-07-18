@@ -57,6 +57,17 @@ export default function PendingProfileModal({ profile, departmentName, onClose }
   const isDiretoria = accessRole === 'diretoria'
   const name = `${profile.first_name ?? ''} ${profile.last_name ?? ''}`.trim() || 'Sem nome'
   const birthday = formatBirthday(profile.birth_month, profile.birth_day)
+  // Nascimento completo (com ano e idade) — só no painel interno da Diretoria;
+  // a parte pública do popup segue mostrando apenas dia/mês.
+  const fullBirth = (() => {
+    if (!profile.birth_month || !profile.birth_day) return null
+    const dm = `${String(profile.birth_day).padStart(2, '0')}/${String(profile.birth_month).padStart(2, '0')}`
+    if (!profile.birth_year) return dm
+    const age = new Date().getFullYear() - profile.birth_year
+    const passed = new Date().getMonth() + 1 > profile.birth_month ||
+      (new Date().getMonth() + 1 === profile.birth_month && new Date().getDate() >= profile.birth_day)
+    return `${dm}/${profile.birth_year} · ${passed ? age : age - 1} anos`
+  })()
 
   const [sensitive, setSensitive] = useState<PendingProfileSensitive | null>(null)
   const [loadingSensitive, setLoadingSensitive] = useState(false)
@@ -216,6 +227,10 @@ export default function PendingProfileModal({ profile, departmentName, onClose }
                 <p className="text-sm text-white/50">Carregando...</p>
               ) : sensitive ? (
                 <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="col-span-2">
+                    <p className="text-xs text-white/40">E-mail</p>
+                    <p className="font-semibold text-white break-all">{sensitive.email || '—'}</p>
+                  </div>
                   <div>
                     <p className="text-xs text-white/40">CPF</p>
                     <p className="font-semibold text-white">{sensitive.cpf || '—'}</p>
@@ -231,6 +246,16 @@ export default function PendingProfileModal({ profile, departmentName, onClose }
                   <div>
                     <p className="text-xs text-white/40">Nome do pai</p>
                     <p className="font-semibold text-white">{sensitive.father_name || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-white/40">Nascimento</p>
+                    <p className="font-semibold text-white">{fullBirth || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-white/40">Na Beetz desde</p>
+                    <p className="font-semibold text-white">
+                      {profile.entry_date ? new Date(profile.entry_date + 'T00:00:00').toLocaleDateString('pt-BR') : '—'}
+                    </p>
                   </div>
                   <div className="col-span-2">
                     <p className="text-xs text-white/40">Chave Pix</p>

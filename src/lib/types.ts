@@ -419,6 +419,7 @@ export interface PendingProfileDirectoryItem {
 // Buscado sob demanda, um perfil por vez, quando a Diretoria abre o popup.
 export interface PendingProfileSensitive {
   id: string
+  email: string | null
   cpf: string | null
   phone: string | null
   mother_name: string | null
