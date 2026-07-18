@@ -97,12 +97,14 @@ export default function NotificationBell() {
 
   return (
     <div className="relative" ref={wrapRef}>
+      {/* Cores responsivas: no celular o sino vive na barra escura do topo;
+          no desktop, sobre o fundo claro da página. */}
       <button
         onClick={() => { setOpen((v) => !v); if (!open) load() }}
-        className="relative p-2 rounded-xl hover:bg-beetz-dark/5 transition-colors"
+        className="relative p-2 rounded-xl hover:bg-white/10 md:hover:bg-beetz-dark/5 transition-colors"
         aria-label="Notificações"
       >
-        <Bell size={20} className="text-beetz-dark/70" />
+        <Bell size={20} className="text-white/80 md:text-beetz-dark/70" />
         {unread > 0 && (
           <span className="absolute top-0.5 right-0.5 min-w-[17px] h-[17px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
             {unread > 9 ? '9+' : unread}
