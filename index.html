@@ -12,7 +12,10 @@
     <meta name="theme-color" content="#050505" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- "black" (opaco) e não "black-translucent": translucent desenha o app
+         POR BAIXO do relógio/Dynamic Island, e nenhuma tela nossa compensa o
+         recuo — o cabeçalho ficava soterrado no iPhone instalado. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
     <meta name="apple-mobile-web-app-title" content="Colmeia" />
     <meta name="mobile-web-app-capable" content="yes" />
 

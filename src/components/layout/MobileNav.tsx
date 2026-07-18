@@ -71,7 +71,7 @@ export default function MobileNav() {
       )}
 
       {sheetOpen && (
-        <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-3xl max-h-[75vh] overflow-y-auto">
+        <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-3xl max-h-[75vh] overflow-y-auto pb-[env(safe-area-inset-bottom)]">
           <div className="sticky top-0 bg-white flex items-center justify-between px-5 pt-5 pb-3 border-b border-beetz-dark/5">
             <p className="font-extrabold">Menu</p>
             <button onClick={() => setSheetOpen(false)} className="p-1.5 rounded-lg hover:bg-beetz-gray" aria-label="Fechar">
@@ -114,7 +114,9 @@ export default function MobileNav() {
         </div>
       )}
 
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-beetz-dark border-t border-white/10 flex justify-around py-2 z-40">
+      {/* pb com env(): no iPhone instalado, o traço de fechar (home indicator)
+          passa por cima da barra — sem esse respiro os botões ficam embaixo dele. */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-beetz-dark border-t border-white/10 flex justify-around pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] z-40">
         {primary.map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}

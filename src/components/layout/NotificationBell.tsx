@@ -41,6 +41,19 @@ export default function NotificationBell() {
 
   const unread = items.filter((n) => !n.read_at).length
 
+  // Bolinha de contagem no ÍCONE do app instalado (Badging API — iOS 16.4+,
+  // Android, desktop). Espelha o sininho: zerou, limpa. Navegador sem suporte
+  // simplesmente ignora.
+  useEffect(() => {
+    const nav = navigator as Navigator & {
+      setAppBadge?: (n: number) => Promise<void>
+      clearAppBadge?: () => Promise<void>
+    }
+    if (!nav.setAppBadge) return
+    if (unread > 0) nav.setAppBadge(unread).catch(() => undefined)
+    else nav.clearAppBadge?.().catch(() => undefined)
+  }, [unread])
+
   async function load() {
     if (!userId) return
     setLoading(true)
