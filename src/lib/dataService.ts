@@ -1022,6 +1022,37 @@ export async function updateCashierSettlementStatus(id: string, status: CashierS
   if (error) throw error
 }
 
+// Edição completa do recebimento (modal). total e commission_amount são
+// colunas GERADAS no banco — nunca entram no update. RLS: Diretoria edita
+// tudo; o dono edita o próprio lançamento só enquanto Pendente.
+export async function updateCashierSettlement(
+  id: string,
+  patch: Partial<Pick<CashierSettlement, 'profile_id' | 'role_type' | 'cash_amount' | 'debit_amount' | 'credit_amount' | 'pix_amount' | 'notes'>>
+): Promise<CashierSettlement> {
+  if (isDemoMode) {
+    const idx = demoState.cashierSettlements.findIndex((c) => c.id === id)
+    if (idx < 0) throw new Error('Recebimento não encontrado')
+    const merged = { ...demoState.cashierSettlements[idx], ...patch }
+    merged.total = merged.cash_amount + merged.debit_amount + merged.credit_amount + merged.pix_amount
+    merged.commission_amount = merged.role_type === 'Garçom' ? merged.total * 0.1 : 0
+    demoState.cashierSettlements[idx] = merged
+    return merged
+  }
+  const { data, error } = await supabase
+    .from('cashier_settlements').update(patch).eq('id', id).select().single()
+  if (error) throw error
+  return data as CashierSettlement
+}
+
+export async function deleteCashierSettlement(id: string): Promise<void> {
+  if (isDemoMode) {
+    demoState.cashierSettlements = demoState.cashierSettlements.filter((c) => c.id !== id)
+    return
+  }
+  const { error } = await supabase.from('cashier_settlements').delete().eq('id', id)
+  if (error) throw error
+}
+
 // Todos os recebimentos (fechamentos de caixa), de todos os eventos — usado
 // na visão financeira global (/financeiro/recebimentos), igual listAllExpenses()
 // faz pra despesas.

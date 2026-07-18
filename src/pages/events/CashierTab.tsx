@@ -3,7 +3,8 @@ import { useAuth } from '../../contexts/AuthContext'
 import { createCashierSettlement, listCashierSettlementsForEvent, listProfiles, updateCashierSettlementStatus } from '../../lib/dataService'
 import type { CashierRoleType, CashierSettlement, CashierStatus, Profile } from '../../lib/types'
 import Avatar from '../../components/ui/Avatar'
-import { Plus } from 'lucide-react'
+import EditSettlementModal from './EditSettlementModal'
+import { ChevronRight, Plus } from 'lucide-react'
 import { canReviewCashier } from '../../lib/permissions'
 
 const roleTypes: CashierRoleType[] = ['Caixa', 'Garçom']
@@ -33,6 +34,7 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [editing, setEditing] = useState<CashierSettlement | null>(null)
   const canAdd = canViewAll || isApprovedMember
 
   const [profileId, setProfileId] = useState('')
@@ -195,11 +197,21 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
 
       {!loading && (
         <div className="space-y-2">
-          {visibleSettlements.map((s) => (
-            <div key={s.id} className="flex flex-wrap items-center gap-3 bg-white border border-beetz-dark/5 rounded-xl p-4">
+          {visibleSettlements.map((s) => {
+            const canEditThis = canReviewCashier(accessRole) || (s.profile_id === userId && s.status === 'Pendente')
+            return (
+            <div
+              key={s.id}
+              onClick={() => { if (canEditThis) setEditing(s) }}
+              className={`flex flex-wrap items-center gap-3 bg-white border border-beetz-dark/5 rounded-xl p-4 transition ${
+                canEditThis ? 'cursor-pointer hover:border-beetz-yellow/60 hover:shadow-glow active:scale-[0.99]' : ''
+              }`}
+              title={canEditThis ? 'Toque pra editar' : undefined}
+            >
               {canReviewCashier(accessRole) ? (
                 <select
                   value={s.status}
+                  onClick={(e) => e.stopPropagation()}
                   onChange={(e) => handleStatusChange(s.id, e.target.value as CashierStatus)}
                   className={`text-xs font-semibold px-2.5 py-1 rounded-full border-0 ${statusColors[s.status]}`}
                 >
@@ -219,14 +231,26 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
                 <p className="font-bold text-sm">{currency(s.total)}</p>
                 {s.role_type === 'Garçom' && <p className="text-xs text-beetz-dark/50">comissão {currency(s.commission_amount)}</p>}
               </div>
+              {canEditThis && <ChevronRight size={15} className="text-beetz-dark/25" />}
             </div>
-          ))}
+            )
+          })}
           {visibleSettlements.length === 0 && (
             <p className="text-sm text-beetz-dark/50">
               {canViewAll ? 'Nenhum recebimento registrado ainda.' : 'Você ainda não registrou nenhum recebimento neste evento.'}
             </p>
           )}
         </div>
+      )}
+
+      {editing && (
+        <EditSettlementModal
+          settlement={editing}
+          profiles={profiles}
+          canReview={canReviewCashier(accessRole)}
+          onClose={() => setEditing(null)}
+          onSaved={load}
+        />
       )}
     </div>
   )
