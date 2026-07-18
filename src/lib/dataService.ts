@@ -2719,6 +2719,41 @@ export async function updateAlertChannel(
   return data
 }
 
+// ---------- Push manual da Diretoria ----------
+export async function listPushProfileIds(): Promise<string[]> {
+  if (isDemoMode) return []
+  const { data, error } = await supabase.rpc('list_push_profile_ids')
+  if (error) throw error
+  return (data ?? []) as string[]
+}
+
+export interface ManualPushResult {
+  recipients: number
+  push_sent: number
+  devices: number
+}
+
+export async function sendManualPush(input: {
+  title: string
+  body: string
+  link?: string
+  target: 'all' | string[]
+}): Promise<ManualPushResult> {
+  if (isDemoMode) throw new Error('Indisponível no modo demonstração.')
+  const { data, error } = await supabase.functions.invoke('dispatch-alerts', {
+    body: {
+      action: 'manual_push',
+      title: input.title,
+      body: input.body,
+      link: input.link || undefined,
+      ...(input.target === 'all' ? { target: 'all' } : { profile_ids: input.target })
+    }
+  })
+  if (error) throw error
+  if ((data as any)?.error) throw new Error((data as any).error)
+  return data as ManualPushResult
+}
+
 // ---------- Push neste aparelho ----------
 // O navegador exige a chave pública VAPID em bytes crus; ela chega em
 // base64url da edge function (que a gera e guarda no cofre do banco).

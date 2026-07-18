@@ -1,24 +1,28 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Bell, CheckCheck, Globe, ListChecks, Mail, Settings as SettingsIcon, ShieldAlert, Smartphone, User } from 'lucide-react'
+import { Bell, CheckCheck, Globe, ListChecks, Mail, Send, Settings as SettingsIcon, ShieldAlert, Smartphone, User } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { ALERT_TYPES } from '../lib/alerts'
 import { canConfigureAlerts, ACCESS_ROLES, ACCESS_ROLE_LABELS } from '../lib/permissions'
 import {
   disablePushOnThisDevice, enablePushOnThisDevice, isPushEnabledHere, listAlertChannels,
-  listNotifications, listRolePermissions, markAllNotificationsRead, markNotificationRead,
-  pushSupportedHere, updateAlertChannel, updateRolePermission
+  listNotifications, listProfiles, listPushProfileIds, listRolePermissions,
+  markAllNotificationsRead, markNotificationRead, pushSupportedHere, sendManualPush,
+  updateAlertChannel, updateRolePermission
 } from '../lib/dataService'
-import type { AlertChannelSetting, AlertFlagKey, AppNotification, RolePermissions } from '../lib/types'
+import type { AlertChannelSetting, AlertFlagKey, AppNotification, Profile, RolePermissions } from '../lib/types'
 
-type TabKey = 'pessoais' | 'globais' | 'escala' | 'config'
+type TabKey = 'pessoais' | 'globais' | 'escala' | 'enviar' | 'config'
 
 const TABS: { key: TabKey; label: string; icon: any }[] = [
-  { key: 'pessoais', label: 'Alertas pessoais', icon: User },
-  { key: 'globais', label: 'Alertas globais', icon: Globe },
-  { key: 'escala', label: 'Alertas de escala', icon: ListChecks },
+  { key: 'pessoais', label: 'Pessoais', icon: User },
+  { key: 'globais', label: 'Globais', icon: Globe },
+  { key: 'escala', label: 'Escala', icon: ListChecks },
+  { key: 'enviar', label: 'Enviar aviso', icon: Send },
   { key: 'config', label: 'Configurações', icon: SettingsIcon }
 ]
+
+const DIRETORIA_TABS: TabKey[] = ['enviar', 'config']
 
 function formatWhen(iso: string) {
   return new Date(iso).toLocaleString('pt-BR', {
@@ -31,11 +35,11 @@ export default function Alerts() {
   const [tab, setTab] = useState<TabKey>('pessoais')
   const isDiretoria = canConfigureAlerts(accessRole)
 
-  // A aba de configuração não existe pra quem não configura — e se alguém
-  // chegar nela por link direto, cai em Pessoais em vez de ver tela vazia.
-  const tabs = TABS.filter((t) => t.key !== 'config' || isDiretoria)
+  // Abas de gestão (enviar aviso, configurações) não existem pra quem não
+  // configura — e por link direto, a pessoa cai em Pessoais, não em tela vazia.
+  const tabs = TABS.filter((t) => !DIRETORIA_TABS.includes(t.key) || isDiretoria)
   useEffect(() => {
-    if (tab === 'config' && !isDiretoria) setTab('pessoais')
+    if (DIRETORIA_TABS.includes(tab) && !isDiretoria) setTab('pessoais')
   }, [tab, isDiretoria])
 
   return (
@@ -51,15 +55,15 @@ export default function Alerts() {
 
       <PushDeviceCard profileId={userId} />
 
-      <div className="flex gap-1 border-b border-beetz-dark/10 mb-5 overflow-x-auto">
+      {/* Pills no padrão das Configurações: quebram linha no celular em vez
+          de esconder abas atrás de um scroll com barra amarela por cima. */}
+      <div className="flex flex-wrap gap-2 border-b border-beetz-dark/10 pb-3 mb-5">
         {tabs.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             onClick={() => setTab(key)}
-            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold whitespace-nowrap border-b-2 -mb-px transition-colors ${
-              tab === key
-                ? 'border-beetz-yellow text-beetz-dark'
-                : 'border-transparent text-beetz-dark/45 hover:text-beetz-dark/70'
+            className={`flex items-center gap-1.5 text-sm font-semibold px-3.5 py-2 rounded-xl transition-colors ${
+              tab === key ? 'bg-beetz-dark text-white' : 'bg-beetz-gray text-beetz-dark/70 hover:bg-beetz-dark/10'
             }`}
           >
             <Icon size={15} /> {label}
@@ -68,7 +72,8 @@ export default function Alerts() {
       </div>
 
       {tab === 'config' && isDiretoria && <AlertSettingsTab />}
-      {tab !== 'config' && <AlertFeed tab={tab} profileId={userId} />}
+      {tab === 'enviar' && isDiretoria && <ManualPushTab />}
+      {tab !== 'config' && tab !== 'enviar' && <AlertFeed tab={tab} profileId={userId} />}
     </div>
   )
 }
@@ -136,6 +141,144 @@ function PushDeviceCard({ profileId }: { profileId: string | null }) {
           {busy ? 'Um instante...' : enabled ? 'Desativar' : 'Ativar'}
         </button>
       )}
+    </div>
+  )
+}
+
+// Aviso manual da Diretoria: escreve uma vez, chega como push em quem tem
+// aparelho registrado e fica no sininho de todos os destinatários — quem não
+// ativou push não fica de fora, só recebe de forma mais silenciosa.
+function ManualPushTab() {
+  const [profiles, setProfiles] = useState<Profile[]>([])
+  const [pushIds, setPushIds] = useState<Set<string>>(new Set())
+  const [title, setTitle] = useState('')
+  const [message, setMessage] = useState('')
+  const [link, setLink] = useState('')
+  const [mode, setMode] = useState<'all' | 'some'>('all')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [search, setSearch] = useState('')
+  const [sending, setSending] = useState(false)
+  const [result, setResult] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    Promise.all([listProfiles(), listPushProfileIds()])
+      .then(([p, ids]) => { setProfiles(p); setPushIds(new Set(ids)) })
+      .catch((e: any) => setError(e?.message ?? 'Não foi possível carregar as pessoas.'))
+  }, [])
+
+  const shown = profiles.filter((p) =>
+    `${p.first_name} ${p.last_name}`.toLowerCase().includes(search.trim().toLowerCase())
+  )
+
+  function toggleSelected(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function handleSend() {
+    setError(null)
+    setResult(null)
+    if (!title.trim()) { setError('Dê um título ao aviso.'); return }
+    if (mode === 'some' && selected.size === 0) { setError('Escolha ao menos uma pessoa.'); return }
+    setSending(true)
+    try {
+      const res = await sendManualPush({
+        title: title.trim(),
+        body: message.trim(),
+        link: link.trim() || undefined,
+        target: mode === 'all' ? 'all' : Array.from(selected)
+      })
+      setResult(`Aviso enviado a ${res.recipients} pessoa${res.recipients === 1 ? '' : 's'} — push chegou em ${res.push_sent} de ${res.devices} aparelho${res.devices === 1 ? '' : 's'} registrado${res.devices === 1 ? '' : 's'}. Todos veem no sininho.`)
+      setTitle(''); setMessage(''); setLink(''); setSelected(new Set())
+    } catch (e: any) {
+      setError(e?.message ?? 'Não foi possível enviar. Tente de novo.')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const inputClass = 'w-full bg-white border border-beetz-dark/10 rounded-xl px-3.5 py-2.5 text-sm outline-none focus:border-beetz-yellow transition-colors'
+
+  return (
+    <div className="max-w-2xl space-y-4">
+      <div className="bg-white rounded-2xl border border-beetz-dark/8 p-5 space-y-4">
+        <div>
+          <label className="text-sm font-medium block mb-1">Título do aviso</label>
+          <input className={inputClass} maxLength={80} value={title} onChange={(e) => setTitle(e.target.value)}
+            placeholder="Ex: Reunião geral sexta às 15h" />
+        </div>
+        <div>
+          <label className="text-sm font-medium block mb-1">Mensagem</label>
+          <textarea className={`${inputClass} min-h-[90px] resize-y`} maxLength={300} value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder="Detalhe o recado. Aparece no push e no sininho." />
+          <p className="text-xs text-beetz-dark/35 mt-1 text-right">{message.length}/300</p>
+        </div>
+        <div>
+          <label className="text-sm font-medium block mb-1">Abrir em (opcional)</label>
+          <input className={inputClass} value={link} onChange={(e) => setLink(e.target.value)}
+            placeholder="/eventos — tela aberta ao tocar no aviso" />
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-beetz-dark/8 p-5 space-y-3">
+        <p className="text-sm font-bold">Destinatários</p>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => setMode('all')}
+            className={`text-sm font-semibold px-3.5 py-2 rounded-xl transition-colors ${
+              mode === 'all' ? 'bg-beetz-dark text-white' : 'bg-beetz-gray text-beetz-dark/70 hover:bg-beetz-dark/10'
+            }`}>
+            Toda a colmeia
+          </button>
+          <button onClick={() => setMode('some')}
+            className={`text-sm font-semibold px-3.5 py-2 rounded-xl transition-colors ${
+              mode === 'some' ? 'bg-beetz-dark text-white' : 'bg-beetz-gray text-beetz-dark/70 hover:bg-beetz-dark/10'
+            }`}>
+            Escolher pessoas{selected.size > 0 ? ` (${selected.size})` : ''}
+          </button>
+        </div>
+
+        {mode === 'some' && (
+          <div className="space-y-2">
+            <input className={inputClass} value={search} onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar pelo nome..." />
+            <div className="flex flex-wrap gap-1.5 max-h-52 overflow-y-auto pr-1">
+              {shown.map((p) => {
+                const on = selected.has(p.id)
+                const hasPush = pushIds.has(p.id)
+                return (
+                  <button key={p.id} onClick={() => toggleSelected(p.id)}
+                    title={hasPush ? 'Tem push ativo em algum aparelho' : 'Sem push — recebe só no sininho'}
+                    className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
+                      on ? 'bg-beetz-yellow border-beetz-yellow text-beetz-dark' : 'bg-white border-beetz-dark/12 text-beetz-dark/55 hover:border-beetz-dark/25'
+                    }`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${hasPush ? 'bg-green-500' : 'bg-beetz-dark/20'}`} />
+                    {p.first_name} {p.last_name}
+                  </button>
+                )
+              })}
+              {shown.length === 0 && <p className="text-xs text-beetz-dark/40">Ninguém com esse nome.</p>}
+            </div>
+            <p className="text-xs text-beetz-dark/40">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 mr-1 align-middle" />
+              push ativo · os demais recebem só no sininho
+            </p>
+          </div>
+        )}
+      </div>
+
+      {error && <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-sm text-red-700">{error}</div>}
+      {result && <div className="bg-green-50 border border-green-100 rounded-xl p-3 text-sm text-green-800">{result}</div>}
+
+      <button onClick={handleSend} disabled={sending}
+        className="honey-gradient text-beetz-dark font-bold px-5 py-3 rounded-2xl shadow-glow hover:brightness-105 transition disabled:opacity-50 flex items-center gap-2">
+        <Send size={16} /> {sending ? 'Enviando...' : 'Enviar aviso'}
+      </button>
     </div>
   )
 }
