@@ -9,7 +9,7 @@ import {
 } from './mockData'
 import { badgesFromStats, getHiveLevel } from './levels'
 import type {
-  AppNotification, AppSettings, Badge, BadgeDefConfig, CashierSettlement, Compliment, Department, DnsSubdomain, DnsRecordType,
+  AlertChannelSetting, AppNotification, AppSettings, Badge, BadgeDefConfig, CashierSettlement, Compliment, Department, DnsSubdomain, DnsRecordType,
   EventFinancialSummary,
   EventChangeLogEntry, EventItem, EventMember, EventModality, EventProduct, EventRepasse, EventStaffingApplication, EventStaffingRequirement, Expense,
   ExpenseCategory, ExpenseStatus, HiveLevelConfig, HoneyPoint, LinkRedirect, MovementType, OpenStaffingSlot, PaymentMethodOption, Product,
@@ -19,7 +19,12 @@ import type {
 } from './types'
 
 // ---------- Estado em memória para o modo demonstração ----------
+import { ALERT_FLAG_KEYS } from './alerts'
+
 const demoState = {
+  alertChannels: ALERT_FLAG_KEYS.map((k) => ({
+    alert_key: k, send_push: false, send_email: false, updated_at: new Date().toISOString()
+  })) as AlertChannelSetting[],
   departments: [...mockDepartments],
   profiles: [...mockProfiles],
   events: [...mockEvents],
@@ -2686,6 +2691,100 @@ export async function updateStaffingApplicationStatus(
 }
 
 // ---------- Notificações ----------
+// ---------- Alertas: canais extras (push e e-mail) ----------
+export async function listAlertChannels(): Promise<AlertChannelSetting[]> {
+  if (isDemoMode) return demoState.alertChannels.map((c) => ({ ...c }))
+  const { data, error } = await supabase.from('alert_channels').select('*').order('alert_key')
+  if (error) throw error
+  return data ?? []
+}
+
+export async function updateAlertChannel(
+  alertKey: AlertChannelSetting['alert_key'],
+  patch: Partial<Pick<AlertChannelSetting, 'send_push' | 'send_email'>>
+): Promise<AlertChannelSetting> {
+  if (isDemoMode) {
+    const row = demoState.alertChannels.find((c) => c.alert_key === alertKey)
+    if (!row) throw new Error('Alerta desconhecido.')
+    Object.assign(row, patch)
+    return { ...row }
+  }
+  const { data, error } = await supabase.from('alert_channels')
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq('alert_key', alertKey).select().single()
+  if (error) throw error
+  return data
+}
+
+// ---------- Push neste aparelho ----------
+// O navegador exige a chave pública VAPID em bytes crus; ela chega em
+// base64url da edge function (que a gera e guarda no cofre do banco).
+function urlBase64ToBuffer(base64: string): ArrayBuffer {
+  const padded = base64.replace(/-/g, '+').replace(/_/g, '/')
+  const raw = atob(padded + '='.repeat((4 - (padded.length % 4)) % 4))
+  const buf = new ArrayBuffer(raw.length)
+  const view = new Uint8Array(buf)
+  for (let i = 0; i < raw.length; i++) view[i] = raw.charCodeAt(i)
+  return buf
+}
+
+export function pushSupportedHere(): boolean {
+  return typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window
+}
+
+export async function isPushEnabledHere(): Promise<boolean> {
+  if (!pushSupportedHere()) return false
+  const reg = await navigator.serviceWorker.getRegistration()
+  const sub = await reg?.pushManager.getSubscription()
+  return Boolean(sub)
+}
+
+export async function enablePushOnThisDevice(profileId: string): Promise<void> {
+  if (isDemoMode) throw new Error('Indisponível no modo demonstração.')
+  if (!pushSupportedHere()) {
+    throw new Error('Este navegador não suporta notificações. No iPhone, instale o app na tela de início e ative por lá.')
+  }
+  const permission = await Notification.requestPermission()
+  if (permission !== 'granted') {
+    throw new Error('O navegador não recebeu a permissão. Verifique as notificações do site nas configurações.')
+  }
+  // Em produção o index.html já registrou o SW; em dev (localhost) ele não
+  // registra, então garantimos aqui — sem SW não existe push.
+  const reg = (await navigator.serviceWorker.getRegistration()) ?? (await navigator.serviceWorker.register('/sw.js'))
+  await navigator.serviceWorker.ready
+  const { data, error } = await supabase.functions.invoke('dispatch-alerts', { body: { action: 'vapid_public' } })
+  if (error) throw error
+  const publicKey = (data as { publicKey?: string } | null)?.publicKey
+  if (!publicKey) throw new Error('Chave pública de push indisponível. Tente de novo em instantes.')
+  const sub = await reg.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToBuffer(publicKey)
+  })
+  const raw = sub.toJSON()
+  const { error: saveErr } = await supabase.from('push_subscriptions').upsert({
+    profile_id: profileId,
+    endpoint: sub.endpoint,
+    p256dh: raw.keys?.p256dh ?? '',
+    auth: raw.keys?.auth ?? '',
+    user_agent: navigator.userAgent.slice(0, 200)
+  }, { onConflict: 'endpoint' })
+  if (saveErr) {
+    // RLS barra upsert em cima de inscrição de OUTRA conta neste aparelho.
+    await sub.unsubscribe().catch(() => undefined)
+    throw new Error('Este aparelho já está registrado por outra conta. Desative lá primeiro.')
+  }
+}
+
+export async function disablePushOnThisDevice(): Promise<void> {
+  if (isDemoMode) return
+  if (!pushSupportedHere()) return
+  const reg = await navigator.serviceWorker.getRegistration()
+  const sub = await reg?.pushManager.getSubscription()
+  if (!sub) return
+  await supabase.from('push_subscriptions').delete().eq('endpoint', sub.endpoint)
+  await sub.unsubscribe()
+}
+
 export async function listNotifications(profileId: string, limit = 30): Promise<AppNotification[]> {
   if (isDemoMode) {
     return [...demoState.notifications].filter((n) => n.profile_id === profileId).slice(0, limit)

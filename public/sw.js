@@ -23,6 +23,44 @@ self.addEventListener('activate', (event) => {
   )
 })
 
+// ---- Push dos alertas ----
+// O payload vem da edge function dispatch-alerts: {title, body, link, tag}.
+// O tag é o id da notificação — se o push chegar duplicado (retry de rede),
+// o aparelho substitui em vez de empilhar duas iguais.
+self.addEventListener('push', (event) => {
+  let data = {}
+  try { data = event.data ? event.data.json() : {} } catch { /* payload não-JSON: usa defaults */ }
+  const title = data.title || 'Colmeia'
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: data.body || '',
+      tag: data.tag || undefined,
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
+      data: { link: data.link || '/alertas' }
+    })
+  )
+})
+
+// Tocar na notificação abre a tela certa — reaproveitando uma aba do app se
+// já houver uma aberta, em vez de abrir outra cópia.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  const link = (event.notification.data && event.notification.data.link) || '/alertas'
+  const url = new URL(link, self.location.origin).href
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if (client.url.startsWith(self.location.origin) && 'focus' in client) {
+          client.navigate(url)
+          return client.focus()
+        }
+      }
+      return self.clients.openWindow(url)
+    })
+  )
+})
+
 self.addEventListener('fetch', (event) => {
   const { request } = event
   if (request.method !== 'GET') return

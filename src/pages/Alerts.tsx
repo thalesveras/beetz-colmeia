@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Bell, CheckCheck, Globe, ListChecks, Settings as SettingsIcon, ShieldAlert, User } from 'lucide-react'
+import { Bell, CheckCheck, Globe, ListChecks, Mail, Settings as SettingsIcon, ShieldAlert, Smartphone, User } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { ALERT_TYPES } from '../lib/alerts'
 import { canConfigureAlerts, ACCESS_ROLES, ACCESS_ROLE_LABELS } from '../lib/permissions'
-import { listNotifications, listRolePermissions, markAllNotificationsRead, markNotificationRead, updateRolePermission } from '../lib/dataService'
-import type { AlertFlagKey, AppNotification, RolePermissions } from '../lib/types'
+import {
+  disablePushOnThisDevice, enablePushOnThisDevice, isPushEnabledHere, listAlertChannels,
+  listNotifications, listRolePermissions, markAllNotificationsRead, markNotificationRead,
+  pushSupportedHere, updateAlertChannel, updateRolePermission
+} from '../lib/dataService'
+import type { AlertChannelSetting, AlertFlagKey, AppNotification, RolePermissions } from '../lib/types'
 
 type TabKey = 'pessoais' | 'globais' | 'escala' | 'config'
 
@@ -45,6 +49,8 @@ export default function Alerts() {
         </p>
       </div>
 
+      <PushDeviceCard profileId={userId} />
+
       <div className="flex gap-1 border-b border-beetz-dark/10 mb-5 overflow-x-auto">
         {tabs.map(({ key, label, icon: Icon }) => (
           <button
@@ -63,6 +69,73 @@ export default function Alerts() {
 
       {tab === 'config' && isDiretoria && <AlertSettingsTab />}
       {tab !== 'config' && <AlertFeed tab={tab} profileId={userId} />}
+    </div>
+  )
+}
+
+// Cartão de push do aparelho: cada navegador que aceitar a permissão vira uma
+// inscrição em push_subscriptions — o aviso chega mesmo com o app fechado.
+// Visível pra todo mundo, porque a inscrição é pessoal, não da Diretoria.
+function PushDeviceCard({ profileId }: { profileId: string | null }) {
+  const supported = pushSupportedHere()
+  const [enabled, setEnabled] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  useEffect(() => {
+    isPushEnabledHere().then(setEnabled).catch(() => setEnabled(false))
+  }, [])
+
+  async function toggle() {
+    if (!profileId) return
+    setBusy(true)
+    setMsg(null)
+    try {
+      if (enabled) {
+        await disablePushOnThisDevice()
+        setEnabled(false)
+        setMsg('Notificações desativadas neste aparelho.')
+      } else {
+        await enablePushOnThisDevice(profileId)
+        setEnabled(true)
+        setMsg('Pronto! Este aparelho vai receber os alertas com push ligado.')
+      }
+    } catch (e: any) {
+      setMsg(e?.message ?? 'Não deu certo. Tente de novo.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-beetz-dark/8 p-4 mb-5 flex flex-wrap items-center gap-3">
+      <div className={`rounded-xl p-2.5 ${enabled ? 'bg-beetz-yellow/25' : 'bg-beetz-dark/5'}`}>
+        <Smartphone size={20} className={enabled ? 'text-beetz-dark' : 'text-beetz-dark/40'} />
+      </div>
+      <div className="flex-1 min-w-[200px]">
+        <p className="font-bold text-sm">Notificações neste aparelho</p>
+        <p className="text-xs text-beetz-dark/50 mt-0.5">
+          {supported
+            ? enabled
+              ? 'Ativadas — os alertas com push ligado chegam mesmo com o app fechado.'
+              : 'Receba os alertas no celular ou computador, mesmo com o app fechado.'
+            : 'Este navegador não suporta push. No iPhone, instale o app na tela de início e ative por lá.'}
+        </p>
+        {msg && <p className="text-xs text-beetz-dark/70 mt-1 font-medium">{msg}</p>}
+      </div>
+      {supported && (
+        <button
+          onClick={toggle}
+          disabled={busy || !profileId}
+          className={`text-sm font-bold px-4 py-2.5 rounded-xl transition disabled:opacity-50 ${
+            enabled
+              ? 'bg-white border border-beetz-dark/15 text-beetz-dark/60 hover:border-beetz-dark/30'
+              : 'honey-gradient text-beetz-dark shadow-glow hover:brightness-105'
+          }`}
+        >
+          {busy ? 'Um instante...' : enabled ? 'Desativar' : 'Ativar'}
+        </button>
+      )}
     </div>
   )
 }
@@ -182,13 +255,14 @@ function AlertRow({ n, onRead }: { n: AppNotification; onRead: () => void }) {
 // botão Salvar, igual ao resto de /configuracoes.
 function AlertSettingsTab() {
   const [perms, setPerms] = useState<RolePermissions[]>([])
+  const [channels, setChannels] = useState<AlertChannelSetting[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    listRolePermissions()
-      .then(setPerms)
+    Promise.all([listRolePermissions(), listAlertChannels()])
+      .then(([p, c]) => { setPerms(p); setChannels(c) })
       .catch((e: any) => setError(e?.message ?? 'Não foi possível carregar as permissões.'))
       .finally(() => setLoading(false))
   }, [])
@@ -201,6 +275,23 @@ function AlertSettingsTab() {
       setPerms((prev) => prev.map((p) => (p.role === role ? saved : p)))
     } catch (e: any) {
       setError(e?.message ?? 'Não foi possível salvar. Tente de novo.')
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  // Canais valem pro TIPO de alerta, não por cargo: quem recebe continua
+  // decidido pelas flags de cargo acima; aqui é COMO a entrega acontece além
+  // do sininho. Push só chega em quem ativou o aparelho; e-mail vai pro
+  // endereço do perfil.
+  async function toggleChannel(key: AlertFlagKey, field: 'send_push' | 'send_email', value: boolean) {
+    setSaving(`canal:${key}:${field}`)
+    setError(null)
+    try {
+      const saved = await updateAlertChannel(key, { [field]: value })
+      setChannels((prev) => prev.map((c) => (c.alert_key === key ? saved : c)))
+    } catch (e: any) {
+      setError(e?.message ?? 'Não foi possível salvar o canal. Tente de novo.')
     } finally {
       setSaving(null)
     }
@@ -265,6 +356,39 @@ function AlertSettingsTab() {
                 )
               })}
             </div>
+
+            {/* Canais extras do tipo: sininho é sempre; push/e-mail são opt-in. */}
+            {(() => {
+              const ch = channels.find((c) => c.alert_key === def.key)
+              if (!ch) return null
+              const items: { field: 'send_push' | 'send_email'; label: string; Icon: typeof Smartphone }[] = [
+                { field: 'send_push', label: 'Push no aparelho', Icon: Smartphone },
+                { field: 'send_email', label: 'E-mail', Icon: Mail }
+              ]
+              return (
+                <div className="flex flex-wrap items-center gap-1.5 pt-3 mt-3 border-t border-beetz-dark/5">
+                  <span className="text-[11px] font-bold uppercase tracking-wide text-beetz-dark/35 mr-1">Entrega</span>
+                  {items.map(({ field, label, Icon }) => {
+                    const on = ch[field]
+                    const busy = saving === `canal:${def.key}:${field}`
+                    return (
+                      <button
+                        key={field}
+                        disabled={busy}
+                        onClick={() => toggleChannel(def.key, field, !on)}
+                        className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-40 ${
+                          on
+                            ? 'bg-beetz-dark border-beetz-dark text-beetz-yellow'
+                            : 'bg-white border-beetz-dark/12 text-beetz-dark/40 hover:border-beetz-dark/25'
+                        }`}
+                      >
+                        <Icon size={13} /> {label}
+                      </button>
+                    )
+                  })}
+                </div>
+              )
+            })()}
           </div>
         ))}
       </div>

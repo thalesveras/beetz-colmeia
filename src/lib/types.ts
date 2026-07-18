@@ -719,6 +719,14 @@ export interface RolePermissions {
 // As seis flags acima, num formato que a tela de Alertas consegue percorrer.
 // 'escopo' separa o que é sobre VOCÊ do que é sobre a operação — é o que divide
 // as abas Pessoais e Globais.
+// Canais extras de entrega por tipo de alerta (config global da Diretoria).
+export interface AlertChannelSetting {
+  alert_key: AlertFlagKey
+  send_push: boolean
+  send_email: boolean
+  updated_at: string
+}
+
 export type AlertFlagKey =
   | 'can_receive_alert_staffing_decision'
   | 'can_receive_alert_staffing_application'
