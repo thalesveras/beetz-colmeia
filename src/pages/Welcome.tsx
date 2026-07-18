@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { Users, UserCircle, CalendarDays } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useConfig } from '../contexts/ConfigContext'
+import BrandLogo from '../components/ui/BrandLogo'
 
 export default function Welcome() {
   const { userId } = useAuth()
@@ -15,8 +16,9 @@ export default function Welcome() {
       <div className="absolute inset-0 opacity-10 bg-honeycomb" style={{ backgroundSize: '24px 24px' }} />
 
       <div className="relative z-10 max-w-2xl">
-        <div className="mx-auto mb-6 w-20 h-20 rounded-2xl honey-gradient flex items-center justify-center text-4xl shadow-glow">
-          🐝
+        {/* O símbolo vem de Configurações → Marca; sem logo enviado, cai no 🐝. */}
+        <div className="mx-auto mb-6 w-fit rounded-2xl shadow-glow">
+          <BrandLogo size="xl" />
         </div>
         <p className="uppercase tracking-[0.3em] text-beetz-yellow text-xs font-semibold mb-4">Comunidade interna {appSettings.company_name}</p>
         <h1 className="text-4xl md:text-6xl font-extrabold leading-tight mb-4 text-beetz-yellow">

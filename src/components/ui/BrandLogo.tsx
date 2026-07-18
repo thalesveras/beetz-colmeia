@@ -1,7 +1,7 @@
 import { useConfig } from '../../contexts/ConfigContext'
 
 interface BrandLogoProps {
-  size?: 'sm' | 'md' | 'lg'
+  size?: 'sm' | 'md' | 'lg' | 'xl'
   /** Mostra o nome e o nome curto ao lado do símbolo. */
   withName?: boolean
   /** Cor do texto — o menu é escuro, o login é claro. */
@@ -14,7 +14,8 @@ interface BrandLogoProps {
 const BOX = {
   sm: 'w-9 h-9 rounded-lg text-lg',
   md: 'w-10 h-10 rounded-xl text-xl',
-  lg: 'w-14 h-14 rounded-2xl text-3xl'
+  lg: 'w-14 h-14 rounded-2xl text-3xl',
+  xl: 'w-20 h-20 rounded-2xl text-4xl'
 }
 
 // O símbolo da marca num lugar só. Antes o 🐝 estava escrito em 6 arquivos

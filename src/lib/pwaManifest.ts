@@ -60,4 +60,18 @@ export function applyPwaManifest(settings: AppSettings) {
   meta.content = settings.pwa_short_name
 
   document.title = `${settings.company_name} ${settings.short_name}`.trim()
+
+  // Favicon acompanha o logo da marca: com logo enviado, a aba mostra ele;
+  // sem logo (ou ao remover), volta pro favo padrão do repo. Favicon não exige
+  // same-origin como ícone de PWA, então a URL do Storage funciona direto.
+  const favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]')
+  if (favicon) {
+    if (settings.logo_url) {
+      favicon.href = settings.logo_url
+      favicon.removeAttribute('type')
+    } else {
+      favicon.href = '/hive-favicon.svg'
+      favicon.type = 'image/svg+xml'
+    }
+  }
 }
