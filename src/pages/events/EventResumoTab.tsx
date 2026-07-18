@@ -190,10 +190,10 @@ export default function EventResumoTab({ eventId, canExpenses, canCashier, canSt
         {canFinance && nums.fin && (
           <button onClick={() => onNavigate('fechamentos')} className={cardClass}>
             <span className={chip}><BarChart3 size={18} /></span>
-            <span className={`font-extrabold text-lg leading-none ${nums.fin.saldoAReceberDaProdutora > 0 ? 'text-amber-600' : 'text-green-600'}`}>
-              {brl(nums.fin.saldoAReceberDaProdutora)}
+            <span className={`font-extrabold text-lg leading-none ${nums.fin.saldoAPagarProdutora > 0 ? 'text-amber-600' : 'text-green-600'}`}>
+              {brl(nums.fin.saldoAPagarProdutora)}
             </span>
-            <span className="text-xs text-beetz-dark/50 leading-tight">Saldo do acerto com a produtora</span>
+            <span className="text-xs text-beetz-dark/50 leading-tight">Saldo a repassar à produtora</span>
           </button>
         )}
       </div>

@@ -51,10 +51,10 @@ export default function AllSettlements() {
         consumoProducao: acc.consumoProducao + r.summary.consumoProducao,
         repasses: acc.repasses + r.summary.repasses,
         aReceber: acc.aReceber + r.summary.aReceber,
-        saldoAReceberDaProdutora: acc.saldoAReceberDaProdutora + r.summary.saldoAReceberDaProdutora,
+        saldoAPagarProdutora: acc.saldoAPagarProdutora + r.summary.saldoAPagarProdutora,
         lucroOuPerda: acc.lucroOuPerda + r.summary.lucroOuPerda
       }),
-      { vendas: 0, despesas: 0, custoProdutos: 0, consumoProducao: 0, repasses: 0, aReceber: 0, saldoAReceberDaProdutora: 0, lucroOuPerda: 0 }
+      { vendas: 0, despesas: 0, custoProdutos: 0, consumoProducao: 0, repasses: 0, aReceber: 0, saldoAPagarProdutora: 0, lucroOuPerda: 0 }
     )
   }, [rows])
 
@@ -93,7 +93,7 @@ export default function AllSettlements() {
                 <th className="p-3 text-right">Consumo produção</th>
                 <th className="p-3 text-right">Repasses</th>
                 <th className="p-3 text-right">A receber</th>
-                <th className="p-3 text-right">Saldo a receber</th>
+                <th className="p-3 text-right">Saldo a repassar</th>
                 <th className="p-3 text-right">Lucro/perda</th>
               </tr>
             </thead>
@@ -110,7 +110,7 @@ export default function AllSettlements() {
                   <td className="p-3 text-right whitespace-nowrap">{currency(summary.consumoProducao)}</td>
                   <td className="p-3 text-right whitespace-nowrap">{currency(summary.repasses)}</td>
                   <td className="p-3 text-right whitespace-nowrap">{currency(summary.aReceber)}</td>
-                  <td className="p-3 text-right whitespace-nowrap">{currency(summary.saldoAReceberDaProdutora)}</td>
+                  <td className="p-3 text-right whitespace-nowrap">{currency(summary.saldoAPagarProdutora)}</td>
                   <td className={`p-3 text-right font-bold whitespace-nowrap ${summary.lucroOuPerda >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                     {currency(summary.lucroOuPerda)}
                   </td>
@@ -130,7 +130,7 @@ export default function AllSettlements() {
                   <td className="p-3 text-right whitespace-nowrap">{currency(totals.consumoProducao)}</td>
                   <td className="p-3 text-right whitespace-nowrap">{currency(totals.repasses)}</td>
                   <td className="p-3 text-right whitespace-nowrap">{currency(totals.aReceber)}</td>
-                  <td className="p-3 text-right whitespace-nowrap">{currency(totals.saldoAReceberDaProdutora)}</td>
+                  <td className="p-3 text-right whitespace-nowrap">{currency(totals.saldoAPagarProdutora)}</td>
                   <td className={`p-3 text-right whitespace-nowrap ${totals.lucroOuPerda >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                     {currency(totals.lucroOuPerda)}
                   </td>

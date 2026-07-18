@@ -182,7 +182,7 @@ const eventResumoDefaults = {
   producer_name: null, producer_auth_email: null, producer_auth_email_secondary: null,
   address: null, start_time: null, end_date: null, end_time: null, link: null,
   music_style: null, flyer_url: null, sales_amount: 0, commission_percentage: 0,
-  credits_bonus: 0, repasses: 0,
+  credits_bonus: 0, tax_percentage: null, repasses: 0,
   producer_id: null, contract_status: 'Rascunho' as const, zapsign_doc_token: null,
   zapsign_signer_token: null, zapsign_sign_url: null, signed_file_url: null, contract_signed_at: null
 }
@@ -191,13 +191,13 @@ export const mockEvents: EventItem[] = [
   {
     id: 'e1', name: 'Festival Colmeia de Verão', event_date: '2026-01-18', location: 'Parque Ibirapuera', city: 'São Paulo', status: 'Concluído', leader_id: 'p1', created_at: '2025-11-01T10:00:00Z',
     ...eventResumoDefaults, producer_name: 'Ibirapuera Produções', address: 'Av. Pedro Álvares Cabral, s/n', start_time: '18:00', end_date: '2026-01-19', end_time: '02:00',
-    music_style: 'Eletrônica', sales_amount: 45000, commission_percentage: 15, credits_bonus: 500, repasses: 3000,
+    music_style: 'Eletrônica', sales_amount: 45000, commission_percentage: 15, credits_bonus: 500, tax_percentage: null, repasses: 3000,
     producer_id: 'prod1', contract_status: 'Assinado', zapsign_doc_token: 'demo-doc-e1', signed_file_url: null, contract_signed_at: '2025-11-05T14:00:00Z'
   },
   {
     id: 'e2', name: 'Beetz Night Rooftop', event_date: '2026-06-20', location: 'Edifício Copan Rooftop', city: 'São Paulo', status: 'Concluído', leader_id: 'p6', created_at: '2026-05-01T10:00:00Z',
     ...eventResumoDefaults, producer_name: 'Copan Eventos', address: 'Av. Ipiranga, 200', start_time: '20:00', end_date: '2026-06-21', end_time: '04:00',
-    music_style: 'House', sales_amount: 28000, commission_percentage: 20, credits_bonus: 0, repasses: 2000
+    music_style: 'House', sales_amount: 28000, commission_percentage: 20, credits_bonus: 0, tax_percentage: null, repasses: 2000
   },
   {
     id: 'e3', name: 'Feira Corporativa TechExpo', event_date: '2026-07-15', location: 'Expo Center Norte', city: 'São Paulo', status: 'Confirmado', leader_id: 'p2', created_at: '2026-06-10T10:00:00Z',
@@ -210,7 +210,7 @@ export const mockEvents: EventItem[] = [
   {
     id: 'e5', name: 'Réveillon Beetz na Praia', event_date: '2025-12-31', location: 'Orla de Santos', city: 'Santos', status: 'Concluído', leader_id: 'p8', created_at: '2025-10-01T10:00:00Z',
     ...eventResumoDefaults, producer_name: 'Beetz Produções', address: 'Orla de Santos, Praia do Gonzaga', start_time: '21:00', end_date: '2026-01-01', end_time: '05:00',
-    music_style: 'Sertanejo / Pop', sales_amount: 62000, commission_percentage: 18, credits_bonus: 1200, repasses: 5000
+    music_style: 'Sertanejo / Pop', sales_amount: 62000, commission_percentage: 18, credits_bonus: 1200, tax_percentage: null, repasses: 5000
   }
 ]
 
@@ -410,6 +410,6 @@ export const mockAppSettings: AppSettings = {
   info_text: null,
   pwa_name: 'Beetz Colmeia',
   pwa_short_name: 'Colmeia',
-  pwa_description: 'A comunidade interna de quem faz os maiores eventos acontecerem.',
+  default_tax_percentage: 0, pwa_description: 'A comunidade interna de quem faz os maiores eventos acontecerem.',
   updated_at: '2026-01-01T10:00:00Z'
 }

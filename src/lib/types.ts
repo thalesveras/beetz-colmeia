@@ -147,6 +147,8 @@ export interface EventItem {
   sales_amount: number
   commission_percentage: number
   credits_bonus: number
+  // Alíquota de imposto DESTE evento; null usa o padrão de Configurações.
+  tax_percentage: number | null
   repasses: number
   // Portal do produtor / contrato via ZapSign
   producer_id: string | null
@@ -545,8 +547,17 @@ export interface EventFinancialSummary {
   percentual: number
   aReceber: number
   creditosOuBonificacoes: number
+  // Receita da Beetz = comissão + créditos; imposto incide sobre ela.
+  receitaBeetz: number
+  taxaImposto: number
+  impostos: number
+  // O que os caixas da Beetz de fato arrecadaram no evento (não-rejeitados).
+  recebimentos: number
   repasses: number
-  saldoAReceberDaProdutora: number
+  // Positivo = a Beetz ainda DEVE repassar isso à produtora
+  // (recebimentos − receita Beetz − repasses já feitos). Modelo corrigido em
+  // 18/07/26: quem segura o dinheiro é a Beetz, via caixas.
+  saldoAPagarProdutora: number
   lucroOuPerda: number
 }
 
@@ -773,6 +784,9 @@ export interface AppSettings {
   pwa_name: string
   pwa_short_name: string
   pwa_description: string
+  // Alíquota padrão de imposto sobre a RECEITA da Beetz (comissão + créditos)
+  // no fechamento dos eventos. Cada evento pode sobrescrever (tax_percentage).
+  default_tax_percentage: number
   updated_at: string
 }
 

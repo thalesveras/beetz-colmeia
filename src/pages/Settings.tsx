@@ -647,7 +647,7 @@ function BadgeRow({ badge, onSaved }: { badge: BadgeDefConfig; onSaved: () => vo
 type BrandForm = Pick<AppSettings,
   'company_name' | 'short_name' | 'welcome_title' | 'welcome_subtitle' |
   'login_title' | 'login_subtitle' | 'pwa_name' | 'pwa_short_name' | 'pwa_description'
-> & { info_text: string }
+> & { info_text: string; default_tax_percentage: string }
 
 function BrandSection() {
   const { appSettings, refreshConfig } = useConfig()
@@ -664,7 +664,8 @@ function BrandSection() {
       welcome_title: s.welcome_title, welcome_subtitle: s.welcome_subtitle,
       login_title: s.login_title, login_subtitle: s.login_subtitle,
       pwa_name: s.pwa_name, pwa_short_name: s.pwa_short_name,
-      pwa_description: s.pwa_description, info_text: s.info_text ?? ''
+      pwa_description: s.pwa_description, info_text: s.info_text ?? '',
+      default_tax_percentage: String(s.default_tax_percentage ?? 0)
     }
   }
 
@@ -702,7 +703,11 @@ function BrandSection() {
   async function handleSave() {
     setSaving(true); setSaved(false); setError(null)
     try {
-      await updateAppSettings({ ...form, info_text: form.info_text.trim() || null })
+      await updateAppSettings({
+        ...form,
+        info_text: form.info_text.trim() || null,
+        default_tax_percentage: Number(form.default_tax_percentage.replace(',', '.')) || 0
+      })
       await refreshConfig()
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
@@ -765,6 +770,16 @@ function BrandSection() {
             <label className="text-sm font-medium block mb-1">Nome curto</label>
             <input className={inputClass} value={form.short_name} onChange={(e) => set('short_name', e.target.value)} />
             <p className="text-xs text-beetz-dark/40 mt-1">O que aparece embaixo do nome, no menu.</p>
+          </div>
+          <div>
+            <label className="text-sm font-medium block mb-1">Imposto padrão sobre a receita (%)</label>
+            <input
+              className={inputClass} type="text" inputMode="decimal" placeholder="Ex: 6"
+              value={form.default_tax_percentage} onChange={(e) => set('default_tax_percentage', e.target.value)}
+            />
+            <p className="text-xs text-beetz-dark/40 mt-1">
+              Usado no fechamento dos eventos, sobre a receita da Beetz (comissão + créditos). Cada evento pode sobrescrever.
+            </p>
           </div>
         </div>
 

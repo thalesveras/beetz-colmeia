@@ -35,6 +35,8 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
   const [salesAmount, setSalesAmount] = useState(event.sales_amount)
   const [percentage, setPercentage] = useState(event.commission_percentage)
   const [creditsBonus, setCreditsBonus] = useState(event.credits_bonus)
+  // Vazio = usa a alíquota padrão de Configurações.
+  const [taxPct, setTaxPct] = useState(event.tax_percentage != null ? String(event.tax_percentage) : '')
 
   async function load() {
     setLoading(true)
@@ -49,12 +51,14 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
     setSalesAmount(event.sales_amount)
     setPercentage(event.commission_percentage)
     setCreditsBonus(event.credits_bonus)
+    setTaxPct(event.tax_percentage != null ? String(event.tax_percentage) : '')
   }, [event])
 
   async function handleSave() {
     setSaving(true)
     const updated = await updateEvent(event.id, {
-      sales_amount: salesAmount, commission_percentage: percentage, credits_bonus: creditsBonus
+      sales_amount: salesAmount, commission_percentage: percentage, credits_bonus: creditsBonus,
+      tax_percentage: taxPct.trim() ? Number(taxPct.replace(',', '.')) : null
     })
     onEventUpdated(updated)
     await load()
@@ -100,7 +104,7 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
 
         {view === 'empresa' && (
           <>
-            <div className="grid sm:grid-cols-3 gap-4 mb-4">
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
               <div>
                 <label className="text-xs text-white/60 block mb-1">Vendas (R$)</label>
                 <input type="number" min={0} step="0.01" className={`${inputClass} bg-white/10 border-white/15 text-white`} value={salesAmount} onChange={(e) => setSalesAmount(Number(e.target.value))} />
@@ -112,6 +116,10 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
               <div>
                 <label className="text-xs text-white/60 block mb-1">Créditos ou bonificações (R$)</label>
                 <input type="number" step="0.01" className={`${inputClass} bg-white/10 border-white/15 text-white`} value={creditsBonus} onChange={(e) => setCreditsBonus(Number(e.target.value))} />
+              </div>
+              <div>
+                <label className="text-xs text-white/60 block mb-1">Imposto (%) — vazio usa o padrão</label>
+                <input type="text" inputMode="decimal" placeholder={summary ? `Padrão: ${summary.taxaImposto}%` : 'Padrão'} className={`${inputClass} bg-white/10 border-white/15 text-white`} value={taxPct} onChange={(e) => setTaxPct(e.target.value)} />
               </div>
             </div>
             <button
@@ -128,6 +136,7 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
               <div className="pt-4 border-t border-white/10 space-y-1.5">
                 <StatementRow label={`Comissão sobre vendas (${summary.percentual}% de ${currency(summary.vendas)})`} value={summary.aReceber} />
                 <StatementRow label="Créditos e bonificações" value={summary.creditosOuBonificacoes} />
+                <StatementRow label={`Impostos (${summary.taxaImposto}% da receita Beetz)`} value={-summary.impostos} />
                 <StatementRow label="Despesas do evento" value={-summary.despesas} />
                 <StatementRow label="Custo de produtos" value={-summary.custoProdutos} />
                 <StatementRow label="Consumo da produção" value={-summary.consumoProducao} />
@@ -137,15 +146,22 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
                     {currency(summary.lucroOuPerda)}
                   </span>
                 </div>
+                {/* Acerto com a produtora — modelo correto: os caixas da Beetz
+                    arrecadam, a Beetz fica com a receita dela e o resto é da
+                    produtora. Saldo positivo = falta repassar. */}
                 <div className="flex flex-wrap gap-3 pt-4 mt-2 border-t border-white/10 text-sm">
                   <div className="bg-white/5 rounded-xl px-4 py-2.5 flex-1 min-w-[140px]">
-                    <p className="text-xs text-white/50">Já acertado com a produtora</p>
+                    <p className="text-xs text-white/50">Arrecadado pelos caixas</p>
+                    <p className="font-bold text-white mt-0.5">{currency(summary.recebimentos)}</p>
+                  </div>
+                  <div className="bg-white/5 rounded-xl px-4 py-2.5 flex-1 min-w-[140px]">
+                    <p className="text-xs text-white/50">Já repassado</p>
                     <p className="font-bold text-beetz-yellow mt-0.5">{currency(summary.repasses)}</p>
                   </div>
                   <div className="bg-white/5 rounded-xl px-4 py-2.5 flex-1 min-w-[140px]">
-                    <p className="text-xs text-white/50">Saldo do acerto</p>
-                    <p className={`font-bold mt-0.5 ${summary.saldoAReceberDaProdutora > 0 ? 'text-amber-400' : 'text-green-400'}`}>
-                      {currency(summary.saldoAReceberDaProdutora)}
+                    <p className="text-xs text-white/50">Saldo a repassar à produtora</p>
+                    <p className={`font-bold mt-0.5 ${summary.saldoAPagarProdutora > 0 ? 'text-amber-400' : 'text-green-400'}`}>
+                      {currency(summary.saldoAPagarProdutora)}
                     </p>
                   </div>
                 </div>
@@ -167,19 +183,19 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
             </div>
 
             <div className="space-y-1.5">
-              <StatementRowLight label="Vendas totais do evento" value={summary.vendas} />
-              <StatementRowLight label={`Comissão Beetz (${summary.percentual}%)`} value={-summary.aReceber} />
+              <StatementRowLight label="Arrecadado pelos caixas Beetz" value={summary.recebimentos} />
+              <StatementRowLight label={`Comissão Beetz (${summary.percentual}% de ${currency(summary.vendas)})`} value={-summary.aReceber} />
               <StatementRowLight label="Créditos e bonificações" value={-summary.creditosOuBonificacoes} />
               <div className="flex items-center justify-between pt-3 mt-2 border-t border-beetz-dark/15">
-                <span className="font-bold">Resultado do produtor sobre as vendas</span>
+                <span className="font-bold">Devido à produtora</span>
                 <span className="text-lg font-extrabold">
-                  {currency(summary.vendas - summary.aReceber - summary.creditosOuBonificacoes)}
+                  {currency(summary.recebimentos - summary.receitaBeetz)}
                 </span>
               </div>
             </div>
 
             <div className="mt-5 pt-4 border-t border-beetz-dark/10">
-              <p className="text-sm font-bold mb-2">Acertos com a Beetz</p>
+              <p className="text-sm font-bold mb-2">Repasses já recebidos da Beetz</p>
               {repasses.length === 0 ? (
                 <p className="text-xs text-beetz-dark/45">Nenhum acerto lançado ainda.</p>
               ) : (
@@ -195,9 +211,9 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
                 </div>
               )}
               <div className="flex items-center justify-between mt-3 pt-3 border-t border-beetz-dark/10">
-                <span className="text-sm font-semibold text-beetz-dark/70">Saldo pendente do acerto</span>
-                <span className={`font-extrabold ${summary.saldoAReceberDaProdutora > 0 ? 'text-amber-600' : 'text-green-600'}`}>
-                  {currency(summary.saldoAReceberDaProdutora)}
+                <span className="text-sm font-semibold text-beetz-dark/70">Saldo pendente a receber da Beetz</span>
+                <span className={`font-extrabold ${summary.saldoAPagarProdutora > 0 ? 'text-amber-600' : 'text-green-600'}`}>
+                  {currency(summary.saldoAPagarProdutora)}
                 </span>
               </div>
             </div>

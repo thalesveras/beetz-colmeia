@@ -582,7 +582,7 @@ const eventResumoDefaults = {
   producer_name: null, producer_auth_email: null, producer_auth_email_secondary: null,
   address: null, start_time: null, end_date: null, end_time: null, link: null,
   music_style: null, flyer_url: null, sales_amount: 0, commission_percentage: 0,
-  credits_bonus: 0, repasses: 0,
+  credits_bonus: 0, repasses: 0, tax_percentage: null,
   producer_id: null, contract_status: 'Rascunho' as const, zapsign_doc_token: null,
   zapsign_signer_token: null, zapsign_sign_url: null, signed_file_url: null, contract_signed_at: null
 }
@@ -1794,12 +1794,14 @@ export async function deleteEventRepasse(id: string): Promise<void> {
 
 // ---------- Fechamento financeiro do evento (visão diretoria) ----------
 export async function getEventFinancialSummary(eventId: string): Promise<EventFinancialSummary> {
-  const [expenses, eventProducts, consumption, event, repassesLancamentos] = await Promise.all([
+  const [expenses, eventProducts, consumption, event, repassesLancamentos, settlements, settings] = await Promise.all([
     listExpensesForEvent(eventId),
     listEventProducts(eventId),
     listProductionConsumption(eventId),
     getEventById(eventId),
-    listEventRepasses(eventId)
+    listEventRepasses(eventId),
+    listCashierSettlementsForEvent(eventId),
+    getAppSettings()
   ])
 
   const despesas = expenses.filter((e) => e.status !== 'Cancelado').reduce((sum, e) => sum + e.total, 0)
@@ -1809,17 +1811,29 @@ export async function getEventFinancialSummary(eventId: string): Promise<EventFi
   const vendas = event?.sales_amount ?? 0
   const percentual = event?.commission_percentage ?? 0
   const creditosOuBonificacoes = event?.credits_bonus ?? 0
-  // Antes lia direto de event.repasses (número único editável); agora é a soma
-  // dos lançamentos do ledger event_repasses.
   const repasses = repassesLancamentos.reduce((sum, r) => sum + r.amount, 0)
 
+  // O que os caixas realmente arrecadaram (rejeitado fica de fora).
+  const recebimentos = settlements.filter((c) => c.status !== 'Rejeitado').reduce((sum, c) => sum + c.total, 0)
+
   const aReceber = vendas * (percentual / 100)
-  const saldoAReceberDaProdutora = aReceber + creditosOuBonificacoes - repasses
-  const lucroOuPerda = aReceber + creditosOuBonificacoes - despesas - custoProdutos - consumoProducao
+  const receitaBeetz = aReceber + creditosOuBonificacoes
+  // Imposto sobre a RECEITA da Beetz. Alíquota: a do evento, senão a padrão
+  // de Configurações. (Decisões do dono, 18/07/26.)
+  const taxaImposto = event?.tax_percentage ?? settings.default_tax_percentage ?? 0
+  const impostos = receitaBeetz * (taxaImposto / 100)
+
+  // Quem segura o dinheiro do evento é a Beetz (caixas). Ela fica com a sua
+  // receita e o resto pertence à produtora — o saldo é o que AINDA falta
+  // repassar depois dos repasses já lançados.
+  const saldoAPagarProdutora = recebimentos - receitaBeetz - repasses
+
+  const lucroOuPerda = receitaBeetz - impostos - despesas - custoProdutos - consumoProducao
 
   return {
     despesas, custoProdutos, consumoProducao, vendas, percentual, aReceber,
-    creditosOuBonificacoes, repasses, saldoAReceberDaProdutora, lucroOuPerda
+    creditosOuBonificacoes, receitaBeetz, taxaImposto, impostos, recebimentos,
+    repasses, saldoAPagarProdutora, lucroOuPerda
   }
 }
 
