@@ -37,7 +37,7 @@ function monthLabel(key: string) {
   return label.charAt(0).toUpperCase() + label.slice(1)
 }
 
-const selectClass = 'rounded-xl border border-beetz-dark/15 text-sm px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-beetz-yellow bg-white'
+const selectClass = 'w-[calc(50%-0.375rem)] sm:w-auto rounded-xl border border-beetz-dark/15 text-sm px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-beetz-yellow bg-white'
 
 type SortField = 'date' | 'event' | 'status' | 'value'
 type SortDir = 'asc' | 'desc'
@@ -276,6 +276,112 @@ export default function FinanceExpenses() {
     return null
   }
 
+  // Card de despesa pensado pro celular: valor e status na primeira linha,
+  // detalhe truncável no meio, origem e ações na base — nada disputa espaço
+  // com nada, em qualquer largura. A tabela usa este mesmo bloco em telas
+  // pequenas, porque tabela de 8 colunas em celular é scroll infinito.
+  const cardsList = (
+    <div className="space-y-2">
+      {filtered.map((exp) => {
+        const event = eventsById.get(exp.event_id)
+        const supplier = exp.supplier_id ? suppliers.find((s) => s.id === exp.supplier_id) : null
+        const person = personName(exp)
+        const isSelected = selected.has(exp.id)
+        return (
+          <div
+            key={exp.id}
+            className={`bg-white border rounded-xl p-4 transition-colors ${
+              isSelected ? 'border-beetz-yellow ring-2 ring-beetz-yellow/40' : 'border-beetz-dark/5'
+            } ${exp.status === 'Cancelado' ? 'opacity-50' : ''}`}
+          >
+            <div className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={() => toggleSelected(exp.id)}
+                className="w-4 h-4 accent-beetz-yellow shrink-0 mt-1"
+              />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${statusColors[exp.status]}`}>
+                      {exp.status}
+                    </span>
+                    <p className="font-semibold text-sm truncate">{exp.category || 'Sem categoria'}</p>
+                  </div>
+                  <span className="font-bold text-sm whitespace-nowrap">{currency(exp.total)}</span>
+                </div>
+
+                {(exp.description || exp.payment_method || person || supplier) && (
+                  <p className="text-xs text-beetz-dark/50 mt-1 line-clamp-2">
+                    {exp.description || ''}{exp.payment_method ? ` · ${exp.payment_method}` : ''}
+                    {person ? ` · Equipe: ${person}` : ''}
+                    {supplier ? ` · Fornecedor: ${supplier.name}` : ''}
+                  </p>
+                )}
+
+                <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
+                  <div className="min-w-0 text-xs text-beetz-dark/50">
+                    {event ? (
+                      <Link to={`/eventos/${event.id}`} className="font-semibold text-beetz-dark hover:text-beetz-yellow transition-colors">
+                        {event.name}
+                      </Link>
+                    ) : exp.event_id ? (
+                      <span className="text-beetz-dark/40">Evento removido</span>
+                    ) : (
+                      // Sem event_id = despesa da EMPRESA (aluguel, estoque...)
+                      // — não é erro, é a categoria nova de gasto.
+                      <span className="inline-flex items-center gap-1 text-[11px] font-bold bg-beetz-dark text-white px-2 py-0.5 rounded-full">
+                        Beetz · empresa{exp.stock_movement_id ? ' · estoque' : ''}
+                      </span>
+                    )}
+                    {event && (
+                      <span> · {formatDate(event.event_date)}{event.producer_name ? ` · ${event.producer_name}` : ''}</span>
+                    )}
+                  </div>
+                  {canEdit && (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => setEditingExpense(exp)}
+                        className="text-beetz-dark/40 hover:text-beetz-dark p-2 rounded-lg hover:bg-beetz-gray"
+                      >
+                        <Pencil size={15} />
+                      </button>
+                      {confirmDeleteId === exp.id ? (
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => handleDelete(exp.id)}
+                            disabled={deletingId === exp.id}
+                            className="text-xs font-semibold bg-red-600 text-white px-2.5 py-1.5 rounded-lg hover:bg-red-700 disabled:opacity-60"
+                          >
+                            {deletingId === exp.id ? '...' : 'Confirmar'}
+                          </button>
+                          <button
+                            onClick={() => setConfirmDeleteId(null)}
+                            className="text-xs font-semibold text-beetz-dark/50 px-2 py-1.5 rounded-lg hover:bg-beetz-gray"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmDeleteId(exp.id)}
+                          className="text-red-400 hover:text-red-600 p-2 rounded-lg hover:bg-red-50"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+
   if (!canViewFinancialSummary(accessRole)) {
     return (
       <div className="bg-white rounded-2xl p-8 shadow-soft border border-beetz-dark/5 text-center">
@@ -302,7 +408,7 @@ export default function FinanceExpenses() {
               <Plus size={16} /> Nova despesa
             </button>
           )}
-          <div className="flex bg-white rounded-xl border border-beetz-dark/10 p-1">
+          <div className="hidden sm:flex bg-white rounded-xl border border-beetz-dark/10 p-1">
           <button
             onClick={() => setViewMode('cards')}
             className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${viewMode === 'cards' ? 'bg-beetz-dark text-white' : 'text-beetz-dark/50 hover:bg-beetz-gray'}`}
@@ -422,96 +528,12 @@ export default function FinanceExpenses() {
               Nenhuma despesa encontrada com esses filtros.
             </div>
           ) : viewMode === 'cards' ? (
-            <div className="space-y-2">
-              {filtered.map((exp) => {
-                const event = eventsById.get(exp.event_id)
-                const supplier = exp.supplier_id ? suppliers.find((s) => s.id === exp.supplier_id) : null
-                const person = personName(exp)
-                const isSelected = selected.has(exp.id)
-                return (
-                  <div
-                    key={exp.id}
-                    className={`flex flex-wrap items-center gap-3 bg-white border rounded-xl p-4 transition-colors ${
-                      isSelected ? 'border-beetz-yellow ring-2 ring-beetz-yellow/40' : 'border-beetz-dark/5'
-                    } ${exp.status === 'Cancelado' ? 'opacity-50' : ''}`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => toggleSelected(exp.id)}
-                      className="w-4 h-4 accent-beetz-yellow shrink-0"
-                    />
-                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${statusColors[exp.status]}`}>
-                      {exp.status}
-                    </span>
-                    <div className="flex-1 min-w-[220px]">
-                      <p className="font-semibold text-sm">{exp.category || 'Sem categoria'}</p>
-                      <p className="text-xs text-beetz-dark/50">
-                        {exp.description || '—'} {exp.payment_method ? `· ${exp.payment_method}` : ''}
-                        {person ? ` · Equipe: ${person}` : ''}
-                        {supplier ? ` · Fornecedor: ${supplier.name}` : ''}
-                      </p>
-                    </div>
-                    <div className="text-right min-w-[160px]">
-                      {event ? (
-                        <Link to={`/eventos/${event.id}`} className="text-sm font-semibold hover:text-beetz-yellow transition-colors">
-                          {event.name}
-                        </Link>
-                      ) : exp.event_id ? (
-                        <span className="text-sm text-beetz-dark/40">Evento removido</span>
-                      ) : (
-                        // Sem event_id = despesa da EMPRESA (aluguel, estoque...)
-                        // — não é erro, é a categoria nova de gasto.
-                        <span className="inline-flex items-center gap-1 text-xs font-bold bg-beetz-dark text-white px-2 py-0.5 rounded-full">
-                          Beetz · empresa{exp.stock_movement_id ? ' · estoque' : ''}
-                        </span>
-                      )}
-                      <p className="text-xs text-beetz-dark/50">
-                        {event ? formatDate(event.event_date) : ''}
-                        {event?.producer_name ? ` · ${event.producer_name}` : ''}
-                      </p>
-                    </div>
-                    <span className="font-bold text-sm w-28 text-right">{currency(exp.total)}</span>
-                    {canEdit && (
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => setEditingExpense(exp)}
-                          className="text-beetz-dark/40 hover:text-beetz-dark p-1.5 rounded-lg hover:bg-beetz-gray"
-                        >
-                          <Pencil size={14} />
-                        </button>
-                        {confirmDeleteId === exp.id ? (
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={() => handleDelete(exp.id)}
-                              disabled={deletingId === exp.id}
-                              className="text-xs font-semibold bg-red-600 text-white px-2.5 py-1.5 rounded-lg hover:bg-red-700 disabled:opacity-60"
-                            >
-                              {deletingId === exp.id ? '...' : 'Confirmar'}
-                            </button>
-                            <button
-                              onClick={() => setConfirmDeleteId(null)}
-                              className="text-xs font-semibold text-beetz-dark/50 px-2 py-1.5 rounded-lg hover:bg-beetz-gray"
-                            >
-                              Cancelar
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => setConfirmDeleteId(exp.id)}
-                            className="text-red-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-red-50"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
+            cardsList
           ) : (
-            <div className="bg-white rounded-2xl shadow-soft border border-beetz-dark/5 overflow-x-auto">
+            <>
+            {/* Tabela real só onde cabe; no celular os cards assumem. */}
+            <div className="sm:hidden">{cardsList}</div>
+            <div className="hidden sm:block bg-white rounded-2xl shadow-soft border border-beetz-dark/5 overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-beetz-dark/10 text-left">
@@ -601,6 +623,7 @@ export default function FinanceExpenses() {
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </>
       )}
