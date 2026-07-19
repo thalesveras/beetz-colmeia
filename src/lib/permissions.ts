@@ -53,7 +53,8 @@ const ROLE_PERMISSIONS: Record<AccessRole, Omit<RolePermissions, 'role' | 'label
     can_receive_alert_staffing_decision: true, can_receive_alert_staffing_application: true,
     can_receive_alert_staffing_new_slot: true, can_receive_alert_stock_low: true,
     can_receive_alert_expense_reviewed: true, can_receive_alert_event_changed: true,
-    can_receive_alert_stock_idle: true, can_receive_alert_inventory_diff: true, can_receive_alert_pending_return: true
+    can_receive_alert_stock_idle: true, can_receive_alert_inventory_diff: true, can_receive_alert_pending_return: true,
+    can_receive_alert_login: true, can_receive_alert_logout: true, can_receive_alert_profile_updated: true, can_receive_alert_application_sent: true
   },
   garcom: {
     can_add_expense: false, can_review_expense: false, can_add_cashier: true, can_add_stock: false,
@@ -66,7 +67,8 @@ const ROLE_PERMISSIONS: Record<AccessRole, Omit<RolePermissions, 'role' | 'label
     can_receive_alert_staffing_decision: true, can_receive_alert_staffing_application: false,
     can_receive_alert_staffing_new_slot: true, can_receive_alert_stock_low: false,
     can_receive_alert_expense_reviewed: true, can_receive_alert_event_changed: true,
-    can_receive_alert_stock_idle: false, can_receive_alert_inventory_diff: false, can_receive_alert_pending_return: false
+    can_receive_alert_stock_idle: false, can_receive_alert_inventory_diff: false, can_receive_alert_pending_return: false,
+    can_receive_alert_login: true, can_receive_alert_logout: true, can_receive_alert_profile_updated: true, can_receive_alert_application_sent: true
   },
   caixa: {
     can_add_expense: false, can_review_expense: false, can_add_cashier: true, can_add_stock: false,
@@ -79,7 +81,8 @@ const ROLE_PERMISSIONS: Record<AccessRole, Omit<RolePermissions, 'role' | 'label
     can_receive_alert_staffing_decision: true, can_receive_alert_staffing_application: false,
     can_receive_alert_staffing_new_slot: true, can_receive_alert_stock_low: false,
     can_receive_alert_expense_reviewed: true, can_receive_alert_event_changed: true,
-    can_receive_alert_stock_idle: false, can_receive_alert_inventory_diff: false, can_receive_alert_pending_return: false
+    can_receive_alert_stock_idle: false, can_receive_alert_inventory_diff: false, can_receive_alert_pending_return: false,
+    can_receive_alert_login: true, can_receive_alert_logout: true, can_receive_alert_profile_updated: true, can_receive_alert_application_sent: true
   },
   // Operacional cobre o time de bar/produção/segurança/etc — ganham autonomia pra
   // manter o catálogo de produtos/estoques em dia e corrigir os próprios lançamentos.
@@ -94,7 +97,8 @@ const ROLE_PERMISSIONS: Record<AccessRole, Omit<RolePermissions, 'role' | 'label
     can_receive_alert_staffing_decision: true, can_receive_alert_staffing_application: false,
     can_receive_alert_staffing_new_slot: true, can_receive_alert_stock_low: true,
     can_receive_alert_expense_reviewed: true, can_receive_alert_event_changed: true,
-    can_receive_alert_stock_idle: true, can_receive_alert_inventory_diff: true, can_receive_alert_pending_return: true
+    can_receive_alert_stock_idle: true, can_receive_alert_inventory_diff: true, can_receive_alert_pending_return: true,
+    can_receive_alert_login: true, can_receive_alert_logout: true, can_receive_alert_profile_updated: true, can_receive_alert_application_sent: true
   },
   colaborador: {
     can_add_expense: false, can_review_expense: false, can_add_cashier: false, can_add_stock: false,
@@ -107,7 +111,8 @@ const ROLE_PERMISSIONS: Record<AccessRole, Omit<RolePermissions, 'role' | 'label
     can_receive_alert_staffing_decision: true, can_receive_alert_staffing_application: false,
     can_receive_alert_staffing_new_slot: true, can_receive_alert_stock_low: false,
     can_receive_alert_expense_reviewed: true, can_receive_alert_event_changed: true,
-    can_receive_alert_stock_idle: false, can_receive_alert_inventory_diff: false, can_receive_alert_pending_return: false
+    can_receive_alert_stock_idle: false, can_receive_alert_inventory_diff: false, can_receive_alert_pending_return: false,
+    can_receive_alert_login: true, can_receive_alert_logout: true, can_receive_alert_profile_updated: true, can_receive_alert_application_sent: true
   }
 }
 

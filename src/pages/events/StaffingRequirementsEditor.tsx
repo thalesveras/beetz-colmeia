@@ -229,34 +229,52 @@ export default function StaffingRequirementsEditor({ eventId, confirmedByRequire
                     </div>
                   </div>
                 ) : (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="flex-1 min-w-[160px]">
-                      <p className="font-semibold text-sm">
-                        {r.role_label}
-                        <span className="text-beetz-dark/40 font-normal"> · {r.quantity} {r.quantity === 1 ? 'vaga' : 'vagas'}</span>
-                        {r.unit_cost != null && r.unit_cost > 0 && (
-                          <span className="ml-2 text-xs font-bold bg-beetz-yellow/25 px-2 py-0.5 rounded-full">{brl(r.unit_cost)}/pessoa</span>
-                        )}
-                      </p>
-                      {r.notes && <p className="text-xs text-beetz-dark/50 mt-0.5">{r.notes}</p>}
-                      {confirmedByRequirement && (
-                        <div className="mt-2">
-                          <div className="h-1.5 bg-beetz-gray rounded-full overflow-hidden">
-                            <div
-                              className={full ? 'h-full bg-green-500' : 'h-full honey-gradient'}
-                              style={{ width: `${Math.min(100, (confirmed / Math.max(1, r.quantity)) * 100)}%` }}
-                            />
-                          </div>
-                          <p className="text-[11px] text-beetz-dark/40 mt-1">{confirmed} de {r.quantity} confirmados</p>
-                        </div>
-                      )}
+                  <div>
+                    {/* Título e ações na MESMA linha (nada de botão flutuando
+                        ao lado da barra); barra de progresso em largura total
+                        embaixo — no celular cada coisa tem sua faixa. */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <p className="font-semibold text-sm">
+                          {r.role_label}
+                          <span className="text-beetz-dark/40 font-normal"> · {r.quantity} {r.quantity === 1 ? 'vaga' : 'vagas'}</span>
+                        </p>
+                        {(() => {
+                          const role = r.role_id ? roles.find((x) => x.id === r.role_id) : undefined
+                          if (role?.pay_type === 'percent') {
+                            return (
+                              <span className="text-xs font-bold bg-beetz-yellow/25 px-2 py-0.5 rounded-full whitespace-nowrap" title="Comissão: a despesa nasce dos Recebimentos que a pessoa lança no fim do evento">
+                                {role.default_percent ?? 0}% das vendas/pessoa
+                              </span>
+                            )
+                          }
+                          if (r.unit_cost != null && r.unit_cost > 0) {
+                            return <span className="text-xs font-bold bg-beetz-yellow/25 px-2 py-0.5 rounded-full whitespace-nowrap">{brl(r.unit_cost)}/pessoa</span>
+                          }
+                          return null
+                        })()}
+                      </div>
+                      <div className="flex gap-1 shrink-0">
+                        <button onClick={() => startEdit(r)} className="text-beetz-dark/40 hover:text-beetz-dark p-2 rounded-lg hover:bg-beetz-gray">
+                          <Pencil size={14} />
+                        </button>
+                        <button onClick={() => handleDelete(r)} className="text-beetz-dark/40 hover:text-red-600 p-2 rounded-lg hover:bg-beetz-gray">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     </div>
-                    <button onClick={() => startEdit(r)} className="text-beetz-dark/40 hover:text-beetz-dark p-1.5 rounded-lg hover:bg-beetz-gray">
-                      <Pencil size={14} />
-                    </button>
-                    <button onClick={() => handleDelete(r)} className="text-beetz-dark/40 hover:text-red-600 p-1.5 rounded-lg hover:bg-beetz-gray">
-                      <Trash2 size={14} />
-                    </button>
+                    {r.notes && <p className="text-xs text-beetz-dark/50 mt-0.5">{r.notes}</p>}
+                    {confirmedByRequirement && (
+                      <div className="mt-2">
+                        <div className="h-1.5 bg-beetz-gray rounded-full overflow-hidden">
+                          <div
+                            className={full ? 'h-full bg-green-500' : 'h-full honey-gradient'}
+                            style={{ width: `${Math.min(100, (confirmed / Math.max(1, r.quantity)) * 100)}%` }}
+                          />
+                        </div>
+                        <p className="text-[11px] text-beetz-dark/40 mt-1">{confirmed} de {r.quantity} confirmados</p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

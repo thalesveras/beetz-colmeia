@@ -722,6 +722,10 @@ export interface RolePermissions {
   can_receive_alert_stock_idle: boolean
   can_receive_alert_inventory_diff: boolean
   can_receive_alert_pending_return: boolean
+  can_receive_alert_login: boolean
+  can_receive_alert_logout: boolean
+  can_receive_alert_profile_updated: boolean
+  can_receive_alert_application_sent: boolean
   label: string
   builtin: boolean
   updated_at: string
@@ -748,6 +752,10 @@ export type AlertFlagKey =
   | 'can_receive_alert_stock_idle'
   | 'can_receive_alert_inventory_diff'
   | 'can_receive_alert_pending_return'
+  | 'can_receive_alert_login'
+  | 'can_receive_alert_logout'
+  | 'can_receive_alert_profile_updated'
+  | 'can_receive_alert_application_sent'
 
 export interface AlertTypeDef {
   key: AlertFlagKey

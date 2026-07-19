@@ -79,6 +79,38 @@ export const ALERT_TYPES: AlertTypeDef[] = [
     kind: 'Estoque',
     escopo: 'global',
     gatilho: 'Rotina diária às 9h, em eventos com data passada. Não repete por 7 dias.'
+  },
+  {
+    key: 'can_receive_alert_application_sent',
+    label: 'Sua candidatura foi enviada',
+    description: 'Confirma na hora que a candidatura a uma vaga entrou na fila do líder.',
+    kind: 'Escala',
+    escopo: 'pessoal',
+    gatilho: 'Quando você toca em "Quero essa vaga".'
+  },
+  {
+    key: 'can_receive_alert_profile_updated',
+    label: 'Seu perfil foi alterado',
+    description: 'Avisa quando dados visíveis do seu perfil mudam — se não foi você, dá pra reagir rápido.',
+    kind: 'Geral',
+    escopo: 'pessoal',
+    gatilho: 'Quando nome, foto, telefone, cidade ou outros dados do perfil são salvos.'
+  },
+  {
+    key: 'can_receive_alert_login',
+    label: 'Novo acesso à sua conta',
+    description: 'Avisa a cada login — seus outros aparelhos ficam sabendo do acesso.',
+    kind: 'Geral',
+    escopo: 'pessoal',
+    gatilho: 'Quando alguém entra na sua conta (senha ou Google).'
+  },
+  {
+    key: 'can_receive_alert_logout',
+    label: 'Saída da conta',
+    description: 'Confirma quando a sessão é encerrada num aparelho.',
+    kind: 'Geral',
+    escopo: 'pessoal',
+    gatilho: 'Quando você toca em Sair.'
   }
 ]
 

@@ -76,11 +76,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     })
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event: string, session: any) => {
+    // Alerta pessoal de acesso: SIGNED_IN dispara no login real (senha OU
+    // volta do Google), não no carregamento de sessão existente. O guard por
+    // aba evita duplicar se o evento repetir na mesma sessão do navegador.
+    let loginLogged = false
+    const { data: listener } = supabase.auth.onAuthStateChange((event: string, session: any) => {
       if (session) {
         setUserId(session.user.id)
         setEmail(session.user.email)
         loadProfile(session.user.id, session.user.email)
+        if (event === 'SIGNED_IN' && !loginLogged) {
+          loginLogged = true
+          // Melhor esforço: falha aqui nunca atrapalha o login.
+          supabase.rpc('log_auth_event', { p_event: 'login' }).then(() => undefined, () => undefined)
+        }
       } else {
         setUserId(null)
         setEmail(null)
@@ -161,6 +170,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (isDemoMode) {
       sessionStorage.removeItem(DEMO_STORAGE_KEY)
     } else {
+      // O registro precisa acontecer ANTES do signOut — depois não há mais
+      // sessão pra assinar a chamada. Melhor esforço: sem rede, sai igual.
+      try { await supabase.rpc('log_auth_event', { p_event: 'logout' }) } catch { /* segue o baile */ }
       await supabase.auth.signOut()
     }
     setUserId(null)
