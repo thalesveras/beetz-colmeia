@@ -11,7 +11,7 @@ import { badgesFromStats, getHiveLevel } from './levels'
 import type {
   AlertChannelSetting, AppNotification, AppSettings, CashierSettlementInternal, Badge, BadgeDefConfig, CashierSettlement, Compliment, Department, DnsSubdomain, DnsRecordType,
   EventFinancialSummary,
-  EventChangeLogEntry, EventItem, EventMember, EventModality, EventProduct, EventRepasse, EventStaffingApplication, EventStaffingRequirement, Expense,
+  EventChangeLogEntry, EventItem, EventMember, EventModality, EventProduct, EventRepasse, EventSalesImport, EventSalesLine, EventStaffingApplication, EventStaffingRequirement, Expense, PosProductAlias,
   ExpenseCategory, ExpenseStatus, HiveLevelConfig, HoneyPoint, LinkRedirect, MovementType, OpenStaffingSlot, PaymentMethodOption, Product,
   ProductionConsumption, Producer, Profile, ProfileStats, RolePermissions, ServiceModality,
   PendingProfileDirectoryItem, PendingProfilePickerItem, PendingProfileSensitive, StaffingApplicationStatus, StaffingRole, StockAvailable, StockBalance, StockReservation, ReservationStatus, ProductAvgCost, StockLocation, StockMovement,
@@ -1757,6 +1757,109 @@ export async function createEventProduct(input: NewEventProductInput): Promise<E
   const { data, error } = await supabase.from('event_products').insert(input).select().single()
   if (error) throw error
   return data as EventProduct
+}
+
+// ---------- Vendas da máquina (relatório do PDV) ----------
+// O relatório sobe dia a dia e NÃO baixa estoque: é a fonte do "vendido de
+// verdade" pra conciliar com o almoxarifado do evento. O vínculo nome da
+// máquina → produto do catálogo fica gravado em pos_product_aliases — mapeou
+// uma vez, o upload seguinte já chega vinculado.
+export interface ParsedSalesLine {
+  pos_name: string
+  category: string | null
+  unit_value: number | null
+  qty_billed: number
+  qty_bonus: number
+  quantity: number
+  total_gross: number | null
+}
+
+export function normalizePosName(name: string): string {
+  return name.trim().toLowerCase()
+}
+
+export async function listEventSalesImports(eventId: string): Promise<EventSalesImport[]> {
+  if (isDemoMode) return []
+  const { data, error } = await supabase.from('event_sales_imports')
+    .select('*').eq('event_id', eventId).order('created_at', { ascending: false })
+  if (error) throw error
+  return data as EventSalesImport[]
+}
+
+export async function listEventSalesLines(eventId: string): Promise<EventSalesLine[]> {
+  if (isDemoMode) return []
+  const { data, error } = await supabase.from('event_sales_lines')
+    .select('*').eq('event_id', eventId).order('total_gross', { ascending: false })
+  if (error) throw error
+  return data as EventSalesLine[]
+}
+
+export async function listPosAliases(): Promise<PosProductAlias[]> {
+  if (isDemoMode) return []
+  const { data, error } = await supabase.from('pos_product_aliases').select('*')
+  if (error) throw error
+  return data as PosProductAlias[]
+}
+
+export async function createEventSalesImport(
+  eventId: string,
+  meta: { report_date: string | null; file_name: string | null },
+  lines: ParsedSalesLine[],
+  importedBy: string | null
+): Promise<EventSalesImport> {
+  if (isDemoMode) throw new Error('Importação de vendas indisponível no modo demonstração.')
+  if (lines.length === 0) throw new Error('Nenhuma linha de venda encontrada no arquivo.')
+  const aliases = await listPosAliases()
+  const byName = new Map(aliases.map((a) => [a.pos_name, a]))
+  const total = lines.reduce((s, l) => s + (l.total_gross ?? 0), 0)
+  const { data: imp, error } = await supabase.from('event_sales_imports')
+    .insert({ event_id: eventId, report_date: meta.report_date, file_name: meta.file_name, total_gross: total, imported_by: importedBy })
+    .select().single()
+  if (error) throw error
+  const rows = lines.map((l) => {
+    const alias = byName.get(normalizePosName(l.pos_name))
+    return {
+      import_id: (imp as EventSalesImport).id, event_id: eventId, ...l,
+      product_id: alias?.product_id ?? null, units_per_sale: alias?.units_per_sale ?? 1
+    }
+  })
+  const { error: linesErr } = await supabase.from('event_sales_lines').insert(rows)
+  if (linesErr) {
+    // Sem linha não fica import fantasma: desfaz o cabeçalho e devolve o erro.
+    await supabase.from('event_sales_imports').delete().eq('id', (imp as EventSalesImport).id)
+    throw linesErr
+  }
+  return imp as EventSalesImport
+}
+
+export async function deleteEventSalesImport(id: string): Promise<void> {
+  if (isDemoMode) return
+  const { error } = await supabase.from('event_sales_imports').delete().eq('id', id)
+  if (error) throw error
+}
+
+// Vincular nome da máquina → produto: grava a memória global (alias) e
+// atualiza as linhas DESTE evento com o mesmo nome. Outros eventos não são
+// tocados — histórico é histórico.
+export async function mapPosNameToProduct(
+  eventId: string, posName: string, productId: string, unitsPerSale: number
+): Promise<void> {
+  if (isDemoMode) return
+  if (!(unitsPerSale > 0)) throw new Error('Unidades por venda precisa ser maior que zero.')
+  const key = normalizePosName(posName)
+  const { error: aliasErr } = await supabase.from('pos_product_aliases')
+    .upsert({ pos_name: key, product_id: productId, units_per_sale: unitsPerSale, updated_at: new Date().toISOString() })
+  if (aliasErr) throw aliasErr
+  const { data, error } = await supabase.from('event_sales_lines').select('id, pos_name').eq('event_id', eventId)
+  if (error) throw error
+  const ids = ((data ?? []) as { id: string; pos_name: string }[])
+    .filter((l) => normalizePosName(l.pos_name) === key)
+    .map((l) => l.id)
+  if (ids.length > 0) {
+    const { error: updErr } = await supabase.from('event_sales_lines')
+      .update({ product_id: productId, units_per_sale: unitsPerSale }).in('id', ids)
+    if (updErr) throw updErr
+  }
 }
 
 // ---------- Consumo da produção ----------

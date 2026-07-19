@@ -510,6 +510,43 @@ export interface EventProduct {
   created_at: string
 }
 
+// ---------- Vendas da máquina (relatório do PDV) ----------
+// Sobe dia a dia por evento; NÃO baixa estoque — é a fonte do "vendido de
+// verdade" pra conciliar com o almoxarifado do evento.
+export interface EventSalesImport {
+  id: string
+  event_id: string
+  report_date: string | null
+  file_name: string | null
+  total_gross: number | null
+  imported_by: string | null
+  created_at: string
+}
+
+export interface EventSalesLine {
+  id: string
+  import_id: string
+  event_id: string
+  pos_name: string
+  category: string | null
+  unit_value: number | null
+  qty_billed: number
+  qty_bonus: number
+  quantity: number
+  total_gross: number | null
+  product_id: string | null
+  // Quantas unidades do estoque cada venda consome (dose de garrafa < 1).
+  units_per_sale: number
+  created_at: string
+}
+
+export interface PosProductAlias {
+  pos_name: string
+  product_id: string
+  units_per_sale: number
+  updated_at: string
+}
+
 export interface ProductionConsumption {
   id: string
   event_id: string
