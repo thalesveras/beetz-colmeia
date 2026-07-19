@@ -565,6 +565,18 @@ export async function getEventById(id: string): Promise<EventItem | null> {
   return data as EventItem | null
 }
 
+// Excluir evento (Diretoria): as FKs derrubam junto tudo que é do evento
+// (despesas, recebimentos, escala, produtos, repasses, histórico); os
+// movimentos de estoque ficam, desvinculados — história do almoxarifado.
+export async function deleteEvent(id: string): Promise<void> {
+  if (isDemoMode) {
+    demoState.events = demoState.events.filter((e) => e.id !== id)
+    return
+  }
+  const { error } = await supabase.from('events').delete().eq('id', id)
+  if (error) throw error
+}
+
 export async function updateEvent(id: string, patch: Partial<Omit<EventItem, 'id' | 'created_at'>>): Promise<EventItem> {
   if (isDemoMode) {
     const idx = demoState.events.findIndex((e) => e.id === id)

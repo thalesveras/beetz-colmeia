@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Building2, History, Link as LinkIcon, MapPin, Music, Pencil, Save, User, X } from 'lucide-react'
-import { Link } from 'react-router-dom'
-import { listProducers, listProfiles, updateEvent } from '../../lib/dataService'
+import { Building2, History, Link as LinkIcon, MapPin, Music, Pencil, Save, Trash2, User, X } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
+import { deleteEvent, listProducers, listProfiles, updateEvent } from '../../lib/dataService'
+import { useAuth } from '../../contexts/AuthContext'
 import type { EventItem, EventStatus, Producer, Profile } from '../../lib/types'
 import FileField from '../../components/ui/FileField'
 import StaffingRequirementsEditor from './StaffingRequirementsEditor'
@@ -41,6 +42,31 @@ interface Props {
 // histórico (trigger no banco), porque mexer em data/status respinga no
 // financeiro e na escala.
 export default function EventSummaryCard({ event, canEdit, onSaved, onStaffingChanged }: Props) {
+  const navigate = useNavigate()
+  const { accessRole } = useAuth()
+  const [removingEvent, setRemovingEvent] = useState(false)
+
+  // Excluir evento derruba TUDO que é dele (a RLS só deixa a Diretoria).
+  // Confirmação digitando o nome: exclusão em cascata não merece um clique só.
+  async function handleDeleteEvent() {
+    const typed = window.prompt(
+      `Excluir o evento e TUDO que pertence a ele (despesas, recebimentos, escala, produtos, repasses)?\n` +
+      `Os movimentos de estoque do almoxarifado ficam.\n\nDigite o nome do evento pra confirmar:\n${event.name}`
+    )
+    if (typed === null) return
+    if (typed.trim().toLowerCase() !== event.name.trim().toLowerCase()) {
+      window.alert('O nome não bate — exclusão cancelada.')
+      return
+    }
+    setRemovingEvent(true)
+    try {
+      await deleteEvent(event.id)
+      navigate('/eventos')
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'Não foi possível excluir (pode ser falta de permissão).')
+      setRemovingEvent(false)
+    }
+  }
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -344,7 +370,17 @@ export default function EventSummaryCard({ event, canEdit, onSaved, onStaffingCh
 
           {error && <p className="text-sm text-red-600">{error}</p>}
 
-          <div className="flex justify-end gap-2 pt-1">
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            {accessRole === 'diretoria' && (
+              <button
+                onClick={handleDeleteEvent}
+                disabled={removingEvent}
+                className="flex items-center gap-1.5 text-sm font-semibold text-red-600 hover:bg-red-50 px-3 py-2 rounded-xl disabled:opacity-60"
+              >
+                <Trash2 size={14} /> {removingEvent ? 'Excluindo...' : 'Excluir evento'}
+              </button>
+            )}
+            <span className="flex-1" />
             <button onClick={() => setEditing(false)} className="flex items-center gap-1.5 text-sm font-semibold text-beetz-dark/50 px-4 py-2">
               <X size={14} /> Fechar edição
             </button>
