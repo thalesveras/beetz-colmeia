@@ -234,9 +234,9 @@ function RolePermissionsSection({ onSaved }: { onSaved: () => void }) {
                   >
                     <input
                       type="checkbox"
-                      checked={current[f.key]}
+                      checked={Boolean(current[f.key])}
                       disabled={savingKey === f.key}
-                      onChange={() => toggle(f.key, current[f.key])}
+                      onChange={() => toggle(f.key, Boolean(current[f.key]))}
                       className="w-4 h-4 accent-beetz-yellow cursor-pointer shrink-0"
                     />
                     <div className="min-w-0">

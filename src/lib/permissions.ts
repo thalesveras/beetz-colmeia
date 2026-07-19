@@ -1,7 +1,12 @@
 import type { AlertFlagKey, Department, Profile, RolePermissions } from './types'
 
-export type AccessRole = 'diretoria' | 'garcom' | 'caixa' | 'operacional' | 'colaborador'
+// String, não union: perfis agora nascem pela tela de Configurações. Os cinco
+// de fábrica seguem garantidos pelos defaults abaixo; os criados chegam do
+// banco via setRolePermissions e entram nas listas em tempo de execução.
+export type AccessRole = string
 
+// Mutável de propósito (mutado in-place pra manter os imports vivos):
+// setRolePermissions reconstrói a ordem — diretoria primeiro, resto por rótulo.
 export const ACCESS_ROLES: AccessRole[] = ['diretoria', 'garcom', 'caixa', 'operacional', 'colaborador']
 
 // Pra qual papel de acesso um departamento aponta. Vários departamentos podem
@@ -10,7 +15,7 @@ export const ACCESS_ROLES: AccessRole[] = ['diretoria', 'garcom', 'caixa', 'oper
 // departamento individual. Editável pela Diretoria em /configuracoes
 // (departments.access_role no banco); antes disso era fixo aqui no código.
 export function departmentToAccessRole(dept: Pick<Department, 'access_role'>): AccessRole {
-  return (ACCESS_ROLES as string[]).includes(dept.access_role) ? (dept.access_role as AccessRole) : 'colaborador'
+  return dept.access_role in ROLE_PERMISSIONS ? dept.access_role : 'colaborador'
 }
 
 export function computeAccessRole(profile: Profile | null | undefined, departments: Department[]): AccessRole {
@@ -28,9 +33,15 @@ export const ACCESS_ROLE_LABELS: Record<AccessRole, string> = {
   colaborador: 'Colaborador (sem papel especial)'
 }
 
+// Perfil recém-criado pode aparecer antes das permissões carregarem (corrida
+// de load) — cai no colaborador, o perfil mais restrito, nunca num crash.
+function permsOf(role: AccessRole): Omit<RolePermissions, 'role' | 'label' | 'builtin' | 'updated_at'> {
+  return ROLE_PERMISSIONS[role] ?? ROLE_PERMISSIONS['colaborador']
+}
+
 // Valores padrão — substituídos em tempo de execução pelo ConfigContext assim que
 // as permissões (editáveis em /configuracoes) são carregadas do banco.
-const ROLE_PERMISSIONS: Record<AccessRole, Omit<RolePermissions, 'role' | 'updated_at'>> = {
+const ROLE_PERMISSIONS: Record<AccessRole, Omit<RolePermissions, 'role' | 'label' | 'builtin' | 'updated_at'>> = {
   diretoria: {
     can_add_expense: true, can_review_expense: true, can_add_cashier: true, can_add_stock: true,
     can_manage_users: true, can_view_financial_summary: true, can_approve_users: true,
@@ -103,10 +114,21 @@ const ROLE_PERMISSIONS: Record<AccessRole, Omit<RolePermissions, 'role' | 'updat
 export function setRolePermissions(configs: RolePermissions[]) {
   if (!configs.length) return
   for (const config of configs) {
-    if (!(config.role in ROLE_PERMISSIONS)) continue
-    const { role, updated_at, ...rest } = config
+    // Sem o guard antigo: perfil criado pela tela entra aqui na primeira carga.
+    const { role, label, builtin, updated_at, ...rest } = config
     ROLE_PERMISSIONS[role] = rest
+    if (label) ACCESS_ROLE_LABELS[role] = label
   }
+  // Reconstrói a lista in-place (imports de ACCESS_ROLES continuam válidos):
+  // diretoria primeiro, demais por rótulo. Perfis que sumiram do banco saem.
+  const ordered = configs
+    .map((c) => c.role)
+    .sort((a, b) => {
+      if (a === 'diretoria') return -1
+      if (b === 'diretoria') return 1
+      return (ACCESS_ROLE_LABELS[a] ?? a).localeCompare(ACCESS_ROLE_LABELS[b] ?? b, 'pt-BR')
+    })
+  ACCESS_ROLES.splice(0, ACCESS_ROLES.length, ...ordered)
 }
 
 export function getRolePermissionsMap() {
@@ -114,15 +136,15 @@ export function getRolePermissionsMap() {
 }
 
 export function canManageUsers(role: AccessRole) {
-  return ROLE_PERMISSIONS[role].can_manage_users
+  return permsOf(role).can_manage_users
 }
 
 export function canAddExpense(role: AccessRole) {
-  return ROLE_PERMISSIONS[role].can_add_expense
+  return permsOf(role).can_add_expense
 }
 
 export function canReviewExpense(role: AccessRole) {
-  return ROLE_PERMISSIONS[role].can_review_expense
+  return permsOf(role).can_review_expense
 }
 
 export function canViewExpensesTab(role: AccessRole) {
@@ -130,7 +152,7 @@ export function canViewExpensesTab(role: AccessRole) {
 }
 
 export function canAddCashierSettlement(role: AccessRole) {
-  return ROLE_PERMISSIONS[role].can_add_cashier
+  return permsOf(role).can_add_cashier
 }
 
 export function canViewCashierTab(role: AccessRole) {
@@ -138,7 +160,7 @@ export function canViewCashierTab(role: AccessRole) {
 }
 
 export function canAddStockMovement(role: AccessRole) {
-  return ROLE_PERMISSIONS[role].can_add_stock
+  return permsOf(role).can_add_stock
 }
 
 export function canViewStockTab(role: AccessRole) {
@@ -146,70 +168,70 @@ export function canViewStockTab(role: AccessRole) {
 }
 
 export function canViewFinancialSummary(role: AccessRole) {
-  return ROLE_PERMISSIONS[role].can_view_financial_summary
+  return permsOf(role).can_view_financial_summary
 }
 
 export function canApproveUsers(role: AccessRole) {
-  return ROLE_PERMISSIONS[role].can_approve_users
+  return permsOf(role).can_approve_users
 }
 
 export function canReviewCashier(role: AccessRole) {
-  return ROLE_PERMISSIONS[role].can_review_cashier
+  return permsOf(role).can_review_cashier
 }
 
 export function canEditExpense(role: AccessRole) {
-  return ROLE_PERMISSIONS[role].can_edit_expense
+  return permsOf(role).can_edit_expense
 }
 
 export function canEditStock(role: AccessRole) {
-  return ROLE_PERMISSIONS[role].can_edit_stock
+  return permsOf(role).can_edit_stock
 }
 
 export function canApproveEventRequests(role: AccessRole) {
-  return ROLE_PERMISSIONS[role].can_approve_event_requests
+  return permsOf(role).can_approve_event_requests
 }
 
 export function canManageStockCatalog(role: AccessRole) {
-  return ROLE_PERMISSIONS[role].can_manage_stock_catalog
+  return permsOf(role).can_manage_stock_catalog
 }
 
 export function canEditOwnStock(role: AccessRole) {
-  return ROLE_PERMISSIONS[role].can_edit_own_stock
+  return permsOf(role).can_edit_own_stock
 }
 
 export function canViewPendingProfileDetails(role: AccessRole) {
-  return ROLE_PERMISSIONS[role].can_view_pending_details
+  return permsOf(role).can_view_pending_details
 }
 
 export function canGiveRecognition(role: AccessRole) {
-  return ROLE_PERMISSIONS[role].can_give_recognition
+  return permsOf(role).can_give_recognition
 }
 
 export function canViewRanking(role: AccessRole) {
-  return ROLE_PERMISSIONS[role].can_view_ranking
+  return permsOf(role).can_view_ranking
 }
 
 export function canEditHiveMap(role: AccessRole) {
-  return ROLE_PERMISSIONS[role].can_edit_hive_map
+  return permsOf(role).can_edit_hive_map
 }
 
 export function canViewHiveMap(role: AccessRole) {
-  return ROLE_PERMISSIONS[role].can_view_hive_map
+  return permsOf(role).can_view_hive_map
 }
 
 export function canViewTeamDirectory(role: AccessRole) {
-  return ROLE_PERMISSIONS[role].can_view_team_directory
+  return permsOf(role).can_view_team_directory
 }
 
 export function canViewBirthdays(role: AccessRole) {
-  return ROLE_PERMISSIONS[role].can_view_birthdays
+  return permsOf(role).can_view_birthdays
 }
 
 // Ver quem faz aniversário é uma coisa; mandar e-mail em nome da Beetz é
 // outra — por isso duas flags. A edge function send-birthday-email confere
 // Diretoria no servidor de qualquer jeito; essa flag controla a interface.
 export function canSendBirthdayEmail(role: AccessRole) {
-  return ROLE_PERMISSIONS[role].can_send_birthday_email
+  return permsOf(role).can_send_birthday_email
 }
 
 // Só a Diretoria configura quais alertas cada cargo recebe. Ver a própria caixa
@@ -217,7 +239,7 @@ export function canSendBirthdayEmail(role: AccessRole) {
 // as abas Pessoais e Escala mostram o que é seu, e a aba Configurações some
 // pra quem não é Diretoria.
 export function canConfigureAlerts(role: AccessRole) {
-  return ROLE_PERMISSIONS[role].can_manage_users
+  return permsOf(role).can_manage_users
 }
 
 // Espelha o alert_enabled() do banco. Aqui serve só pra tela não prometer o que

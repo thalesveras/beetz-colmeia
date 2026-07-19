@@ -677,7 +677,10 @@ export interface StockReservation {
   created_at: string
 }
 
-export type AccessRoleKey = 'diretoria' | 'garcom' | 'caixa' | 'operacional' | 'colaborador'
+// Slug de perfil de acesso. Era um union fixo; com perfis criados pela tela
+// virou string — os cinco de fábrica ('diretoria', 'garcom', 'caixa',
+// 'operacional', 'colaborador') continuam existindo e protegidos (builtin).
+export type AccessRoleKey = string
 
 export interface RolePermissions {
   role: AccessRoleKey
@@ -719,6 +722,8 @@ export interface RolePermissions {
   can_receive_alert_stock_idle: boolean
   can_receive_alert_inventory_diff: boolean
   can_receive_alert_pending_return: boolean
+  label: string
+  builtin: boolean
   updated_at: string
 }
 

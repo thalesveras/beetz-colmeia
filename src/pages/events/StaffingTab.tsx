@@ -3,9 +3,9 @@ import { Link } from 'react-router-dom'
 import { Check, ClipboardList, Pencil, Users, Wallet, X } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import {
-  applyToStaffingSlot, generateScalePayments, listEventStaffingApplications, listEventStaffingRequirements,
-  listProfiles, listStaffingRoles, updateStaffingApplicationPercent, updateStaffingApplicationStatus,
-  updateStaffingApplicationValue
+  applyToStaffingSlot, generateScalePayments, listCashierSettlementsForEvent, listEventStaffingApplications,
+  listEventStaffingRequirements, listProfiles, listStaffingRoles, updateStaffingApplicationPercent,
+  updateStaffingApplicationStatus, updateStaffingApplicationValue
 } from '../../lib/dataService'
 
 function brl(v: number) {
@@ -45,6 +45,9 @@ export default function StaffingTab({ eventId, canManage, onTeamChanged }: Props
   const [applications, setApplications] = useState<EventStaffingApplication[]>([])
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [roles, setRoles] = useState<StaffingRole[]>([])
+  // Vendas por pessoa vindas dos RECEBIMENTOS do evento: é daqui que a
+  // comissão do garçom nasce — a escala só espelha.
+  const [salesByProfile, setSalesByProfile] = useState<Map<string, number>>(new Map())
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -57,16 +60,23 @@ export default function StaffingTab({ eventId, canManage, onTeamChanged }: Props
 
   async function load() {
     try {
-      const [reqs, apps, profs, rls] = await Promise.all([
+      const [reqs, apps, profs, rls, settlements] = await Promise.all([
         listEventStaffingRequirements(eventId),
         listEventStaffingApplications(eventId),
         listProfiles(),
-        listStaffingRoles()
+        listStaffingRoles(),
+        listCashierSettlementsForEvent(eventId).catch(() => [])
       ])
       setRequirements(reqs)
       setApplications(apps)
       setProfiles(profs)
       setRoles(rls)
+      const sales = new Map<string, number>()
+      for (const st of settlements) {
+        if (st.status === 'Rejeitado') continue
+        sales.set(st.profile_id, (sales.get(st.profile_id) ?? 0) + st.total)
+      }
+      setSalesByProfile(sales)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar as vagas.')
     } finally {
@@ -125,6 +135,16 @@ export default function StaffingTab({ eventId, canManage, onTeamChanged }: Props
   const percentCount = useMemo(
     () => confirmedApps.filter((a) => isPercentApp(a)).length,
     [confirmedApps, requirements, roles]
+  )
+  // Estimativa ao vivo: % combinado × o que cada pessoa já registrou em
+  // Recebimentos. Zero enquanto os acertos não são lançados no fim do evento.
+  const estimatedCommissions = useMemo(
+    () => confirmedApps.reduce((sum, a) => {
+      if (!isPercentApp(a)) return sum
+      const sales = salesByProfile.get(a.profile_id) ?? 0
+      return sum + Math.round(sales * resolvedPercent(a)) / 100
+    }, 0),
+    [confirmedApps, requirements, roles, salesByProfile]
   )
 
   async function saveValue(app: EventStaffingApplication) {
@@ -202,10 +222,17 @@ export default function StaffingTab({ eventId, canManage, onTeamChanged }: Props
         <div className="bg-beetz-dark text-white rounded-2xl p-5 shadow-soft flex flex-wrap items-center gap-4">
           <div className="bg-beetz-yellow/20 text-beetz-yellow rounded-xl p-2.5"><Wallet size={20} /></div>
           <div className="flex-1 min-w-[160px]">
-            <p className="text-xl font-extrabold leading-none">{brl(scaleTotal)}{percentCount > 0 ? ' + comissões' : ''}</p>
+            <p className="text-xl font-extrabold leading-none">
+              {brl(scaleTotal)}
+              {percentCount > 0 ? (estimatedCommissions > 0 ? ` + ≈ ${brl(estimatedCommissions)} de comissões` : ' + comissões') : ''}
+            </p>
             <p className="text-xs text-white/50 mt-1">
               Custo da escala · {confirmedApps.length} confirmado{confirmedApps.length > 1 ? 's' : ''}
-              {percentCount > 0 ? ` · ${percentCount} comissionado${percentCount > 1 ? 's' : ''} (% sobre o acerto)` : ''}
+              {percentCount > 0 && (
+                estimatedCommissions > 0
+                  ? ` · comissões calculadas sobre os Recebimentos já lançados`
+                  : ` · ${percentCount} comissionado${percentCount > 1 ? 's' : ''}: a despesa nasce dos Recebimentos, lançados no fim do evento`
+              )}
             </p>
           </div>
           {canManage && (
@@ -322,8 +349,21 @@ export default function StaffingTab({ eventId, canManage, onTeamChanged }: Props
                             <button onClick={() => setEditingValueId(null)} className="text-beetz-dark/40 p-1 rounded hover:bg-beetz-gray"><X size={13} /></button>
                           </span>
                         ) : (
-                          <span className="flex items-center gap-1 text-xs font-bold">
-                            {isPercentApp(app) ? `${resolvedPercent(app)}% das vendas` : brl(resolvedValue(app))}
+                          <span className="flex items-center gap-1 text-xs font-bold flex-wrap">
+                            {isPercentApp(app) ? (
+                              <>
+                                {resolvedPercent(app)}% das vendas
+                                {(salesByProfile.get(app.profile_id) ?? 0) > 0 ? (
+                                  <span className="text-green-700 bg-green-50 px-1.5 py-0.5 rounded-full text-[10px] font-bold" title="Estimativa sobre o que a pessoa já registrou em Recebimentos neste evento">
+                                    ≈ {brl(Math.round((salesByProfile.get(app.profile_id) ?? 0) * resolvedPercent(app)) / 100)}
+                                  </span>
+                                ) : (
+                                  <span className="text-beetz-dark/40 text-[10px] font-semibold" title="A comissão é calculada sobre o acerto que a pessoa lança em Recebimentos no fim do evento">
+                                    aguarda acerto
+                                  </span>
+                                )}
+                              </>
+                            ) : brl(resolvedValue(app))}
                             {(isPercentApp(app) ? app.agreed_percent != null : app.agreed_value != null) && (
                               <span className="text-[10px] font-semibold text-beetz-dark/40" title="Combinado ajustado só pra essa pessoa">ajustado</span>
                             )}

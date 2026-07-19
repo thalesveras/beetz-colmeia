@@ -1300,6 +1300,65 @@ export async function listRolePermissions(): Promise<RolePermissions[]> {
   return data as RolePermissions[]
 }
 
+// Criar um perfil de acesso novo (visão) pela tela. Nasce com TODAS as
+// permissões desligadas — a Diretoria liga o que quiser na matriz. O slug sai
+// do nome; colisão o banco acusa (PK).
+export async function createRolePermission(name: string): Promise<RolePermissions> {
+  const slug = name.trim().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40)
+  if (!/^[a-z]/.test(slug)) throw new Error('Nome inválido pra virar perfil (comece com letra).')
+  if (isDemoMode) throw new Error('Indisponível no modo demonstração.')
+  const { data, error } = await supabase.from('role_permissions')
+    .insert({ role: slug, label: name.trim() })
+    .select().single()
+  if (error) {
+    if ((error as { code?: string }).code === '23505') throw new Error('Já existe um perfil com esse nome.')
+    throw error
+  }
+  return data as RolePermissions
+}
+
+// Excluir perfil criado na tela (os de fábrica o banco protege; departamento
+// apontando pra ele também barra — o FK avisa).
+export async function deleteRolePermission(role: string): Promise<void> {
+  if (isDemoMode) throw new Error('Indisponível no modo demonstração.')
+  const { error } = await supabase.from('role_permissions').delete().eq('role', role)
+  if (error) {
+    if ((error as { code?: string }).code === '23503') {
+      throw new Error('Há departamento apontando pra este perfil. Reaponte-o antes de excluir.')
+    }
+    throw error
+  }
+}
+
+export async function createDepartment(input: { name: string; icon: string; access_role: string; description?: string | null }): Promise<Department> {
+  const slug = input.name.trim().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40)
+  if (!slug) throw new Error('Dê um nome ao departamento.')
+  if (isDemoMode) throw new Error('Indisponível no modo demonstração.')
+  const { data, error } = await supabase.from('departments')
+    .insert({ slug, name: input.name.trim(), icon: input.icon || '🐝', access_role: input.access_role, description: input.description ?? null })
+    .select().single()
+  if (error) {
+    if ((error as { code?: string }).code === '23505') throw new Error('Já existe um departamento com esse nome.')
+    throw error
+  }
+  return data as Department
+}
+
+export async function deleteDepartment(id: string): Promise<void> {
+  if (isDemoMode) throw new Error('Indisponível no modo demonstração.')
+  const { error } = await supabase.from('departments').delete().eq('id', id)
+  if (error) {
+    if ((error as { code?: string }).code === '23503') {
+      throw new Error('Há pessoas neste departamento. Mova-as antes de excluir.')
+    }
+    throw error
+  }
+}
+
 export async function updateRolePermission(
   role: RolePermissions['role'],
   patch: Partial<Omit<RolePermissions, 'role' | 'updated_at'>>
