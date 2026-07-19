@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Building2, History, Link as LinkIcon, MapPin, Music, Pencil, Save, Trash2, User, X } from 'lucide-react'
+import { Building2, Copy, History, Link as LinkIcon, MapPin, Music, Pencil, Save, Trash2, User, X } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
-import { deleteEvent, listProducers, listProfiles, updateEvent } from '../../lib/dataService'
+import { cloneEvent, deleteEvent, listEventStaffingRequirements, listProducers, listProfiles, updateEvent } from '../../lib/dataService'
 import { useAuth } from '../../contexts/AuthContext'
 import type { EventItem, EventStatus, Producer, Profile } from '../../lib/types'
 import FileField from '../../components/ui/FileField'
@@ -45,6 +45,7 @@ export default function EventSummaryCard({ event, canEdit, onSaved, onStaffingCh
   const navigate = useNavigate()
   const { accessRole } = useAuth()
   const [removingEvent, setRemovingEvent] = useState(false)
+  const [cloning, setCloning] = useState(false)
 
   // Excluir evento derruba TUDO que é dele (a RLS só deixa a Diretoria).
   // Confirmação digitando o nome: exclusão em cascata não merece um clique só.
@@ -170,12 +171,21 @@ export default function EventSummaryCard({ event, canEdit, onSaved, onStaffingCh
           {event.status}
         </span>
         {canEdit && !editing && (
-          <button
-            onClick={() => setEditing(true)}
-            className="absolute top-4 right-4 flex items-center gap-1.5 text-xs font-semibold bg-white/90 backdrop-blur text-beetz-dark px-3 py-2 rounded-xl hover:bg-white transition-colors shadow"
-          >
-            <Pencil size={13} /> Editar evento
-          </button>
+          <div className="absolute top-4 right-4 flex gap-1.5">
+            <button
+              onClick={() => setCloning(true)}
+              className="flex items-center gap-1.5 text-xs font-semibold bg-white/90 backdrop-blur text-beetz-dark px-3 py-2 rounded-xl hover:bg-white transition-colors shadow"
+              title="Criar um evento novo a partir deste"
+            >
+              <Copy size={13} /> Clonar
+            </button>
+            <button
+              onClick={() => setEditing(true)}
+              className="flex items-center gap-1.5 text-xs font-semibold bg-white/90 backdrop-blur text-beetz-dark px-3 py-2 rounded-xl hover:bg-white transition-colors shadow"
+            >
+              <Pencil size={13} /> Editar evento
+            </button>
+          </div>
         )}
         <h1 className="absolute bottom-3 left-5 right-5 text-2xl md:text-3xl font-extrabold text-white drop-shadow-md leading-tight pointer-events-none">
           {event.name}
@@ -390,6 +400,104 @@ export default function EventSummaryCard({ event, canEdit, onSaved, onStaffingCh
           </div>
         </div>
       )}
+      </div>
+
+      {cloning && <CloneEventModal source={event} onClose={() => setCloning(false)} />}
+    </div>
+  )
+}
+
+// Clonar evento: pergunta o que muda (nome e data) ANTES de criar — e avisa
+// com todas as letras que clonar as vagas dispara o push de "Vaga aberta"
+// pra colmeia inteira. Errar o nome aqui é notificar todo mundo errado.
+function CloneEventModal({ source, onClose }: { source: EventItem; onClose: () => void }) {
+  const navigate = useNavigate()
+  const [name, setName] = useState(source.name)
+  const [date, setDate] = useState('')
+  const [copyStaffing, setCopyStaffing] = useState(true)
+  const [slotCount, setSlotCount] = useState<number | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    listEventStaffingRequirements(source.id)
+      .then((reqs) => setSlotCount(reqs.reduce((sum, r) => sum + r.quantity, 0)))
+      .catch(() => setSlotCount(null))
+  }, [source.id])
+
+  async function handleClone() {
+    if (!name.trim() || !date) { setError('Dê o nome e a data do evento novo.'); return }
+    setSaving(true); setError(null)
+    try {
+      const created = await cloneEvent(source, { name, event_date: date, copyStaffing })
+      navigate(`/eventos/${created.id}`)
+      onClose()
+    } catch (e: any) {
+      setError(e?.message ?? 'Não foi possível clonar.')
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-6" onClick={onClose}>
+      <div
+        className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 max-h-[90vh] overflow-y-auto pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3 mb-1">
+          <p className="font-bold text-lg leading-tight">Clonar evento</p>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-beetz-gray shrink-0" aria-label="Fechar">
+            <X size={18} />
+          </button>
+        </div>
+        <p className="text-xs text-beetz-dark/50 mb-4">
+          Copia a ficha de "{source.name}" (local, produtora, horários, flyer). Despesas, recebimentos e
+          candidaturas NÃO vêm junto — o evento novo nasce limpo.
+        </p>
+
+        <div className="space-y-3">
+          <div>
+            <label className="text-sm font-medium block mb-1">Nome do evento novo *</label>
+            <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div>
+            <label className="text-sm font-medium block mb-1">Data *</label>
+            <input type="date" className={inputClass} value={date} onChange={(e) => setDate(e.target.value)} />
+          </div>
+
+          <label className="flex items-start gap-2.5 bg-beetz-gray/60 rounded-xl p-3 cursor-pointer">
+            <input
+              type="checkbox" checked={copyStaffing} onChange={(e) => setCopyStaffing(e.target.checked)}
+              className="w-4 h-4 accent-beetz-yellow mt-0.5 shrink-0"
+            />
+            <span className="text-sm">
+              <span className="font-semibold">Clonar as vagas da escala</span>
+              {slotCount != null && <span className="text-beetz-dark/50"> ({slotCount} vaga{slotCount === 1 ? '' : 's'})</span>}
+              <span className="block text-xs text-beetz-dark/50 mt-0.5">Funções, quantidades e valores das vagas vêm junto.</span>
+            </span>
+          </label>
+
+          {copyStaffing && (
+            <div className="bg-beetz-yellow/20 border border-beetz-yellow/50 rounded-xl p-3 text-xs text-beetz-dark/80">
+              ⚠ <span className="font-bold">A colmeia recebe push na hora:</span> cada vaga clonada dispara o
+              alerta "Vaga aberta em evento" pra todo mundo com esse aviso ligado. Confira o nome e a data
+              acima antes de confirmar — é isso que vai chegar no celular da turma.
+            </div>
+          )}
+        </div>
+
+        {error && <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mt-3">{error}</p>}
+
+        <div className="flex justify-end gap-2 mt-5">
+          <button onClick={onClose} className="text-sm font-semibold text-beetz-dark/50 px-4 py-2">Cancelar</button>
+          <button
+            onClick={handleClone}
+            disabled={saving || !name.trim() || !date}
+            className="flex items-center gap-1.5 honey-gradient text-beetz-dark font-bold px-5 py-2.5 rounded-xl text-sm disabled:opacity-60"
+          >
+            <Copy size={14} /> {saving ? 'Clonando...' : copyStaffing ? 'Clonar e avisar a colmeia' : 'Clonar sem vagas'}
+          </button>
+        </div>
       </div>
     </div>
   )

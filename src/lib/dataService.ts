@@ -565,6 +565,53 @@ export async function getEventById(id: string): Promise<EventItem | null> {
   return data as EventItem | null
 }
 
+// Clonar evento: copia a ficha (local, produtora, estilo, horários, flyer) e,
+// se pedido, as VAGAS da escala. Não copia nada operacional/financeiro
+// (despesas, recebimentos, candidaturas, produtos, repasses) — evento novo
+// nasce limpo. Clonar vagas dispara o alerta de "Vaga aberta" (push!) pra
+// colmeia — quem chama mostra o aviso antes.
+export async function cloneEvent(source: EventItem, input: {
+  name: string
+  event_date: string
+  copyStaffing: boolean
+}): Promise<EventItem> {
+  const created = await createEvent({
+    name: input.name.trim(),
+    event_date: input.event_date,
+    location: source.location,
+    city: source.city,
+    status: 'Planejado',
+    leader_id: source.leader_id,
+    producer_id: source.producer_id,
+    producer_name: source.producer_name,
+    producer_auth_email: source.producer_auth_email,
+    producer_auth_email_secondary: source.producer_auth_email_secondary,
+    address: source.address,
+    start_time: source.start_time,
+    end_date: null,
+    end_time: source.end_time,
+    link: source.link,
+    music_style: source.music_style,
+    flyer_url: source.flyer_url,
+    tax_percentage: source.tax_percentage
+  } as NewEventInput)
+
+  if (input.copyStaffing) {
+    const reqs = await listEventStaffingRequirements(source.id)
+    for (const r of reqs) {
+      await createEventStaffingRequirement({
+        event_id: created.id,
+        role_label: r.role_label,
+        quantity: r.quantity,
+        unit_cost: r.unit_cost,
+        notes: r.notes,
+        role_id: r.role_id
+      })
+    }
+  }
+  return created
+}
+
 // Excluir evento (Diretoria): as FKs derrubam junto tudo que é do evento
 // (despesas, recebimentos, escala, produtos, repasses, histórico); os
 // movimentos de estoque ficam, desvinculados — história do almoxarifado.
