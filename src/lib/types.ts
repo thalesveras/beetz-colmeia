@@ -512,6 +512,7 @@ export interface ProductionConsumption {
   total_cost: number
   notes: string | null
   created_by: string | null
+  stock_movement_id?: string | null
   created_at: string
 }
 

@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Plus, Trash2, X } from 'lucide-react'
 import {
-  createEventProduct, deleteEventProduct, listEventProducts, listProducts, updateEventProduct
+  createEventProduct, deleteEventProduct, getEventStockByProduct, getProductAvgCosts,
+  listEventProducts, listProducts, updateEventProduct
 } from '../../lib/dataService'
+import type { EventStockLine } from '../../lib/dataService'
 import type { EventProduct, Product } from '../../lib/types'
 
 const inputClass = 'w-full border border-beetz-dark/15 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
@@ -22,6 +24,11 @@ export default function ProductsTab({ eventId }: { eventId: string }) {
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
   const [selected, setSelected] = useState<EventProduct | null>(null)
+  // Ponte com a aba Estoque: o que foi enviado pro evento (líquido) e o custo
+  // médio do catálogo — um toque lança como produto do evento sem digitação.
+  const [stockLines, setStockLines] = useState<EventStockLine[]>([])
+  const [avgCosts, setAvgCosts] = useState<Map<string, number>>(new Map())
+  const [importingId, setImportingId] = useState<string | null>(null)
 
   const [productId, setProductId] = useState('')
   const [quantity, setQuantity] = useState(1)
@@ -30,10 +37,39 @@ export default function ProductsTab({ eventId }: { eventId: string }) {
 
   async function load() {
     setLoading(true)
-    const [eventProducts, allProducts] = await Promise.all([listEventProducts(eventId), listProducts()])
+    const [eventProducts, allProducts, lines, costs] = await Promise.all([
+      listEventProducts(eventId),
+      listProducts(),
+      getEventStockByProduct(eventId).catch(() => []),
+      getProductAvgCosts().catch(() => new Map<string, number>())
+    ])
     setItems(eventProducts)
     setProducts(allProducts)
+    setStockLines(lines)
+    setAvgCosts(costs)
     setLoading(false)
+  }
+
+  // Enviado pro evento e ainda sem lançamento em Produtos — é o que falta
+  // registrar. Um toque preenche quantidade (líquido do estoque) e preço
+  // (custo médio), revisável no modal depois.
+  const launchedProductIds = new Set(items.map((i) => i.product_id))
+  const pendingFromStock = stockLines.filter((l) => l.net > 0 && !launchedProductIds.has(l.product_id))
+
+  async function importFromStock(line: EventStockLine) {
+    setImportingId(line.product_id)
+    try {
+      await createEventProduct({
+        event_id: eventId,
+        product_id: line.product_id,
+        quantity: line.net,
+        unit_price: avgCosts.get(line.product_id) ?? 0,
+        notes: 'Lançado do estoque do evento'
+      })
+      await load()
+    } finally {
+      setImportingId(null)
+    }
   }
 
   useEffect(() => { load() }, [eventId])
@@ -100,6 +136,35 @@ export default function ProductsTab({ eventId }: { eventId: string }) {
             </button>
           </div>
         </form>
+      )}
+
+      {!loading && pendingFromStock.length > 0 && (
+        <div className="bg-beetz-dark text-white rounded-2xl p-4">
+          <p className="text-xs font-bold uppercase tracking-wide text-beetz-yellow mb-1">Do estoque do evento</p>
+          <p className="text-xs text-white/50 mb-3">
+            Itens enviados pela aba Estoque e ainda sem lançamento aqui. Um toque lança com a
+            quantidade líquida (enviado − devolvido − consumido) e o custo médio — dá pra ajustar depois.
+          </p>
+          <div className="space-y-1.5">
+            {pendingFromStock.map((line) => (
+              <div key={line.product_id} className="flex items-center gap-3 bg-white/10 rounded-xl px-3 py-2">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold truncate">{productName(line.product_id)}</p>
+                  <p className="text-[11px] text-white/50">
+                    {line.net} un no evento{avgCosts.has(line.product_id) ? ` · ~${currency(avgCosts.get(line.product_id)!)} un` : ' · sem custo médio ainda'}
+                  </p>
+                </div>
+                <button
+                  onClick={() => importFromStock(line)}
+                  disabled={importingId === line.product_id}
+                  className="text-xs font-bold honey-gradient text-beetz-dark px-3 py-1.5 rounded-lg disabled:opacity-60 shrink-0"
+                >
+                  {importingId === line.product_id ? '...' : 'Lançar'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {!loading && (

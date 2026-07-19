@@ -1789,24 +1789,108 @@ export async function updateProductionConsumption(
   return data as ProductionConsumption
 }
 
+// O que está NO evento, por produto: Σ Envio − Σ Devolução (movimentos
+// ativos vinculados ao evento). É a ponte entre as abas Estoque, Produtos e
+// Consumo — todas leem o mesmo número.
+export interface EventStockLine {
+  product_id: string
+  sent: number
+  returned: number
+  net: number
+}
+
+export async function getEventStockByProduct(eventId: string): Promise<EventStockLine[]> {
+  if (isDemoMode) return []
+  const { data, error } = await supabase
+    .from('stock_movements')
+    .select('product_id, movement_type, quantity, status')
+    .eq('event_id', eventId)
+    .eq('status', 'Ativo')
+  if (error) throw error
+  const map = new Map<string, EventStockLine>()
+  for (const m of (data ?? []) as { product_id: string; movement_type: string; quantity: number }[]) {
+    const line = map.get(m.product_id) ?? { product_id: m.product_id, sent: 0, returned: 0, net: 0 }
+    if (m.movement_type === 'Envio para Evento') line.sent += m.quantity
+    else if (m.movement_type === 'Devolução do Evento') line.returned += m.quantity
+    else if (m.movement_type === 'Consumo Interno') line.returned += 0 // consumo baixa o líquido via net abaixo
+    map.set(m.product_id, line)
+  }
+  // Consumo interno também sai do líquido do evento:
+  for (const m of (data ?? []) as { product_id: string; movement_type: string; quantity: number }[]) {
+    if (m.movement_type === 'Consumo Interno') {
+      const line = map.get(m.product_id)
+      if (line) line.returned += m.quantity
+    }
+  }
+  for (const line of map.values()) line.net = line.sent - line.returned
+  return Array.from(map.values()).filter((l) => l.sent > 0 || l.returned > 0)
+}
+
+// Custos médios do catálogo (view) — preenche o preço sugerido nos lançamentos.
+export async function getProductAvgCosts(): Promise<Map<string, number>> {
+  if (isDemoMode) return new Map()
+  const { data, error } = await supabase.from('product_avg_costs').select('product_id, avg_cost')
+  if (error) throw error
+  return new Map(((data ?? []) as { product_id: string; avg_cost: number | null }[])
+    .filter((r) => r.avg_cost != null)
+    .map((r) => [r.product_id, Number(r.avg_cost)] as const))
+}
+
 export async function deleteProductionConsumption(id: string): Promise<void> {
   if (isDemoMode) {
     demoState.productionConsumption = demoState.productionConsumption.filter((c) => c.id !== id)
     return
   }
+  // Estorno primeiro: se o consumo tinha baixado o estoque do evento, o
+  // movimento vinculado é cancelado — o saldo volta antes do registro sumir.
+  const { data: row } = await supabase.from('production_consumption').select('stock_movement_id').eq('id', id).maybeSingle()
+  const movId = (row as { stock_movement_id: string | null } | null)?.stock_movement_id
+  if (movId) {
+    await supabase.from('stock_movements').update({ status: 'Cancelado' }).eq('id', movId)
+  }
   const { error } = await supabase.from('production_consumption').delete().eq('id', id)
   if (error) throw error
 }
 
-export async function createProductionConsumption(input: NewProductionConsumptionInput): Promise<ProductionConsumption> {
+export async function createProductionConsumption(
+  input: NewProductionConsumptionInput,
+  options?: { deductFromEventStock?: boolean }
+): Promise<ProductionConsumption> {
   if (isDemoMode) {
     const total_cost = input.quantity * input.unit_cost
     const record: ProductionConsumption = { ...input, id: uid('pc'), total_cost, created_at: new Date().toISOString() }
     demoState.productionConsumption.push(record)
     return record
   }
-  const { data, error } = await supabase.from('production_consumption').insert(input).select().single()
-  if (error) throw error
+
+  // Baixa no estoque do evento (Consumo Interno no almoxarifado do evento,
+  // criado sob demanda pela RPC). O movimento nasce ANTES pra ser vinculado.
+  let movementId: string | null = null
+  if (options?.deductFromEventStock) {
+    const { data: locId, error: locErr } = await supabase.rpc('get_or_create_event_location', { p_event: input.event_id })
+    if (locErr) throw locErr
+    const { data: mov, error: movErr } = await supabase.from('stock_movements').insert({
+      product_id: input.product_id,
+      stock_location_id: locId,
+      movement_type: 'Consumo Interno',
+      quantity: input.quantity,
+      unit_cost: input.unit_cost || null,
+      status: 'Ativo',
+      event_id: input.event_id,
+      notes: 'Consumo da produção',
+      created_by: input.created_by ?? null
+    }).select('id').single()
+    if (movErr) throw movErr
+    movementId = (mov as { id: string }).id
+  }
+
+  const { data, error } = await supabase.from('production_consumption')
+    .insert({ ...input, stock_movement_id: movementId }).select().single()
+  if (error) {
+    // Consumo falhou depois da baixa: estorna o movimento pra não sumir estoque.
+    if (movementId) await supabase.from('stock_movements').update({ status: 'Cancelado' }).eq('id', movementId)
+    throw error
+  }
   return data as ProductionConsumption
 }
 
