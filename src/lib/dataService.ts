@@ -1801,26 +1801,41 @@ export interface EventStockLine {
 
 export async function getEventStockByProduct(eventId: string): Promise<EventStockLine[]> {
   if (isDemoMode) return []
+  // Duas formas legítimas de estoque "estar" num evento:
+  // 1) movimentos DENTRO do almoxarifado do próprio evento (entrada direta,
+  //    caso Vaquejada) — entradas somam, saídas subtraem;
+  // 2) envios/devoluções marcados com o event_id vindos de outro almoxarifado.
+  // Contar só a forma 2 (como na primeira versão) cegava a ponte pra tudo que
+  // entrou direto no almoxarifado do evento.
+  const { data: locs, error: locErr } = await supabase
+    .from('stock_locations').select('id').eq('event_id', eventId)
+  if (locErr) throw locErr
+  const locIds = new Set(((locs ?? []) as { id: string }[]).map((l) => l.id))
+
+  const orFilter = locIds.size > 0
+    ? `event_id.eq.${eventId},stock_location_id.in.(${Array.from(locIds).join(',')})`
+    : `event_id.eq.${eventId}`
   const { data, error } = await supabase
     .from('stock_movements')
-    .select('product_id, movement_type, quantity, status')
-    .eq('event_id', eventId)
+    .select('product_id, movement_type, quantity, status, stock_location_id, event_id')
     .eq('status', 'Ativo')
+    .or(orFilter)
   if (error) throw error
+
+  const IN_TYPES = new Set(['Entrada', 'Compra', 'Ajuste (entrada)', 'Devolução do Evento'])
   const map = new Map<string, EventStockLine>()
-  for (const m of (data ?? []) as { product_id: string; movement_type: string; quantity: number }[]) {
+  for (const m of (data ?? []) as { product_id: string; movement_type: string; quantity: number; stock_location_id: string; event_id: string | null }[]) {
     const line = map.get(m.product_id) ?? { product_id: m.product_id, sent: 0, returned: 0, net: 0 }
-    if (m.movement_type === 'Envio para Evento') line.sent += m.quantity
-    else if (m.movement_type === 'Devolução do Evento') line.returned += m.quantity
-    else if (m.movement_type === 'Consumo Interno') line.returned += 0 // consumo baixa o líquido via net abaixo
-    map.set(m.product_id, line)
-  }
-  // Consumo interno também sai do líquido do evento:
-  for (const m of (data ?? []) as { product_id: string; movement_type: string; quantity: number }[]) {
-    if (m.movement_type === 'Consumo Interno') {
-      const line = map.get(m.product_id)
-      if (line) line.returned += m.quantity
+    if (locIds.has(m.stock_location_id)) {
+      // Dentro do almoxarifado do evento: contabilidade normal de entradas/saídas.
+      if (IN_TYPES.has(m.movement_type)) line.sent += m.quantity
+      else line.returned += m.quantity
+    } else if (m.event_id === eventId) {
+      // Fora do almoxarifado do evento, mas endereçado a ele.
+      if (m.movement_type === 'Envio para Evento') line.sent += m.quantity
+      else if (m.movement_type === 'Devolução do Evento') line.returned += m.quantity
     }
+    map.set(m.product_id, line)
   }
   for (const line of map.values()) line.net = line.sent - line.returned
   return Array.from(map.values()).filter((l) => l.sent > 0 || l.returned > 0)
