@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { HandCoins, Plus, Trash2, X } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { createEventRepasse, deleteEventRepasse, listEventRepasses, listProfiles, updateEventRepasse } from '../../lib/dataService'
+import SmartReceiptField from '../../components/ui/SmartReceiptField'
+import type { ExtractedReceipt } from '../../components/ui/SmartReceiptField'
 import type { EventRepasse, Profile } from '../../lib/types'
 
 const inputClass = 'w-full border border-beetz-dark/15 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
@@ -28,8 +30,18 @@ export default function RepassesTab({ eventId, canManage }: { eventId: string; c
   const [newAmount, setNewAmount] = useState(0)
   const [newDate, setNewDate] = useState(new Date().toISOString().slice(0, 10))
   const [newNotes, setNewNotes] = useState('')
+  const [newReceipt, setNewReceipt] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [selected, setSelected] = useState<EventRepasse | null>(null)
+
+  // O que o OCR leu do print entra nos campos — sem apagar o que você já
+  // digitou: valor só preenche se estiver zerado, observação se vazia. A data
+  // do comprovante ganha da data padrão (hoje) porque é a do pagamento real.
+  function applyExtract(f: ExtractedReceipt) {
+    if (f.amount != null) setNewAmount((cur) => (cur > 0 ? cur : f.amount!))
+    if (f.date) setNewDate(f.date)
+    if (f.notes) setNewNotes((cur) => (cur.trim() ? cur : f.notes!))
+  }
 
   async function load() {
     setLoading(true)
@@ -54,12 +66,14 @@ export default function RepassesTab({ eventId, canManage }: { eventId: string; c
     if (newAmount <= 0) return
     setSaving(true)
     await createEventRepasse({
-      event_id: eventId, amount: newAmount, paid_at: newDate, notes: newNotes.trim() || null, created_by: userId ?? null
+      event_id: eventId, amount: newAmount, paid_at: newDate, notes: newNotes.trim() || null,
+      receipt_data: newReceipt, created_by: userId ?? null
     })
     setSaving(false)
     setNewAmount(0)
     setNewDate(new Date().toISOString().slice(0, 10))
     setNewNotes('')
+    setNewReceipt(null)
     load()
   }
 
@@ -77,6 +91,12 @@ export default function RepassesTab({ eventId, canManage }: { eventId: string; c
 
       {canManage && (
         <form onSubmit={handleAdd} className="bg-beetz-gray rounded-2xl p-4 sm:p-5 grid grid-cols-2 sm:grid-cols-[1fr_1fr_2fr_auto] gap-3 items-end">
+          {/* Comprovante primeiro de propósito: solta o print e os campos de
+              baixo já vêm preenchidos pelo OCR — só conferir e Lançar. */}
+          <div className="col-span-2 sm:col-span-4">
+            <label className="text-sm font-medium block mb-1">Comprovante</label>
+            <SmartReceiptField value={newReceipt} onChange={setNewReceipt} onExtracted={applyExtract} />
+          </div>
           <div>
             <label className="text-sm font-medium block mb-1">Valor (R$)</label>
             <input type="number" min={0.01} step="0.01" className={inputClass} value={newAmount || ''} onChange={(e) => setNewAmount(Number(e.target.value))} />
@@ -112,7 +132,7 @@ export default function RepassesTab({ eventId, canManage }: { eventId: string; c
               className={`w-full text-left flex items-center gap-3 p-4 ${canManage ? 'hover:bg-beetz-gray/50 active:bg-beetz-gray transition-colors' : 'cursor-default'}`}
             >
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-sm">{currency(r.amount)}</p>
+                <p className="font-semibold text-sm">{currency(r.amount)}{r.receipt_data ? ' 📎' : ''}</p>
                 <p className="text-xs text-beetz-dark/50 truncate">
                   {formatDate(r.paid_at)} · Registrado por: {creatorName(r.created_by)}
                   {r.notes ? ` · ${r.notes}` : ''}
@@ -147,16 +167,25 @@ function EditRepasseModal({ repasse, registeredBy, onClose, onSaved }: {
   const [amount, setAmount] = useState(String(repasse.amount))
   const [paidAt, setPaidAt] = useState(repasse.paid_at)
   const [notes, setNotes] = useState(repasse.notes ?? '')
+  const [receipt, setReceipt] = useState<string | null>(repasse.receipt_data ?? null)
   const [saving, setSaving] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Na edição o OCR só completa buraco — valor/data/observação que já existem
+  // no lançamento não são sobrescritos por uma leitura nova.
+  function applyExtract(f: ExtractedReceipt) {
+    if (f.amount != null) setAmount((cur) => (Number(cur.replace(',', '.')) > 0 ? cur : String(f.amount)))
+    if (f.date) setPaidAt((cur) => (cur ? cur : f.date!))
+    if (f.notes) setNotes((cur) => (cur.trim() ? cur : f.notes!))
+  }
 
   async function handleSave() {
     const value = Number(amount.replace(',', '.'))
     if (!(value > 0)) { setError('Informe um valor maior que zero.'); return }
     setSaving(true); setError(null)
     try {
-      await updateEventRepasse(repasse.id, { amount: value, paid_at: paidAt, notes: notes.trim() || null })
+      await updateEventRepasse(repasse.id, { amount: value, paid_at: paidAt, notes: notes.trim() || null, receipt_data: receipt })
       onSaved()
     } catch (e: any) {
       setError(e?.message ?? 'Não foi possível salvar.')
@@ -205,6 +234,18 @@ function EditRepasseModal({ repasse, registeredBy, onClose, onSaved }: {
           <div>
             <label className="text-sm font-medium block mb-1">Observações</label>
             <input className={inputClass} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Opcional" />
+          </div>
+          <div>
+            <label className="text-sm font-medium block mb-1">Comprovante</label>
+            <SmartReceiptField value={receipt} onChange={setReceipt} onExtracted={applyExtract} />
+            {receipt && (
+              <a
+                href={receipt} target="_blank" rel="noreferrer"
+                className="inline-block text-[11px] font-semibold text-beetz-dark/50 hover:text-beetz-dark mt-1 underline"
+              >
+                Abrir em tamanho cheio
+              </a>
+            )}
           </div>
         </div>
 

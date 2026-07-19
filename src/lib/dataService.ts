@@ -2245,7 +2245,7 @@ export async function deleteEventProduct(id: string): Promise<void> {
 
 // Corrigir um repasse lançado errado (valor, data ou observação).
 export async function updateEventRepasse(
-  id: string, patch: Partial<Pick<EventRepasse, 'amount' | 'paid_at' | 'notes'>>
+  id: string, patch: Partial<Pick<EventRepasse, 'amount' | 'paid_at' | 'notes' | 'receipt_data'>>
 ): Promise<EventRepasse> {
   if (isDemoMode) {
     const idx = demoState.eventRepasses.findIndex((r) => r.id === id)

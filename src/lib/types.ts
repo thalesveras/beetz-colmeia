@@ -599,6 +599,8 @@ export interface EventRepasse {
   amount: number
   paid_at: string
   notes: string | null
+  // Print do PIX/transferência (base64) — o comprovante mora no lançamento.
+  receipt_data?: string | null
   created_by: string | null
   created_at: string
 }
