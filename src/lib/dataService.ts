@@ -1972,10 +1972,13 @@ export async function updateTransferRequestStatus(id: string, status: TransferRe
 // perda invisível.
 //
 // Agora há dois casos, e eles são diferentes de verdade:
-//  - destino é OUTRO estoque  -> par 'Saída' (A) + 'Entrada' (B). Saldo total
-//    da empresa não muda; só mudou de prateleira.
+//  - destino é OUTRO estoque  -> RPC transfer_stock: par 'Saída' (A) +
+//    'Entrada' (B) na MESMA transação e já espelhado (mirror_of) — editar ou
+//    cancelar a saída sincroniza a entrada. O insert em lote anterior era
+//    atômico mas deixava as pernas soltas: mexer numa não mexia na outra.
 //  - destino é o evento (sem to_location, ou igual à origem) -> 'Envio para
-//    Evento' só na origem. O produto sai do almoxarifado pra festa.
+//    Evento' só na origem; o trigger do banco espelha a chegada no
+//    almoxarifado do evento sozinho.
 export async function approveTransferRequest(request: TransferRequest, approvedBy: string | null): Promise<void> {
   if (!request.from_location_id) {
     throw new Error('Esse pedido não tem estoque de origem definido — não dá pra gerar a movimentação.')
@@ -1983,41 +1986,39 @@ export async function approveTransferRequest(request: TransferRequest, approvedB
   const tag = `Transferência aprovada (#${request.id.slice(0, 8)})`
   const entreEstoques = !!request.to_location_id && request.to_location_id !== request.from_location_id
 
-  const linhas = entreEstoques
-    ? [
-        {
-          product_id: request.product_id, stock_location_id: request.from_location_id,
-          event_id: request.event_id, movement_type: 'Saída' as MovementType, quantity: request.quantity,
-          unit_cost: null, notes: `${tag} — saída`, created_by: approvedBy, status: 'Ativo' as const
-        },
-        {
-          product_id: request.product_id, stock_location_id: request.to_location_id!,
-          event_id: request.event_id, movement_type: 'Entrada' as MovementType, quantity: request.quantity,
-          unit_cost: null, notes: `${tag} — entrada`, created_by: approvedBy, status: 'Ativo' as const
-        }
-      ]
-    : [
-        {
-          product_id: request.product_id, stock_location_id: request.from_location_id,
-          event_id: request.event_id, movement_type: 'Envio para Evento' as MovementType, quantity: request.quantity,
-          unit_cost: null, notes: tag, created_by: approvedBy, status: 'Ativo' as const
-        }
-      ]
-
   if (isDemoMode) {
     const idx = demoState.transferRequests.findIndex((t) => t.id === request.id)
     if (idx >= 0) demoState.transferRequests[idx] = { ...demoState.transferRequests[idx], status: 'Aprovado' }
-    for (const l of linhas) {
-      demoState.stockMovements.push({ ...l, id: uid('sm'), created_at: new Date().toISOString() })
+    const out: StockMovement = {
+      id: uid('sm'), product_id: request.product_id, stock_location_id: request.from_location_id,
+      event_id: request.event_id, movement_type: entreEstoques ? 'Saída' : 'Envio para Evento',
+      quantity: request.quantity, unit_cost: null, notes: tag, created_by: approvedBy,
+      status: 'Ativo', created_at: new Date().toISOString()
+    }
+    demoState.stockMovements.push(out)
+    if (entreEstoques) {
+      demoState.stockMovements.push({
+        ...out, id: uid('sm'), stock_location_id: request.to_location_id!,
+        movement_type: 'Entrada', mirror_of: out.id
+      })
     }
     return
   }
 
-  // Insert em lote: as duas pernas da transferência entram na mesma requisição,
-  // então ou as duas gravam ou nenhuma. Sequencial deixaria a saída gravada e
-  // a entrada não — que é justamente o bug que estou consertando.
-  const { error: moveErr } = await supabase.from('stock_movements').insert(linhas)
-  if (moveErr) throw moveErr
+  if (entreEstoques) {
+    const { error } = await supabase.rpc('transfer_stock', {
+      p_product: request.product_id, p_from: request.from_location_id,
+      p_to: request.to_location_id, p_qty: request.quantity, p_notes: tag
+    })
+    if (error) throw error
+  } else {
+    const { error } = await supabase.from('stock_movements').insert({
+      product_id: request.product_id, stock_location_id: request.from_location_id,
+      event_id: request.event_id, movement_type: 'Envio para Evento' as MovementType,
+      quantity: request.quantity, unit_cost: null, notes: tag, created_by: approvedBy, status: 'Ativo'
+    })
+    if (error) throw error
+  }
   const { error: statusErr } = await supabase.from('transfer_requests').update({ status: 'Aprovado' }).eq('id', request.id)
   if (statusErr) throw statusErr
 }
@@ -2049,6 +2050,60 @@ export async function registerTransferReturn(request: TransferRequest, returnedQ
   if (moveErr) throw moveErr
   const { error: returnErr } = await supabase.from('transfer_requests').update({ returned_quantity: returnedQuantity }).eq('id', request.id)
   if (returnErr) throw returnErr
+}
+
+// ---------- Transferência direta (sem pedido/aprovação) ----------
+// Quem pode movimentar estoque move em 1 passo: a RPC grava Saída na origem e
+// Entrada no destino na MESMA transação, já espelhadas (mirror_of). Os
+// triggers que já cuidavam dos envios pra evento passam a valer pro par:
+// editar/cancelar a saída sincroniza a entrada, e a entrada não se mexe
+// sozinha. security invoker — a RLS continua decidindo quem movimenta.
+export async function transferStock(input: {
+  product_id: string
+  from_location_id: string
+  to_location_id: string
+  quantity: number
+  notes?: string | null
+}): Promise<void> {
+  if (isDemoMode) {
+    const out: StockMovement = {
+      id: uid('sm'), product_id: input.product_id, stock_location_id: input.from_location_id,
+      event_id: null, movement_type: 'Saída', quantity: input.quantity, unit_cost: null,
+      notes: `Transferência${input.notes ? ` · ${input.notes}` : ''}`, created_by: null,
+      status: 'Ativo', created_at: new Date().toISOString()
+    }
+    demoState.stockMovements.push(out, {
+      ...out, id: uid('sm'), stock_location_id: input.to_location_id,
+      movement_type: 'Entrada', mirror_of: out.id
+    })
+    return
+  }
+  const { error } = await supabase.rpc('transfer_stock', {
+    p_product: input.product_id, p_from: input.from_location_id,
+    p_to: input.to_location_id, p_qty: input.quantity, p_notes: input.notes ?? null
+  })
+  if (error) throw error
+}
+
+// Virada de evento: TODA a sobra (saldo positivo) do almoxarifado do evento
+// vai pro destino — outro almoxarifado ou a festa seguinte (toEventId cria o
+// almoxarifado do evento destino se ainda não existir). Um par espelhado por
+// produto, tudo na mesma transação: ou a virada inteira acontece, ou nada.
+// Devolve o que moveu pra UI mostrar o resultado.
+export async function transferEventLeftover(
+  fromEventId: string,
+  dest: { toLocationId?: string; toEventId?: string },
+  notes?: string
+): Promise<{ product_id: string; quantity: number }[]> {
+  if (isDemoMode) return []
+  const { data, error } = await supabase.rpc('transfer_event_leftover', {
+    p_from_event: fromEventId,
+    p_to_location: dest.toLocationId ?? null,
+    p_to_event: dest.toEventId ?? null,
+    p_notes: notes ?? null
+  })
+  if (error) throw error
+  return (data ?? []) as { product_id: string; quantity: number }[]
 }
 
 // ---------- Repasses (ledger de lançamentos por evento) ----------

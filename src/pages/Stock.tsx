@@ -8,7 +8,7 @@ import {
   approveTransferRequest, createStockLocation, createTransferRequest,
   deleteStockLocation, getStockBalances, listProductAvgCosts, listStockAvailability, isPositiveMovementType, listEvents, listProducts, listProfiles,
   listStockLocations, listStockMovements, listTransferRequests, registerTransferReturn,
-  updateStockLocation, updateStockMovement, updateTransferRequestStatus
+  transferEventLeftover, updateStockLocation, updateStockMovement, updateTransferRequestStatus
 } from '../lib/dataService'
 import type { EventItem, Product, ProductAvgCost, Profile, StockAvailable, StockBalance, StockLocation, StockMovement, TransferRequest, TransferRequestStatus } from '../lib/types'
 import StockMovementForm from '../components/stock/StockMovementForm'
@@ -105,6 +105,16 @@ export default function Stock() {
   const [transferToId, setTransferToId] = useState('')
   const [transferRequestedBy, setTransferRequestedBy] = useState('')
   const [transferNotes, setTransferNotes] = useState('')
+
+  // Virada de evento: sobra COMPLETA do almoxarifado de um evento → destino
+  // (outro almoxarifado ou a festa seguinte). Destino codificado no value:
+  // 'loc:{id}' ou 'event:{id}' — evento destino pode nem ter almoxarifado
+  // ainda (a RPC cria).
+  const [turnFromEventId, setTurnFromEventId] = useState('')
+  const [turnDest, setTurnDest] = useState('')
+  const [turnArmed, setTurnArmed] = useState(false)
+  const [turnSaving, setTurnSaving] = useState(false)
+  const [turnResult, setTurnResult] = useState<string | null>(null)
 
   // Produto/estoque em edição inline (cadastro rápido)
   // Erros do cadastro de estoques (o de produtos vive no ProductCatalog).
@@ -257,20 +267,70 @@ export default function Stock() {
   // Badge do botão de Transferências no Resumo: pendência é o que pede clique.
   const pendingTransfers = useMemo(() => transfers.filter((t) => t.status === 'Pendente').length, [transfers])
 
+  // Eventos que têm sobra (saldo positivo no próprio almoxarifado) — são as
+  // origens possíveis de uma virada.
+  const eventLeftovers = useMemo(() => {
+    const byEvent = new Map<string, StockBalance[]>()
+    for (const l of locations) {
+      if (!l.event_id) continue
+      const items = balances.filter((b) => b.stock_location_id === l.id && b.balance > 0)
+      if (items.length > 0) byEvent.set(l.event_id, [...(byEvent.get(l.event_id) ?? []), ...items])
+    }
+    return byEvent
+  }, [locations, balances])
+
+  async function handleTurnover() {
+    if (!turnFromEventId || !turnDest) return
+    if (!turnArmed) { setTurnArmed(true); return }
+    setTurnSaving(true)
+    setTurnResult(null)
+    try {
+      const dest = turnDest.startsWith('event:')
+        ? { toEventId: turnDest.slice(6) }
+        : { toLocationId: turnDest.slice(4) }
+      const moved = await transferEventLeftover(turnFromEventId, dest, `Virada: ${eventName(turnFromEventId)}`)
+      const units = moved.reduce((s, r) => s + Number(r.quantity), 0)
+      setTurnResult(`Virada feita: ${moved.length} produto(s), ${units} un transferidas.`)
+      setTurnFromEventId(''); setTurnDest('')
+      load()
+    } catch (err) {
+      setTurnResult(err instanceof Error ? err.message : 'Erro na virada.')
+    } finally {
+      setTurnSaving(false)
+      setTurnArmed(false)
+    }
+  }
+
   const movementTypeOptions = useMemo(
     () => Array.from(new Set(movements.map((m) => m.movement_type))).sort(),
     [movements]
   )
 
-  const filteredMovements = useMemo(() => movements.filter((m) => {
-    if (movementFilterProduct && m.product_id !== movementFilterProduct) return false
-    if (movementFilterLocation && m.stock_location_id !== movementFilterLocation) return false
-    if (movementFilterType && m.movement_type !== movementFilterType) return false
-    const day = m.created_at.slice(0, 10)
-    if (movementFilterFrom && day < movementFilterFrom) return false
-    if (movementFilterTo && day > movementFilterTo) return false
-    return true
-  }), [movements, movementFilterProduct, movementFilterLocation, movementFilterType, movementFilterFrom, movementFilterTo])
+  // originId -> perna espelhada. É o que permite mostrar o par (Saída+Entrada
+  // de uma transferência, ou Envio/Devolução de evento) como UMA linha "A → B"
+  // em vez de duas linhas soltas que ninguém liga uma na outra.
+  const mirrorByOrigin = useMemo(() => {
+    const map = new Map<string, StockMovement>()
+    for (const m of movements) if (m.mirror_of) map.set(m.mirror_of, m)
+    return map
+  }, [movements])
+
+  const filteredMovements = useMemo(() => {
+    const base = movements.filter((m) => {
+      if (movementFilterProduct && m.product_id !== movementFilterProduct) return false
+      if (movementFilterLocation && m.stock_location_id !== movementFilterLocation) return false
+      if (movementFilterType && m.movement_type !== movementFilterType) return false
+      const day = m.created_at.slice(0, 10)
+      if (movementFilterFrom && day < movementFilterFrom) return false
+      if (movementFilterTo && day > movementFilterTo) return false
+      return true
+    })
+    // Espelho some quando a original também está na lista (viram uma linha).
+    // Se o filtro deixou SÓ o espelho (ex: filtrando pelo estoque de destino),
+    // ele fica — senão a transferência sumiria da busca.
+    const ids = new Set(base.map((m) => m.id))
+    return base.filter((m) => !(m.mirror_of && ids.has(m.mirror_of)))
+  }, [movements, movementFilterProduct, movementFilterLocation, movementFilterType, movementFilterFrom, movementFilterTo])
 
   useEffect(() => {
     setMovementPage(1)
@@ -549,6 +609,11 @@ export default function Stock() {
 
             <div className="bg-white rounded-2xl p-5 shadow-soft border border-beetz-dark/5">
               <h2 className="font-bold mb-3">Estoques / Almoxarifados</h2>
+              {/* O erro de exclusão (ex: estoque com movimentações) era gravado
+                  no estado e nunca renderizado — falhava em silêncio. */}
+              {catalogError && (
+                <p className="text-xs text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2 mb-3">{catalogError}</p>
+              )}
               {canManageCatalog && (
                 <form onSubmit={handleAddLocation} className="flex gap-2 mb-4">
                   <input className={`${inputClass} min-w-0`} placeholder="Nome do estoque" value={newLocationName} onChange={(e) => setNewLocationName(e.target.value)} />
@@ -671,19 +736,49 @@ export default function Stock() {
             </p>
 
             <div className="bg-white rounded-2xl shadow-soft border border-beetz-dark/5 divide-y divide-beetz-dark/5">
-              {movementPageItems.map((m) => (
+              {movementPageItems.map((m) => {
+                // Par espelhado: a linha vira "origem → destino". A direção
+                // depende do tipo da original — Devolução do Evento é ENTRADA
+                // no almoxarifado, então o fluxo veio do espelho pra cá.
+                const mirror = mirrorByOrigin.get(m.id)
+                const flow = mirror
+                  ? (isPositiveMovementType(m.movement_type)
+                      ? `${locationName(mirror.stock_location_id)} → ${locationName(m.stock_location_id)}`
+                      : `${locationName(m.stock_location_id)} → ${locationName(mirror.stock_location_id)}`)
+                  : null
+                return (
                 <div key={m.id} className={m.status === 'Cancelado' ? 'opacity-50' : ''}>
                   <div
                     className="flex items-center gap-3 p-4 cursor-pointer hover:bg-beetz-gray/40 transition-colors"
                     onClick={() => setExpandedId((cur) => (cur === m.id ? null : m.id))}
                   >
-                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${isPositiveMovementType(m.movement_type) ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                      {m.movement_type}
-                    </span>
+                    {mirror ? (
+                      <span className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full bg-sky-100 text-sky-700 shrink-0">
+                        <ArrowLeftRight size={11} /> {m.movement_type === 'Saída' ? 'Transferência' : m.movement_type}
+                      </span>
+                    ) : (
+                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full shrink-0 ${isPositiveMovementType(m.movement_type) ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                        {m.movement_type}
+                      </span>
+                    )}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold">{productName(m.product_id)}</p>
-                      <p className="text-xs text-beetz-dark/50">
-                        {locationName(m.stock_location_id)} {m.status === 'Cancelado' ? '· Cancelado' : ''}
+                      <p className="text-sm font-semibold truncate">{productName(m.product_id)}</p>
+                      <p className="text-xs text-beetz-dark/50 truncate">
+                        {flow ?? locationName(m.stock_location_id)}
+                        {' · '}{formatDateTime(m.created_at)}
+                        {' · '}{creatorName(m.created_by)}
+                        {m.event_id && (
+                          <>
+                            {' · '}
+                            <Link
+                              to={`/eventos/${m.event_id}`} onClick={(e) => e.stopPropagation()}
+                              className="underline decoration-beetz-dark/20 hover:text-beetz-dark"
+                            >
+                              🎪 {eventName(m.event_id)}
+                            </Link>
+                          </>
+                        )}
+                        {m.status === 'Cancelado' ? ' · Cancelado' : ''}
                       </p>
                     </div>
                     {editingId === m.id ? (
@@ -695,7 +790,12 @@ export default function Stock() {
                         <button onClick={() => saveEdit(m.id)} className="text-green-600 p-1.5 rounded-lg hover:bg-green-50"><Check size={14} /></button>
                       </div>
                     ) : (
-                      <span className="font-bold text-sm">{m.quantity}</span>
+                      <div className="text-right shrink-0">
+                        <span className="font-bold text-sm">{m.quantity}</span>
+                        {m.unit_cost != null && (
+                          <p className="text-[10px] text-beetz-dark/40 leading-tight">{brl(m.unit_cost)}/un</p>
+                        )}
+                      </div>
                     )}
                     {/* Espelho não se edita nem cancela direto — a original
                         manda e o banco recusa. Botão que só dá erro é armadilha. */}
@@ -719,11 +819,24 @@ export default function Stock() {
                     <div className="px-4 pb-4 -mt-1 text-xs text-beetz-dark/60 space-y-1 bg-beetz-gray/30">
                       <p><span className="font-semibold">Registrado por:</span> {creatorName(m.created_by)}</p>
                       <p><span className="font-semibold">Data:</span> {formatDateTime(m.created_at)}</p>
+                      {m.unit_cost != null && (
+                        <p><span className="font-semibold">Custo:</span> {brl(m.unit_cost)}/un · total {brl(m.unit_cost * m.quantity)}</p>
+                      )}
+                      {mirror && (
+                        <p>
+                          <span className="font-semibold">Par ligado:</span> {mirror.movement_type} em {locationName(mirror.stock_location_id)} — editar ou cancelar aqui ajusta lá sozinho.
+                        </p>
+                      )}
+                      {m.mirror_of && (
+                        <p>
+                          <span className="font-semibold">Espelho:</span> esta linha é a outra perna de uma transferência — quem manda é a original.
+                        </p>
+                      )}
                       {m.notes && <p><span className="font-semibold">Observações:</span> {m.notes}</p>}
                     </div>
                   )}
                 </div>
-              ))}
+              )})}
               {filteredMovements.length === 0 && (
                 <p className="text-sm text-beetz-dark/50 p-4">
                   {movements.length === 0 ? 'Nenhuma movimentação ainda.' : 'Nenhuma movimentação encontrada com esses filtros.'}
@@ -781,6 +894,80 @@ export default function Stock() {
                 <Plus size={16} /> Nova solicitação
               </button>
             </div>
+
+            {/* Virada de evento: o caminho de 1 botão pro "acabou a festa,
+                amanhã tem outra" — toda a sobra vai junto, em pares ligados. */}
+            {canManageCatalog && (eventLeftovers.size > 0 || turnResult) && (
+              <div className="bg-beetz-dark text-white rounded-2xl p-4 mb-4">
+                <p className="text-xs font-bold uppercase tracking-wide text-beetz-yellow mb-1">Virada de evento</p>
+                <p className="text-xs text-white/50 mb-3">
+                  Transfere <span className="font-semibold text-white/80">toda a sobra</span> do almoxarifado de um evento
+                  pro destino — a festa seguinte ou de volta pro depósito. Cada produto vira um par ligado
+                  (saída + entrada), tudo de uma vez.
+                </p>
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <select
+                    value={turnFromEventId}
+                    onChange={(e) => { setTurnFromEventId(e.target.value); setTurnArmed(false); setTurnResult(null) }}
+                    className="rounded-xl border-0 bg-white text-beetz-dark text-sm px-3 py-2 w-full"
+                  >
+                    <option value="">Evento de origem...</option>
+                    {Array.from(eventLeftovers.entries()).map(([evId, items]) => (
+                      <option key={evId} value={evId}>
+                        🎪 {eventName(evId)} · {items.reduce((s, b) => s + b.balance, 0)} un
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={turnDest}
+                    onChange={(e) => { setTurnDest(e.target.value); setTurnArmed(false); setTurnResult(null) }}
+                    className="rounded-xl border-0 bg-white text-beetz-dark text-sm px-3 py-2 w-full"
+                  >
+                    <option value="">Destino...</option>
+                    <optgroup label="Almoxarifados">
+                      {locations.filter((l) => !l.event_id).map((l) => (
+                        <option key={l.id} value={`loc:${l.id}`}>{l.name}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Eventos (a festa seguinte)">
+                      {events.filter((ev) => ev.id !== turnFromEventId).map((ev) => (
+                        <option key={ev.id} value={`event:${ev.id}`}>🎪 {ev.name}</option>
+                      ))}
+                    </optgroup>
+                  </select>
+                </div>
+                {turnFromEventId && (
+                  <div className="flex flex-wrap gap-1.5 mt-3">
+                    {(eventLeftovers.get(turnFromEventId) ?? []).map((b) => (
+                      <span key={`${b.product_id}-${b.stock_location_id}`} className="text-[11px] font-medium bg-white/10 px-2.5 py-1 rounded-full">
+                        {b.product_name} · {b.balance}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="flex flex-wrap items-center gap-3 mt-3">
+                  <button
+                    onClick={handleTurnover}
+                    disabled={turnSaving || !turnFromEventId || !turnDest}
+                    className={`text-sm font-bold px-4 py-2 rounded-xl transition-colors disabled:opacity-50 ${
+                      turnArmed ? 'bg-red-500 text-white hover:bg-red-600' : 'honey-gradient text-beetz-dark'
+                    }`}
+                  >
+                    {turnSaving
+                      ? 'Transferindo...'
+                      : turnArmed
+                        ? 'Confirmar: transferir tudo'
+                        : `Transferir tudo${turnFromEventId ? ` (${(eventLeftovers.get(turnFromEventId) ?? []).length} produtos)` : ''}`}
+                  </button>
+                  {turnArmed && !turnSaving && (
+                    <button onClick={() => setTurnArmed(false)} className="text-xs font-semibold text-white/50 hover:text-white">
+                      Deixa pra depois
+                    </button>
+                  )}
+                  {turnResult && <p className="text-xs font-semibold text-beetz-yellow">{turnResult}</p>}
+                </div>
+              </div>
+            )}
 
             {showTransferForm && (
               <form onSubmit={handleAddTransfer} className="bg-beetz-gray rounded-2xl p-5 space-y-4 mb-4">
