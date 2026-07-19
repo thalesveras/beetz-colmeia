@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react'
 import { Check, Package, Pencil, Search, Trash2, X } from 'lucide-react'
 import { createProduct, deleteProduct, updateProduct } from '../../lib/dataService'
-import type { Product, ProductAvgCost, StockBalance } from '../../lib/types'
+import type { Product, ProductAvgCost, StockBalance, StockLocation } from '../../lib/types'
 
 interface Props {
   products: Product[]
   balances: StockBalance[]
   avgCosts: ProductAvgCost[]
+  locations: StockLocation[]
   defaultThreshold: number
   canManage: boolean
   onChanged: () => void
@@ -25,9 +26,13 @@ const inputClass = 'border border-beetz-dark/15 rounded-xl px-3 py-2 text-sm foc
 const SEM_CATEGORIA = 'Sem categoria'
 
 export default function ProductCatalog({
-  products, balances, avgCosts, defaultThreshold, canManage, onChanged, onOpenTimeline
+  products, balances, avgCosts, locations, defaultThreshold, canManage, onChanged, onOpenTimeline
 }: Props) {
   const [search, setSearch] = useState('')
+  // Filtro por almoxarifado: "todos" soma tudo; escolher um (inclusive os de
+  // evento, 🎪) mostra o saldo DAQUELE lugar — é como se enxerga o estoque
+  // da Vaquejada sem sair do catálogo.
+  const [locationFilter, setLocationFilter] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -50,7 +55,9 @@ export default function ProductCatalog({
   }, [products])
 
   const totalOf = (productId: string) =>
-    balances.filter((b) => b.product_id === productId).reduce((s, b) => s + b.balance, 0)
+    balances
+      .filter((b) => b.product_id === productId && (!locationFilter || b.stock_location_id === locationFilter))
+      .reduce((s, b) => s + b.balance, 0)
   const costOf = (productId: string) => avgCosts.find((c) => c.product_id === productId)?.avg_cost ?? null
 
   // Agrupado por categoria, com "Sem categoria" sempre no fim — é a fila do
@@ -185,6 +192,16 @@ export default function ProductCatalog({
             className={`${inputClass} w-full pl-8`} placeholder="Buscar produto ou categoria..."
             value={search} onChange={(e) => setSearch(e.target.value)}
           />
+        <select
+          value={locationFilter}
+          onChange={(e) => setLocationFilter(e.target.value)}
+          className={`${inputClass} w-full mt-2 bg-white`}
+          title="Ver o saldo de um almoxarifado específico"
+        >
+          <option value="">Todos os estoques (saldo somado)</option>
+          {locations.filter((l) => !l.event_id).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+          {locations.filter((l) => l.event_id).map((l) => <option key={l.id} value={l.id}>🎪 {l.name}</option>)}
+        </select>
         </div>
       )}
 

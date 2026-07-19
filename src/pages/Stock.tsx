@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
 import {
   Plus, Pencil, Ban, RotateCcw, Check, X, Trash2, ChevronDown, ChevronUp, Package, Warehouse, AlertTriangle,
@@ -540,6 +541,7 @@ export default function Stock() {
           {tab === 'cadastros' && (
           <section className="grid lg:grid-cols-2 gap-6">
             <ProductCatalog
+              locations={locations}
               products={products} balances={balances} avgCosts={avgCosts}
               defaultThreshold={LOW_STOCK_THRESHOLD} canManage={canManageCatalog}
               onChanged={load} onOpenTimeline={setTimelineProduct}
@@ -582,6 +584,31 @@ export default function Stock() {
                 ))}
                 {locations.length === 0 && <p className="text-sm text-beetz-dark/40">Nenhum estoque cadastrado.</p>}
               </div>
+
+              {/* Estoques que pertencem a eventos: visíveis (era impossível
+                  enxergar o da Vaquejada), mas sem lápis/lixeira — nascem e
+                  morrem com o evento. O saldo detalhado está no filtro do
+                  catálogo ao lado e na aba Estoque do próprio evento. */}
+              {locations.some((l) => l.event_id) && (
+                <div className="mt-4 pt-4 border-t border-beetz-dark/5">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-beetz-dark/35 mb-2">Estoques de eventos</p>
+                  <div className="space-y-1.5">
+                    {locations.filter((l) => l.event_id).map((l) => {
+                      const units = balances.filter((b) => b.stock_location_id === l.id).reduce((s2, b) => s2 + b.balance, 0)
+                      return (
+                        <Link
+                          key={l.id}
+                          to={`/eventos/${l.event_id}`}
+                          className="flex items-center gap-2 text-xs font-medium bg-beetz-yellow/15 hover:bg-beetz-yellow/30 px-3 py-2 rounded-full transition-colors"
+                        >
+                          <span className="flex-1 min-w-0 truncate">🎪 {l.name}</span>
+                          <span className="text-beetz-dark/50 shrink-0">{units} un · abrir evento →</span>
+                        </Link>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           </section>
           )}
