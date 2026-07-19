@@ -112,8 +112,11 @@ export default function NotificationBell() {
         )}
       </button>
 
+      {/* text-beetz-dark explícito no popup: ele mora dentro da barra escura
+          do topo (text-white no mobile) — sem ancorar a cor aqui, títulos sem
+          cor própria herdavam branco sobre fundo branco. */}
       {open && (
-        <div className="absolute right-0 mt-2 w-[320px] max-w-[calc(100vw-2rem)] bg-white rounded-2xl shadow-xl border border-beetz-dark/10 z-50 overflow-hidden">
+        <div className="absolute right-0 mt-2 w-[320px] max-w-[calc(100vw-2rem)] bg-white text-beetz-dark rounded-2xl shadow-xl border border-beetz-dark/10 z-50 overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-beetz-dark/5">
             <p className="font-bold text-sm">Avisos</p>
             {unread > 0 && (
