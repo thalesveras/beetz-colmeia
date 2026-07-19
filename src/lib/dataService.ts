@@ -1799,6 +1799,21 @@ export interface EventStockLine {
   net: number
 }
 
+// Movimentos "do evento" no sentido amplo: endereçados a ele (event_id) OU
+// dentro do almoxarifado próprio dele. É a mesma visão da ponte de saldo,
+// mas crua — a Reconciliação decompõe por tipo.
+export async function listEventStockMovementsWide(eventId: string): Promise<(StockMovement & { in_event_location: boolean })[]> {
+  if (isDemoMode) return []
+  const { data: locs } = await supabase.from('stock_locations').select('id').eq('event_id', eventId)
+  const locIds = new Set(((locs ?? []) as { id: string }[]).map((l) => l.id))
+  const orFilter = locIds.size > 0
+    ? `event_id.eq.${eventId},stock_location_id.in.(${Array.from(locIds).join(',')})`
+    : `event_id.eq.${eventId}`
+  const { data, error } = await supabase.from('stock_movements').select('*').or(orFilter)
+  if (error) throw error
+  return ((data ?? []) as StockMovement[]).map((m) => ({ ...m, in_event_location: locIds.has(m.stock_location_id) }))
+}
+
 export async function getEventStockByProduct(eventId: string): Promise<EventStockLine[]> {
   if (isDemoMode) return []
   // Duas formas legítimas de estoque "estar" num evento:

@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, ClipboardList } from 'lucide-react'
-import { listProductAvgCosts, listProducts, listStockMovements } from '../../lib/dataService'
+import { listEventStockMovementsWide, listProductAvgCosts, listProducts } from '../../lib/dataService'
 import type { Product, ProductAvgCost, StockMovement } from '../../lib/types'
+
+type WideMovement = StockMovement & { in_event_location: boolean }
 
 // Reconciliação automática do estoque desse evento: soma tudo que foi
 // "Envio para Evento" (estoque inicial + qualquer reforço mandado depois,
@@ -12,14 +14,14 @@ import type { Product, ProductAvgCost, StockMovement } from '../../lib/types'
 // geradas pela aprovação/devolução de transferência (aba Transferências,
 // dentro dessa mesma aba Estoque). Fase 2 do modelo de estoque.
 export default function StockReconciliationCard({ eventId }: { eventId: string }) {
-  const [movements, setMovements] = useState<StockMovement[]>([])
+  const [movements, setMovements] = useState<WideMovement[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [avgCosts, setAvgCosts] = useState<ProductAvgCost[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     setLoading(true)
-    Promise.all([listStockMovements(eventId), listProducts(), listProductAvgCosts()]).then(([m, p, c]) => {
+    Promise.all([listEventStockMovementsWide(eventId), listProducts(), listProductAvgCosts()]).then(([m, p, c]) => {
       setMovements(m)
       setProducts(p)
       setAvgCosts(c)
@@ -37,14 +39,20 @@ export default function StockReconciliationCard({ eventId }: { eventId: string }
 
   const rows = useMemo(() => {
     const byProduct = new Map<string, { enviado: number; sobra: number; perda: number }>()
+    const IN_TYPES = ['Entrada', 'Compra', 'Ajuste (entrada)']
     for (const m of movements) {
       if (m.status === 'Cancelado') continue
       const entry = byProduct.get(m.product_id) ?? { enviado: 0, sobra: 0, perda: 0 }
+      // "Entrou no evento": envio formal de outro almoxarifado OU entrada
+      // direta no almoxarifado do próprio evento (caso Vaquejada).
       if (m.movement_type === 'Envio para Evento') entry.enviado += m.quantity
+      else if (m.in_event_location && IN_TYPES.includes(m.movement_type)) entry.enviado += m.quantity
+      // "Voltou/retirado": devolução formal, ou saída genérica do almoxarifado
+      // do evento (retirou sem ser consumo nem perda).
       else if (m.movement_type === 'Devolução do Evento') entry.sobra += m.quantity
-      // Perda/Quebra/Consumo Interno lançados COM este evento: saem do consumo
-      // "vendável" e viram coluna própria — perda escondida dentro de consumo
-      // é o que faz bar parecer que vendeu mais do que vendeu.
+      else if (m.in_event_location && ['Saída', 'Ajuste (saída)'].includes(m.movement_type)) entry.sobra += m.quantity
+      // Perda/Quebra/Consumo da produção: saem do vendável e têm coluna própria
+      // — perda escondida dentro de "vendido" é o que infla bar no papel.
       else if (['Perda', 'Quebra', 'Consumo Interno'].includes(m.movement_type)) entry.perda += m.quantity
       else continue
       byProduct.set(m.product_id, entry)
@@ -89,21 +97,22 @@ export default function StockReconciliationCard({ eventId }: { eventId: string }
     <div className="bg-white rounded-2xl p-6 shadow-soft border border-beetz-dark/5">
       <h2 className="font-bold text-lg flex items-center gap-2 mb-1"><ClipboardList size={18} /> Reconciliação do evento</h2>
       <p className="text-sm text-beetz-dark/50 mb-4">
-        Consumo = Enviado − Sobra devolvida − Perdas. Derivado das movimentações; nada é digitado aqui.
+        A conta do evento: Vendido = Entrou − Voltou − (Perdas + Consumo da produção). Tudo derivado
+        das movimentações — pra fechar, registre na aba Estoque a devolução do que sobrar.
       </p>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
         <div className="bg-beetz-gray/60 rounded-xl p-3">
           <p className="text-lg font-extrabold leading-none">{totals.enviado}</p>
-          <p className="text-[11px] text-beetz-dark/50 mt-1">Enviado</p>
+          <p className="text-[11px] text-beetz-dark/50 mt-1">Entrou no evento</p>
         </div>
         <div className="bg-beetz-gray/60 rounded-xl p-3">
           <p className="text-lg font-extrabold leading-none">{totals.sobra}</p>
-          <p className="text-[11px] text-beetz-dark/50 mt-1">Devolvido</p>
+          <p className="text-[11px] text-beetz-dark/50 mt-1">Voltou / sobrou</p>
         </div>
         <div className={`rounded-xl p-3 ${totals.perda > 0 ? 'bg-red-50' : 'bg-beetz-gray/60'}`}>
           <p className={`text-lg font-extrabold leading-none ${totals.perda > 0 ? 'text-red-600' : ''}`}>{totals.perda}</p>
-          <p className="text-[11px] text-beetz-dark/50 mt-1">Perdas e consumo interno</p>
+          <p className="text-[11px] text-beetz-dark/50 mt-1">Perdas + consumo da produção</p>
         </div>
         <div className="bg-beetz-dark text-white rounded-xl p-3">
           <p className="text-lg font-extrabold leading-none">{totals.retorno !== null ? `${totals.retorno}%` : '—'}</p>
@@ -115,7 +124,7 @@ export default function StockReconciliationCard({ eventId }: { eventId: string }
         <div className="grid grid-cols-2 gap-3 mb-5">
           <div className="bg-beetz-yellow/15 border border-beetz-yellow/40 rounded-xl p-3">
             <p className="text-lg font-extrabold leading-none">{brl(totals.custoConsumo)}</p>
-            <p className="text-[11px] text-beetz-dark/50 mt-1">Custo do produto consumido</p>
+            <p className="text-[11px] text-beetz-dark/50 mt-1">Custo do vendido (derivado)</p>
           </div>
           <div className={`rounded-xl p-3 border ${totals.custoPerda > 0 ? 'bg-red-50 border-red-100' : 'bg-beetz-gray/60 border-transparent'}`}>
             <p className={`text-lg font-extrabold leading-none ${totals.custoPerda > 0 ? 'text-red-600' : ''}`}>{brl(totals.custoPerda)}</p>
@@ -129,10 +138,10 @@ export default function StockReconciliationCard({ eventId }: { eventId: string }
           <thead>
             <tr className="border-b border-beetz-dark/10 text-left text-beetz-dark/50">
               <th className="py-2 pr-3 font-medium">Produto</th>
-              <th className="py-2 px-3 font-medium text-right">Enviado</th>
-              <th className="py-2 px-3 font-medium text-right">Devolvido</th>
+              <th className="py-2 px-3 font-medium text-right">Entrou</th>
+              <th className="py-2 px-3 font-medium text-right">Voltou</th>
               <th className="py-2 px-3 font-medium text-right">Perdas</th>
-              <th className="py-2 px-3 font-medium text-right">Consumo</th>
+              <th className="py-2 px-3 font-medium text-right">Vendido*</th>
               <th className="py-2 pl-3 font-medium text-right">Retorno</th>
             </tr>
           </thead>
