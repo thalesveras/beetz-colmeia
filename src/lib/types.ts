@@ -243,6 +243,10 @@ export interface StaffingRole {
   name: string
   department_id: string | null
   default_value: number
+  // 'fixed' paga default_value por evento; 'percent' paga default_percent %
+  // sobre os recebimentos que a própria pessoa registrou no evento.
+  pay_type: 'fixed' | 'percent'
+  default_percent: number | null
   active: boolean
   created_at: string
 }
@@ -275,6 +279,8 @@ export interface EventStaffingApplication {
   // vaga (que herda o padrão da função). Existe pro caso real: o líder que
   // cobra um extra naquele evento específico.
   agreed_value: number | null
+  // Ajuste por pessoa quando a função é percentual (8, 9, 10...).
+  agreed_percent: number | null
   created_at: string
 }
 

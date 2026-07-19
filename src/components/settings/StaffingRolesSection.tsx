@@ -28,11 +28,13 @@ export default function StaffingRolesSection() {
   const [name, setName] = useState('')
   const [deptId, setDeptId] = useState('')
   const [value, setValue] = useState('')
+  const [payType, setPayType] = useState<'fixed' | 'percent'>('fixed')
 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [eName, setEName] = useState('')
   const [eDeptId, setEDeptId] = useState('')
   const [eValue, setEValue] = useState('')
+  const [ePayType, setEPayType] = useState<'fixed' | 'percent'>('fixed')
 
   async function load() {
     setLoading(true)
@@ -79,7 +81,9 @@ export default function StaffingRolesSection() {
       await createStaffingRole({
         name: name.trim(),
         department_id: deptId || null,
-        default_value: parseValue(value)
+        pay_type: payType,
+        default_value: payType === 'fixed' ? parseValue(value) : 0,
+        default_percent: payType === 'percent' ? parseValue(value) : null
       })
       setName(''); setValue('')
       // Departamento NÃO limpa: cadastrar as funções de um depto em sequência
@@ -94,7 +98,9 @@ export default function StaffingRolesSection() {
 
   function startEdit(r: StaffingRole) {
     setEditingId(r.id); setEName(r.name)
-    setEDeptId(r.department_id ?? ''); setEValue(String(r.default_value))
+    setEDeptId(r.department_id ?? '')
+    setEPayType(r.pay_type)
+    setEValue(r.pay_type === 'percent' ? String(r.default_percent ?? '') : String(r.default_value))
     setError(null)
   }
 
@@ -105,7 +111,9 @@ export default function StaffingRolesSection() {
       await updateStaffingRole(id, {
         name: eName.trim(),
         department_id: eDeptId || null,
-        default_value: parseValue(eValue)
+        pay_type: ePayType,
+        default_value: ePayType === 'fixed' ? parseValue(eValue) : 0,
+        default_percent: ePayType === 'percent' ? parseValue(eValue) : null
       })
       setEditingId(null)
       await load()
@@ -141,23 +149,31 @@ export default function StaffingRolesSection() {
     <div className="bg-white rounded-2xl p-5 md:p-6 shadow-soft border border-beetz-dark/5">
       <h2 className="text-lg font-bold mb-1 flex items-center gap-2"><Wallet size={18} /> Funções & valores da escala</h2>
       <p className="text-sm text-beetz-dark/60 mb-4">
-        Cadastre as funções que a Beetz já conhece (Garçom, Caixa, Líder de bar...) com o valor padrão por evento.
-        Quem monta a escala escolhe a função e o valor entra sozinho — ajustável por vaga e por pessoa quando precisar.
+        Cadastre as funções que a Beetz já conhece (Garçom, Caixa, Líder de bar...) com o pagamento padrão:
+        valor fixo por evento ou percentual sobre o que a própria pessoa registrar em Recebimentos (caso do Garçom, 8–10%).
+        Quem monta a escala escolhe a função e o combinado entra sozinho — ajustável por pessoa quando precisar.
         Função pausada some do seletor de vagas sem apagar histórico.
       </p>
 
       {error && <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mb-4">{error}</p>}
 
       <form onSubmit={handleAdd} className="bg-beetz-gray/60 rounded-2xl p-3 mb-5 space-y-2">
-        <div className="grid sm:grid-cols-3 gap-2">
-          <input className={`${inputClass} w-full min-w-0`} placeholder="Função (ex: Garçom)" value={name} onChange={(e) => setName(e.target.value)} />
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <input className={`${inputClass} w-full min-w-0 col-span-2 sm:col-span-1`} placeholder="Função (ex: Garçom)" value={name} onChange={(e) => setName(e.target.value)} />
           <select className={`${inputClass} w-full min-w-0`} value={deptId} onChange={(e) => setDeptId(e.target.value)}>
             <option value="">Sem departamento</option>
             {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
+          {/* Como paga: fixo por evento ou comissão sobre o que a pessoa
+              registrar em Recebimentos (caso Garçom, 8–10% das vendas). */}
+          <select className={`${inputClass} w-full min-w-0`} value={payType} onChange={(e) => setPayType(e.target.value as 'fixed' | 'percent')}>
+            <option value="fixed">Valor fixo</option>
+            <option value="percent">% das vendas</option>
+          </select>
           <input
             type="text" inputMode="decimal" className={`${inputClass} w-full min-w-0`}
-            placeholder="Valor por evento (R$)" value={value} onChange={(e) => setValue(e.target.value)}
+            placeholder={payType === 'percent' ? '% padrão (ex: 8)' : 'Valor por evento (R$)'}
+            value={value} onChange={(e) => setValue(e.target.value)}
           />
         </div>
         <button
@@ -185,13 +201,17 @@ export default function StaffingRolesSection() {
                 {items.map((r) => (
                   editingId === r.id ? (
                     <div key={r.id} className="bg-beetz-gray/60 rounded-xl p-2 space-y-2">
-                      <div className="grid sm:grid-cols-3 gap-2">
-                        <input className={`${inputClass} w-full min-w-0`} value={eName} onChange={(e) => setEName(e.target.value)} />
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <input className={`${inputClass} w-full min-w-0 col-span-2 sm:col-span-1`} value={eName} onChange={(e) => setEName(e.target.value)} />
                         <select className={`${inputClass} w-full min-w-0`} value={eDeptId} onChange={(e) => setEDeptId(e.target.value)}>
                           <option value="">Sem departamento</option>
                           {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                         </select>
-                        <input type="text" inputMode="decimal" className={`${inputClass} w-full min-w-0`} value={eValue} onChange={(e) => setEValue(e.target.value)} />
+                        <select className={`${inputClass} w-full min-w-0`} value={ePayType} onChange={(e) => setEPayType(e.target.value as 'fixed' | 'percent')}>
+                          <option value="fixed">Valor fixo</option>
+                          <option value="percent">% das vendas</option>
+                        </select>
+                        <input type="text" inputMode="decimal" className={`${inputClass} w-full min-w-0`} placeholder={ePayType === 'percent' ? '% padrão' : 'R$'} value={eValue} onChange={(e) => setEValue(e.target.value)} />
                       </div>
                       <div className="flex justify-end gap-2">
                         <button onClick={() => setEditingId(null)} className="text-beetz-dark/50 text-xs font-semibold px-3 py-1.5 rounded-xl hover:bg-white flex items-center gap-1">
@@ -205,7 +225,11 @@ export default function StaffingRolesSection() {
                   ) : (
                     <div key={r.id} className={`flex flex-wrap items-center gap-2 rounded-xl px-3 py-2 ${r.active ? 'bg-beetz-gray' : 'bg-beetz-gray/40 opacity-60'}`}>
                       <span className="text-sm font-semibold flex-1 min-w-[120px]">{r.name}</span>
-                      <span className="text-sm font-bold">{r.default_value > 0 ? brl(r.default_value) : '—'}</span>
+                      <span className="text-sm font-bold">
+                        {r.pay_type === 'percent'
+                          ? (r.default_percent != null ? `${r.default_percent}% das vendas` : '% a definir')
+                          : (r.default_value > 0 ? brl(r.default_value) : '—')}
+                      </span>
                       <button
                         onClick={() => toggleActive(r)}
                         className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition-colors ${

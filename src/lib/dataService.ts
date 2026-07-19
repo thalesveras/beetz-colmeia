@@ -2196,7 +2196,7 @@ export async function deleteEventStaffingRequirement(id: string): Promise<void> 
 
 // ---------- Funções & valores de escala (catálogo) ----------
 
-export type NewStaffingRoleInput = Pick<StaffingRole, 'name' | 'department_id' | 'default_value'>
+export type NewStaffingRoleInput = Pick<StaffingRole, 'name' | 'department_id' | 'default_value' | 'pay_type' | 'default_percent'>
 
 export async function listStaffingRoles(): Promise<StaffingRole[]> {
   if (isDemoMode) return []
@@ -2212,7 +2212,7 @@ export async function createStaffingRole(input: NewStaffingRoleInput): Promise<S
 }
 
 export async function updateStaffingRole(
-  id: string, patch: Partial<Pick<StaffingRole, 'name' | 'department_id' | 'default_value' | 'active'>>
+  id: string, patch: Partial<Pick<StaffingRole, 'name' | 'department_id' | 'default_value' | 'pay_type' | 'default_percent' | 'active'>>
 ): Promise<StaffingRole> {
   const { data, error } = await supabase.from('staffing_roles').update(patch).eq('id', id).select().single()
   if (error) throw error
@@ -2232,15 +2232,22 @@ export async function updateStaffingApplicationValue(id: string, agreedValue: nu
   if (error) throw error
 }
 
+// Percentual combinado com UMA pessoa (funções comissionadas; null herda o
+// padrão da função — os 8 viram 9 ou 10 aqui, caso a caso).
+export async function updateStaffingApplicationPercent(id: string, agreedPercent: number | null): Promise<void> {
+  const { error } = await supabase.from('event_staffing_applications').update({ agreed_percent: agreedPercent }).eq('id', id)
+  if (error) throw error
+}
+
 // Botão "gerar pagamentos": UMA despesa Pendente por pessoa CONFIRMADA na
 // escala do evento, com o valor resolvido na cadeia pessoa → vaga → função.
 // Quem já tem despesa vinculada é pulado (e o índice único no banco segura
 // qualquer corrida de clique duplo). Pessoa sem valor em elo nenhum também é
 // pulada — pagamento de R$ 0 é erro esperando pra ser pago.
 export async function generateScalePayments(eventId: string, createdBy: string | null): Promise<{
-  created: number; skippedExisting: number; skippedNoValue: number
+  created: number; skippedExisting: number; skippedNoValue: number; skippedNoSales: number
 }> {
-  if (isDemoMode) return { created: 0, skippedExisting: 0, skippedNoValue: 0 }
+  if (isDemoMode) return { created: 0, skippedExisting: 0, skippedNoValue: 0, skippedNoSales: 0 }
   const [appsRes, reqsRes] = await Promise.all([
     supabase.from('event_staffing_applications').select('*').eq('event_id', eventId).eq('status', 'Confirmado'),
     supabase.from('event_staffing_requirements').select('*').eq('event_id', eventId)
@@ -2249,19 +2256,29 @@ export async function generateScalePayments(eventId: string, createdBy: string |
   if (reqsRes.error) throw reqsRes.error
   const apps = (appsRes.data ?? []) as EventStaffingApplication[]
   const reqs = (reqsRes.data ?? []) as EventStaffingRequirement[]
-  if (apps.length === 0) return { created: 0, skippedExisting: 0, skippedNoValue: 0 }
+  if (apps.length === 0) return { created: 0, skippedExisting: 0, skippedNoValue: 0, skippedNoSales: 0 }
 
   const roleIds = reqs.map((r) => r.role_id).filter((x): x is string => !!x)
-  const [rolesRes, existingRes, profilesRes] = await Promise.all([
+  const [rolesRes, existingRes, profilesRes, settlementsRes] = await Promise.all([
     roleIds.length > 0
       ? supabase.from('staffing_roles').select('*').in('id', roleIds)
       : Promise.resolve({ data: [], error: null } as { data: StaffingRole[]; error: null }),
     supabase.from('expenses').select('staffing_application_id').in('staffing_application_id', apps.map((a) => a.id)),
-    supabase.from('profiles').select('id, first_name, last_name').in('id', apps.map((a) => a.profile_id))
+    supabase.from('profiles').select('id, first_name, last_name').in('id', apps.map((a) => a.profile_id)),
+    // Base das funções comissionadas: os recebimentos que a própria pessoa
+    // registrou neste evento (rejeitado não conta).
+    supabase.from('cashier_settlements').select('profile_id, total, status').eq('event_id', eventId)
   ])
   if (rolesRes.error) throw rolesRes.error
   if (existingRes.error) throw existingRes.error
   if (profilesRes.error) throw profilesRes.error
+  if (settlementsRes.error) throw settlementsRes.error
+
+  const salesByProfile = new Map<string, number>()
+  for (const st of (settlementsRes.data ?? []) as { profile_id: string | null; total: number; status: string }[]) {
+    if (!st.profile_id || st.status === 'Rejeitado') continue
+    salesByProfile.set(st.profile_id, (salesByProfile.get(st.profile_id) ?? 0) + (st.total ?? 0))
+  }
 
   const roleById = new Map(((rolesRes.data ?? []) as StaffingRole[]).map((r) => [r.id, r]))
   const reqById = new Map(reqs.map((r) => [r.id, r]))
@@ -2272,19 +2289,35 @@ export async function generateScalePayments(eventId: string, createdBy: string |
 
   let skippedExisting = 0
   let skippedNoValue = 0
+  let skippedNoSales = 0
   const toInsert: NewExpenseInput[] = []
   for (const app of apps) {
     if (paidAppIds.has(app.id)) { skippedExisting++; continue }
     const req = reqById.get(app.requirement_id)
     const role = req?.role_id ? roleById.get(req.role_id) : undefined
-    const value = app.agreed_value ?? req?.unit_cost ?? role?.default_value ?? 0
-    if (!(value > 0)) { skippedNoValue++; continue }
+
+    let value: number
+    let detail = ''
+    if (role?.pay_type === 'percent') {
+      // Comissão: % combinado (pessoa → função) sobre o que a pessoa
+      // registrou em Recebimentos neste evento. Sem acerto lançado, não há
+      // base — pulamos e contamos à parte pra mensagem explicar o porquê.
+      const pct = app.agreed_percent ?? role.default_percent ?? 0
+      const sales = salesByProfile.get(app.profile_id) ?? 0
+      if (!(pct > 0)) { skippedNoValue++; continue }
+      if (!(sales > 0)) { skippedNoSales++; continue }
+      value = Math.round(sales * pct) / 100
+      detail = ` (${pct}% de ${sales.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})`
+    } else {
+      value = app.agreed_value ?? req?.unit_cost ?? role?.default_value ?? 0
+      if (!(value > 0)) { skippedNoValue++; continue }
+    }
     toInsert.push({
       event_id: eventId,
       status: 'Pendente',
       category: 'Equipe',
       payment_method: null,
-      description: `Escala — ${req?.role_label ?? 'Função'}: ${personById.get(app.profile_id) ?? 'colaborador(a)'}`,
+      description: `Escala — ${req?.role_label ?? 'Função'}: ${personById.get(app.profile_id) ?? 'colaborador(a)'}${detail}`,
       quantity: 1,
       unit_value: value,
       dex_fee: 0,
@@ -2301,7 +2334,7 @@ export async function generateScalePayments(eventId: string, createdBy: string |
     const { error } = await supabase.from('expenses').insert(toInsert)
     if (error) throw error
   }
-  return { created: toInsert.length, skippedExisting, skippedNoValue }
+  return { created: toInsert.length, skippedExisting, skippedNoValue, skippedNoSales }
 }
 
 // ---------- Contrato via ZapSign ----------
@@ -2653,7 +2686,7 @@ export async function applyToStaffingSlot(
     }
     const record: EventStaffingApplication = {
       id: uid('app'), requirement_id: requirementId, event_id: eventId, profile_id: profileId,
-      status: 'Candidatado', note, decided_by: null, decided_at: null, agreed_value: null, created_at: new Date().toISOString()
+      status: 'Candidatado', note, decided_by: null, decided_at: null, agreed_value: null, agreed_percent: null, created_at: new Date().toISOString()
     }
     demoState.staffingApplications.push(record)
     return record

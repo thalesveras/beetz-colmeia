@@ -4,14 +4,15 @@ import { Check, ClipboardList, Pencil, Users, Wallet, X } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import {
   applyToStaffingSlot, generateScalePayments, listEventStaffingApplications, listEventStaffingRequirements,
-  listProfiles, updateStaffingApplicationStatus, updateStaffingApplicationValue
+  listProfiles, listStaffingRoles, updateStaffingApplicationPercent, updateStaffingApplicationStatus,
+  updateStaffingApplicationValue
 } from '../../lib/dataService'
 
 function brl(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 import type {
-  EventStaffingApplication, EventStaffingRequirement, Profile, StaffingApplicationStatus
+  EventStaffingApplication, EventStaffingRequirement, Profile, StaffingApplicationStatus, StaffingRole
 } from '../../lib/types'
 import Avatar from '../../components/ui/Avatar'
 import StaffingRequirementsEditor from './StaffingRequirementsEditor'
@@ -43,6 +44,7 @@ export default function StaffingTab({ eventId, canManage, onTeamChanged }: Props
   const [requirements, setRequirements] = useState<EventStaffingRequirement[]>([])
   const [applications, setApplications] = useState<EventStaffingApplication[]>([])
   const [profiles, setProfiles] = useState<Profile[]>([])
+  const [roles, setRoles] = useState<StaffingRole[]>([])
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -55,14 +57,16 @@ export default function StaffingTab({ eventId, canManage, onTeamChanged }: Props
 
   async function load() {
     try {
-      const [reqs, apps, profs] = await Promise.all([
+      const [reqs, apps, profs, rls] = await Promise.all([
         listEventStaffingRequirements(eventId),
         listEventStaffingApplications(eventId),
-        listProfiles()
+        listProfiles(),
+        listStaffingRoles()
       ])
       setRequirements(reqs)
       setApplications(apps)
       setProfiles(profs)
+      setRoles(rls)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar as vagas.')
     } finally {
@@ -97,20 +101,39 @@ export default function StaffingTab({ eventId, canManage, onTeamChanged }: Props
     return req?.unit_cost ?? 0
   }
 
+  // Vaga comissionada: a função paga % sobre os recebimentos da pessoa —
+  // o "valor" dela só nasce quando o acerto é lançado no evento.
+  function roleForReq(req: EventStaffingRequirement | undefined): StaffingRole | undefined {
+    return req?.role_id ? roles.find((r) => r.id === req.role_id) : undefined
+  }
+  function isPercentApp(app: EventStaffingApplication): boolean {
+    return roleForReq(requirements.find((r) => r.id === app.requirement_id))?.pay_type === 'percent'
+  }
+  function resolvedPercent(app: EventStaffingApplication): number {
+    const role = roleForReq(requirements.find((r) => r.id === app.requirement_id))
+    return app.agreed_percent ?? role?.default_percent ?? 0
+  }
+
   const confirmedApps = useMemo(
     () => applications.filter((a) => a.status === 'Confirmado'),
     [applications]
   )
   const scaleTotal = useMemo(
-    () => confirmedApps.reduce((sum, a) => sum + resolvedValue(a), 0),
-    [confirmedApps, requirements]
+    () => confirmedApps.reduce((sum, a) => sum + (isPercentApp(a) ? 0 : resolvedValue(a)), 0),
+    [confirmedApps, requirements, roles]
+  )
+  const percentCount = useMemo(
+    () => confirmedApps.filter((a) => isPercentApp(a)).length,
+    [confirmedApps, requirements, roles]
   )
 
   async function saveValue(app: EventStaffingApplication) {
     const parsed = valueDraft.trim() ? Number(valueDraft.replace(',', '.')) : null
+    const clean = parsed != null && !Number.isNaN(parsed) ? parsed : null
     setBusyId(app.id)
     try {
-      await updateStaffingApplicationValue(app.id, parsed != null && !Number.isNaN(parsed) ? parsed : null)
+      if (isPercentApp(app)) await updateStaffingApplicationPercent(app.id, clean)
+      else await updateStaffingApplicationValue(app.id, clean)
       setEditingValueId(null)
       await load()
     } catch (err) {
@@ -132,6 +155,7 @@ export default function StaffingTab({ eventId, canManage, onTeamChanged }: Props
         : 'Nenhum pagamento novo pra criar')
       if (res.skippedExisting > 0) parts.push(`${res.skippedExisting} já tinha${res.skippedExisting > 1 ? 'm' : ''} despesa`)
       if (res.skippedNoValue > 0) parts.push(`${res.skippedNoValue} sem valor definido (pulado${res.skippedNoValue > 1 ? 's' : ''})`)
+      if (res.skippedNoSales > 0) parts.push(`${res.skippedNoSales} comissionado${res.skippedNoSales > 1 ? 's' : ''} sem acerto em Recebimentos ainda (pulado${res.skippedNoSales > 1 ? 's' : ''} — lance o acerto e gere de novo)`)
       setPayMessage(parts.join(' · '))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao gerar os pagamentos.')
@@ -178,8 +202,11 @@ export default function StaffingTab({ eventId, canManage, onTeamChanged }: Props
         <div className="bg-beetz-dark text-white rounded-2xl p-5 shadow-soft flex flex-wrap items-center gap-4">
           <div className="bg-beetz-yellow/20 text-beetz-yellow rounded-xl p-2.5"><Wallet size={20} /></div>
           <div className="flex-1 min-w-[160px]">
-            <p className="text-xl font-extrabold leading-none">{brl(scaleTotal)}</p>
-            <p className="text-xs text-white/50 mt-1">Custo da escala · {confirmedApps.length} confirmado{confirmedApps.length > 1 ? 's' : ''}</p>
+            <p className="text-xl font-extrabold leading-none">{brl(scaleTotal)}{percentCount > 0 ? ' + comissões' : ''}</p>
+            <p className="text-xs text-white/50 mt-1">
+              Custo da escala · {confirmedApps.length} confirmado{confirmedApps.length > 1 ? 's' : ''}
+              {percentCount > 0 ? ` · ${percentCount} comissionado${percentCount > 1 ? 's' : ''} (% sobre o acerto)` : ''}
+            </p>
           </div>
           {canManage && (
             <button
@@ -229,7 +256,11 @@ export default function StaffingTab({ eventId, canManage, onTeamChanged }: Props
                 <div className="flex-1 min-w-[180px]">
                   <p className="font-bold">
                     {req.role_label}
-                    {req.unit_cost != null && req.unit_cost > 0 && (
+                    {roleForReq(req)?.pay_type === 'percent' ? (
+                      <span className="ml-2 text-xs font-bold bg-beetz-yellow/25 px-2 py-0.5 rounded-full align-middle">
+                        {roleForReq(req)?.default_percent ?? 0}% das vendas/pessoa
+                      </span>
+                    ) : req.unit_cost != null && req.unit_cost > 0 && (
                       <span className="ml-2 text-xs font-bold bg-beetz-yellow/25 px-2 py-0.5 rounded-full align-middle">{brl(req.unit_cost)}/pessoa</span>
                     )}
                   </p>
@@ -285,20 +316,29 @@ export default function StaffingTab({ eventId, canManage, onTeamChanged }: Props
                               type="text" inputMode="decimal" autoFocus
                               className="w-20 border border-beetz-dark/15 rounded-lg px-2 py-1 text-xs"
                               value={valueDraft} onChange={(e) => setValueDraft(e.target.value)}
-                              placeholder="R$"
+                              placeholder={isPercentApp(app) ? '%' : 'R$'}
                             />
                             <button onClick={() => saveValue(app)} disabled={busyId === app.id} className="text-green-600 p-1 rounded hover:bg-green-50"><Check size={13} /></button>
                             <button onClick={() => setEditingValueId(null)} className="text-beetz-dark/40 p-1 rounded hover:bg-beetz-gray"><X size={13} /></button>
                           </span>
                         ) : (
                           <span className="flex items-center gap-1 text-xs font-bold">
-                            {brl(resolvedValue(app))}
-                            {app.agreed_value != null && <span className="text-[10px] font-semibold text-beetz-dark/40" title="Valor ajustado só pra essa pessoa">ajustado</span>}
+                            {isPercentApp(app) ? `${resolvedPercent(app)}% das vendas` : brl(resolvedValue(app))}
+                            {(isPercentApp(app) ? app.agreed_percent != null : app.agreed_value != null) && (
+                              <span className="text-[10px] font-semibold text-beetz-dark/40" title="Combinado ajustado só pra essa pessoa">ajustado</span>
+                            )}
                             {canManage && (
                               <button
-                                onClick={() => { setEditingValueId(app.id); setValueDraft(app.agreed_value != null ? String(app.agreed_value) : '') }}
+                                onClick={() => {
+                                  setEditingValueId(app.id)
+                                  setValueDraft(isPercentApp(app)
+                                    ? (app.agreed_percent != null ? String(app.agreed_percent) : '')
+                                    : (app.agreed_value != null ? String(app.agreed_value) : ''))
+                                }}
                                 className="text-beetz-dark/30 hover:text-beetz-dark p-0.5 rounded"
-                                title="Ajustar valor só desta pessoa (vazio volta a herdar o da vaga)"
+                                title={isPercentApp(app)
+                                  ? 'Ajustar o % só desta pessoa (os 8 viram 9 ou 10 aqui; vazio herda o da função)'
+                                  : 'Ajustar valor só desta pessoa (vazio volta a herdar o da vaga)'}
                               >
                                 <Pencil size={12} />
                               </button>

@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CalendarDays, Check, ClipboardList, Clock3, MapPin, X } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
-import { applyToStaffingSlot, listOpenStaffingSlots, updateStaffingApplicationStatus } from '../lib/dataService'
-import type { OpenStaffingSlot, StaffingApplicationStatus } from '../lib/types'
+import { applyToStaffingSlot, listOpenStaffingSlots, listStaffingRoles, updateStaffingApplicationStatus } from '../lib/dataService'
+import type { OpenStaffingSlot, StaffingApplicationStatus, StaffingRole } from '../lib/types'
 
 // Tela da turma: vagas abertas nos próximos eventos + status das minhas
 // candidaturas. Quem confirma é o líder, na aba Escala do evento.
@@ -30,6 +30,7 @@ const STATUS_LABELS: Record<StaffingApplicationStatus, string> = {
 export default function Escala() {
   const { userId } = useAuth()
   const [slots, setSlots] = useState<OpenStaffingSlot[]>([])
+  const [roles, setRoles] = useState<StaffingRole[]>([])
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -38,7 +39,9 @@ export default function Escala() {
   async function load() {
     setLoading(true)
     try {
-      setSlots(await listOpenStaffingSlots(userId ?? null))
+      const [sl, rl] = await Promise.all([listOpenStaffingSlots(userId ?? null), listStaffingRoles()])
+      setSlots(sl)
+      setRoles(rl)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar as vagas.')
     } finally {
@@ -140,11 +143,24 @@ export default function Escala() {
                       {/* Valor à vista pra quem está decidindo se pega a vaga —
                           transparência combinada com o dono: atrai candidatura
                           e evita surpresa na hora do pagamento. */}
-                      {slot.requirement.unit_cost != null && slot.requirement.unit_cost > 0 && (
-                        <span className="ml-2 text-xs font-bold bg-beetz-yellow/25 px-2 py-0.5 rounded-full align-middle">
-                          {slot.requirement.unit_cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                        </span>
-                      )}
+                      {(() => {
+                        const role = slot.requirement.role_id ? roles.find((r) => r.id === slot.requirement.role_id) : undefined
+                        if (role?.pay_type === 'percent') {
+                          return (
+                            <span className="ml-2 text-xs font-bold bg-beetz-yellow/25 px-2 py-0.5 rounded-full align-middle">
+                              {role.default_percent ?? 0}% das suas vendas
+                            </span>
+                          )
+                        }
+                        if (slot.requirement.unit_cost != null && slot.requirement.unit_cost > 0) {
+                          return (
+                            <span className="ml-2 text-xs font-bold bg-beetz-yellow/25 px-2 py-0.5 rounded-full align-middle">
+                              {slot.requirement.unit_cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            </span>
+                          )
+                        }
+                        return null
+                      })()}
                     </p>
                     <Link to={`/eventos/${slot.event.id}`} className="text-sm text-beetz-dark/60 hover:text-beetz-dark font-medium">
                       {slot.event.name}
