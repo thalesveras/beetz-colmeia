@@ -12,7 +12,7 @@ import type {
 import { canEditExpense, canReviewExpense } from '../../lib/permissions'
 import FileField from '../../components/ui/FileField'
 import SignaturePad from '../../components/ui/SignaturePad'
-import { Plus, Pencil } from 'lucide-react'
+import { Pencil, Plus, X } from 'lucide-react'
 
 const statuses: ExpenseStatus[] = ['Pendente', 'Aprovado', 'Pago', 'Rejeitado', 'Cancelado']
 
@@ -40,6 +40,7 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
+  const [detail, setDetail] = useState<Expense | null>(null)
   const [saving, setSaving] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
 
@@ -272,45 +273,146 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
 
       {!loading && (
         <div className="space-y-2">
+          {/* Card em camadas: status + categoria + valor na primeira linha;
+              o miolo é clicável e abre os detalhes completos (comprovante,
+              assinatura, quantidade, taxa...); as ações vivem na base. */}
           {expenses.map((exp) => (
-            <div key={exp.id} className={`flex flex-wrap items-center gap-3 bg-white border border-beetz-dark/5 rounded-xl p-4 ${exp.status === 'Cancelado' ? 'opacity-50' : ''}`}>
-              {/* Trocar o status (Pendente -> Aprovado -> Pago) é aprovar
-                  dinheiro, e antes esse seletor não tinha checagem NENHUMA:
-                  qualquer um que enxergasse a aba podia aprovar a própria
-                  despesa. Agora exige "Revisar status da despesa" — a flag que
-                  existia no banco e na tela, mas que nenhum código consultava.
-                  Sem a permissão, o status vira só leitura. */}
-              {canReviewExpense(accessRole) ? (
-                <select
-                  value={exp.status}
-                  onChange={(e) => handleStatusChange(exp.id, e.target.value as ExpenseStatus)}
-                  className={`text-xs font-semibold px-2.5 py-1 rounded-full border-0 ${statusColors[exp.status]}`}
-                >
-                  {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
-                </select>
-              ) : (
-                <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${statusColors[exp.status]}`}>
-                  {exp.status}
-                </span>
-              )}
-              <div className="flex-1 min-w-[140px]">
-                <p className="font-semibold text-sm">{exp.category || 'Sem categoria'}</p>
-                <p className="text-xs text-beetz-dark/50">
-                  {exp.description || '—'} {exp.payment_method ? `· ${exp.payment_method}` : ''}
+            <div key={exp.id} className={`bg-white border border-beetz-dark/5 rounded-xl p-4 ${exp.status === 'Cancelado' ? 'opacity-50' : ''}`}>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  {/* Trocar o status (Pendente -> Aprovado -> Pago) é aprovar
+                      dinheiro: exige a flag "Revisar status da despesa". Sem
+                      ela, o status vira só leitura. */}
+                  {canReviewExpense(accessRole) ? (
+                    <select
+                      value={exp.status}
+                      onChange={(e) => handleStatusChange(exp.id, e.target.value as ExpenseStatus)}
+                      className={`text-xs font-semibold px-2.5 py-1 rounded-full border-0 shrink-0 ${statusColors[exp.status]}`}
+                    >
+                      {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  ) : (
+                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full shrink-0 ${statusColors[exp.status]}`}>
+                      {exp.status}
+                    </span>
+                  )}
+                  <p className="font-semibold text-sm truncate">{exp.category || 'Sem categoria'}</p>
+                </div>
+                <span className="font-bold text-sm whitespace-nowrap">{currency(exp.total)}</span>
+              </div>
+
+              <button onClick={() => setDetail(exp)} className="w-full text-left mt-1">
+                <p className="text-xs text-beetz-dark/50 line-clamp-2">
+                  {exp.description || 'Sem descrição'}{exp.payment_method ? ` · ${exp.payment_method}` : ''}
                   {exp.team_member_id ? ` · Equipe: ${teamMembers.find((m) => m.id === exp.team_member_id)?.first_name ?? '—'}` : ''}
                   {exp.pending_team_member_id ? ` · Equipe: ${pendingProfiles.find((m) => m.id === exp.pending_team_member_id)?.first_name ?? '—'} (pré-cadastro)` : ''}
                   {exp.supplier_id ? ` · Fornecedor: ${suppliers.find((s) => s.id === exp.supplier_id)?.name ?? '—'}` : ''}
                 </p>
-              </div>
-              <span className="font-bold text-sm">{currency(exp.total)}</span>
-              {canEditExpense(accessRole) && (
-                <button onClick={() => handleEdit(exp)} className="text-beetz-dark/40 hover:text-beetz-dark p-1.5 rounded-lg hover:bg-beetz-gray">
-                  <Pencil size={14} />
+              </button>
+
+              <div className="flex items-center justify-between gap-2 mt-2">
+                <button onClick={() => setDetail(exp)} className="text-xs font-semibold text-beetz-dark/45 hover:text-beetz-dark">
+                  Ver detalhes
                 </button>
-              )}
+                {canEditExpense(accessRole) && (
+                  <button onClick={() => handleEdit(exp)} className="flex items-center gap-1 text-xs font-semibold text-beetz-dark/45 hover:text-beetz-dark p-1.5 rounded-lg hover:bg-beetz-gray">
+                    <Pencil size={13} /> Editar
+                  </button>
+                )}
+              </div>
             </div>
           ))}
           {expenses.length === 0 && <p className="text-sm text-beetz-dark/50">Nenhuma despesa registrada ainda.</p>}
+        </div>
+      )}
+
+      {detail && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-6" onClick={() => setDetail(null)}>
+          <div
+            className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 max-h-[90vh] overflow-y-auto pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div className="min-w-0">
+                <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${statusColors[detail.status]}`}>{detail.status}</span>
+                <p className="font-bold text-lg leading-tight mt-2">{detail.category || 'Sem categoria'}</p>
+              </div>
+              <button onClick={() => setDetail(null)} className="p-1.5 rounded-lg hover:bg-beetz-gray shrink-0" aria-label="Fechar">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-2.5 text-sm">
+              {detail.description && <p className="text-beetz-dark/70">{detail.description}</p>}
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="bg-beetz-gray rounded-xl px-3 py-2">
+                  <p className="text-[11px] text-beetz-dark/45">Quantidade × valor</p>
+                  <p className="font-semibold">{detail.quantity} × {currency(detail.unit_value)}</p>
+                </div>
+                <div className="bg-beetz-gray rounded-xl px-3 py-2">
+                  <p className="text-[11px] text-beetz-dark/45">Taxa Dex</p>
+                  <p className="font-semibold">{currency(detail.dex_fee)}</p>
+                </div>
+              </div>
+              <div className="bg-beetz-dark text-white rounded-xl px-3 py-2.5 flex justify-between items-center">
+                <span className="text-xs text-white/60">Total</span>
+                <span className="font-extrabold">{currency(detail.total)}</span>
+              </div>
+              {detail.payment_method && <p className="text-xs text-beetz-dark/55">Pagamento: <span className="font-semibold text-beetz-dark">{detail.payment_method}</span></p>}
+              {detail.team_member_id && (
+                <p className="text-xs text-beetz-dark/55">Equipe: <span className="font-semibold text-beetz-dark">
+                  {(() => { const m = teamMembers.find((x) => x.id === detail.team_member_id); return m ? `${m.first_name} ${m.last_name}` : '—' })()}
+                </span></p>
+              )}
+              {detail.pending_team_member_id && (
+                <p className="text-xs text-beetz-dark/55">Equipe: <span className="font-semibold text-beetz-dark">
+                  {(() => { const m = pendingProfiles.find((x) => x.id === detail.pending_team_member_id); return m ? `${m.first_name} ${m.last_name} (pré-cadastro)` : '—' })()}
+                </span></p>
+              )}
+              {detail.supplier_id && (
+                <p className="text-xs text-beetz-dark/55">Fornecedor: <span className="font-semibold text-beetz-dark">
+                  {suppliers.find((x) => x.id === detail.supplier_id)?.name ?? '—'}
+                </span></p>
+              )}
+              {detail.receipt_data && (
+                <div>
+                  <p className="text-[11px] text-beetz-dark/45 mb-1">Comprovante</p>
+                  {detail.receipt_data.startsWith('data:image') ? (
+                    <img src={detail.receipt_data} alt="Comprovante" className="max-h-56 rounded-xl border border-beetz-dark/10" />
+                  ) : (
+                    <a href={detail.receipt_data} download="comprovante" className="text-xs font-semibold underline">Baixar comprovante</a>
+                  )}
+                </div>
+              )}
+              {detail.signature_data && (
+                <div>
+                  <p className="text-[11px] text-beetz-dark/45 mb-1">Assinatura</p>
+                  <img src={detail.signature_data} alt="Assinatura" className="max-h-24 rounded-xl border border-beetz-dark/10 bg-white" />
+                </div>
+              )}
+              {detail.repasse_data && (
+                <div>
+                  <p className="text-[11px] text-beetz-dark/45 mb-1">Repasse</p>
+                  {detail.repasse_data.startsWith('data:image') ? (
+                    <img src={detail.repasse_data} alt="Repasse" className="max-h-56 rounded-xl border border-beetz-dark/10" />
+                  ) : (
+                    <a href={detail.repasse_data} download="repasse" className="text-xs font-semibold underline">Baixar repasse</a>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {canEditExpense(accessRole) && (
+              <div className="flex justify-end mt-5">
+                <button
+                  onClick={() => { const e = detail; setDetail(null); handleEdit(e) }}
+                  className="flex items-center gap-1.5 honey-gradient text-beetz-dark font-bold px-5 py-2.5 rounded-xl text-sm"
+                >
+                  <Pencil size={14} /> Editar despesa
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

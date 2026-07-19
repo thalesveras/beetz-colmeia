@@ -1826,6 +1826,48 @@ export async function registerTransferReturn(request: TransferRequest, returnedQ
 // observação, em vez de um número só editável.
 export type NewEventRepasseInput = Omit<EventRepasse, 'id' | 'created_at'>
 
+// Editar/apagar produto do evento — total é coluna GERADA no banco, então o
+// update manda só quantity/unit_price/notes e NUNCA o total.
+export async function updateEventProduct(
+  id: string, patch: Partial<Pick<EventProduct, 'quantity' | 'unit_price' | 'notes'>>
+): Promise<EventProduct> {
+  if (isDemoMode) {
+    const idx = demoState.eventProducts.findIndex((p) => p.id === id)
+    if (idx < 0) throw new Error('Produto não encontrado.')
+    const next = { ...demoState.eventProducts[idx], ...patch }
+    next.total = next.quantity * next.unit_price
+    demoState.eventProducts[idx] = next
+    return next
+  }
+  const { data, error } = await supabase.from('event_products').update(patch).eq('id', id).select().single()
+  if (error) throw error
+  return data as EventProduct
+}
+
+export async function deleteEventProduct(id: string): Promise<void> {
+  if (isDemoMode) {
+    demoState.eventProducts = demoState.eventProducts.filter((p) => p.id !== id)
+    return
+  }
+  const { error } = await supabase.from('event_products').delete().eq('id', id)
+  if (error) throw error
+}
+
+// Corrigir um repasse lançado errado (valor, data ou observação).
+export async function updateEventRepasse(
+  id: string, patch: Partial<Pick<EventRepasse, 'amount' | 'paid_at' | 'notes'>>
+): Promise<EventRepasse> {
+  if (isDemoMode) {
+    const idx = demoState.eventRepasses.findIndex((r) => r.id === id)
+    if (idx < 0) throw new Error('Repasse não encontrado.')
+    demoState.eventRepasses[idx] = { ...demoState.eventRepasses[idx], ...patch }
+    return demoState.eventRepasses[idx]
+  }
+  const { data, error } = await supabase.from('event_repasses').update(patch).eq('id', id).select().single()
+  if (error) throw error
+  return data as EventRepasse
+}
+
 export async function listEventRepasses(eventId: string): Promise<EventRepasse[]> {
   if (isDemoMode) {
     return demoState.eventRepasses.filter((r) => r.event_id === eventId).sort((a, b) => (a.paid_at < b.paid_at ? 1 : -1))
