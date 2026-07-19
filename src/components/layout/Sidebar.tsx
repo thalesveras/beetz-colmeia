@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
+import { Link, NavLink, useLocation } from 'react-router-dom'
 import { ChevronDown, LogOut } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { groupHasActive, isItemActive, navGroupsFor, HOME_LINK, INFO_LINK } from '../../lib/navigation'
@@ -35,13 +35,29 @@ export default function Sidebar() {
       </nav>
 
       <div className="border-t border-white/10 pt-4 mt-4">
-        <div className="flex items-center gap-2 mb-3 px-1">
-          <Avatar src={profile?.avatar_url} name={profile ? `${profile.first_name} ${profile.last_name}` : email || 'Abelha'} size="sm" />
-          <div className="min-w-0">
-            <p className="text-sm font-semibold truncate">{profile ? `${profile.first_name} ${profile.last_name}` : 'Abelha'}</p>
-            <p className="text-[11px] text-white/50 truncate">{email}</p>
+        {/* O cartão do usuário é a porta pro próprio perfil — mesmo destino
+            que clicar em alguém na Turma. Sem perfil carregado, vira estático. */}
+        {profile ? (
+          <Link
+            to={`/perfil/${profile.id}`}
+            className="flex items-center gap-2 mb-3 px-1 py-1 rounded-xl hover:bg-white/10 transition-colors"
+            title="Ver meu perfil"
+          >
+            <Avatar src={profile.avatar_url} name={`${profile.first_name} ${profile.last_name}`} size="sm" />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold truncate">{profile.first_name} {profile.last_name}</p>
+              <p className="text-[11px] text-white/50 truncate">{email}</p>
+            </div>
+          </Link>
+        ) : (
+          <div className="flex items-center gap-2 mb-3 px-1">
+            <Avatar src={null} name={email || 'Abelha'} size="sm" />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold truncate">Abelha</p>
+              <p className="text-[11px] text-white/50 truncate">{email}</p>
+            </div>
           </div>
-        </div>
+        )}
         <button
           onClick={() => signOut()}
           className="flex items-center gap-2 text-sm text-white/70 hover:text-beetz-yellow px-3 py-2 w-full rounded-xl hover:bg-white/10 transition-colors"
