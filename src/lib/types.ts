@@ -497,8 +497,15 @@ export interface EventProduct {
   event_id: string
   product_id: string
   quantity: number
+  // unit_price é o PREÇO DE CUSTO (o lançamento do estoque grava o custo
+  // médio aqui); total (gerado no banco) = quantity × unit_price = custo total.
   unit_price: number
   total: number
+  // Economia do item: preço de venda + % da venda que fica com o produtor.
+  // Opcionais (dados antigos não têm) — a UI calcula o resultado Beetz
+  // (venda − produtor − custo) quando os dois existem.
+  sale_price?: number | null
+  producer_percent?: number | null
   notes: string | null
   created_at: string
 }

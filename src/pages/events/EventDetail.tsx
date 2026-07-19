@@ -301,7 +301,12 @@ export default function EventDetail() {
 
       {activeTab === 'produtos' && canViewStockTab(accessRole) && (
         <div className="bg-white rounded-2xl p-6 shadow-soft border border-beetz-dark/5">
-          <ProductsTab eventId={id} />
+          {/* % do produtor padrão = 100 − comissão Beetz do evento (o campo
+              "Percentual Beetz" do fechamento). Cada produto pode sobrescrever. */}
+          <ProductsTab
+            eventId={id}
+            defaultProducerPercent={event?.commission_percentage != null ? Math.max(0, 100 - event.commission_percentage) : null}
+          />
         </div>
       )}
 
