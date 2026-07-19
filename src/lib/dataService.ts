@@ -9,7 +9,7 @@ import {
 } from './mockData'
 import { badgesFromStats, getHiveLevel } from './levels'
 import type {
-  AlertChannelSetting, AppNotification, AppSettings, Badge, BadgeDefConfig, CashierSettlement, Compliment, Department, DnsSubdomain, DnsRecordType,
+  AlertChannelSetting, AppNotification, AppSettings, CashierSettlementInternal, Badge, BadgeDefConfig, CashierSettlement, Compliment, Department, DnsSubdomain, DnsRecordType,
   EventFinancialSummary,
   EventChangeLogEntry, EventItem, EventMember, EventModality, EventProduct, EventRepasse, EventStaffingApplication, EventStaffingRequirement, Expense,
   ExpenseCategory, ExpenseStatus, HiveLevelConfig, HoneyPoint, LinkRedirect, MovementType, OpenStaffingSlot, PaymentMethodOption, Product,
@@ -2828,6 +2828,29 @@ export async function updateStaffingApplicationStatus(
 }
 
 // ---------- Notificações ----------
+// ---------- Controle interno dos acertos (revisores) ----------
+export async function listSettlementInternalsForEvent(eventId: string): Promise<CashierSettlementInternal[]> {
+  if (isDemoMode) return []
+  // RLS filtra sozinho: não-revisor recebe lista vazia, sem erro.
+  const { data, error } = await supabase
+    .from('cashier_settlement_internal')
+    .select('*, cashier_settlements!inner(event_id)')
+    .eq('cashier_settlements.event_id', eventId)
+  if (error) throw error
+  return (data ?? []).map(({ cashier_settlements: _drop, ...rest }: any) => rest) as CashierSettlementInternal[]
+}
+
+export async function upsertSettlementInternal(
+  input: Pick<CashierSettlementInternal, 'settlement_id' | 'status' | 'pending_amount' | 'internal_notes' | 'payment_receipt_data'> & { updated_by: string | null }
+): Promise<void> {
+  if (isDemoMode) throw new Error('Indisponível no modo demonstração.')
+  const { error } = await supabase.from('cashier_settlement_internal').upsert({
+    ...input,
+    updated_at: new Date().toISOString()
+  }, { onConflict: 'settlement_id' })
+  if (error) throw error
+}
+
 // ---------- Alertas: canais extras (push e e-mail) ----------
 export async function listAlertChannels(): Promise<AlertChannelSetting[]> {
   if (isDemoMode) return demoState.alertChannels.map((c) => ({ ...c }))

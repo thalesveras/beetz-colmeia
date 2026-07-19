@@ -535,6 +535,19 @@ export interface TransferRequest {
 
 // Ledger de lançamentos individuais de repasse por evento — substitui, como
 // fonte de verdade, o campo único events.repasses (mantido só como histórico).
+// Controle interno do acerto (só revisores/Diretoria — o dono não vê; a
+// tabela tem RLS própria). Rastreia o dinheiro fora do sistema: entregou
+// tudo, está devendo quanto, e o comprovante do pagamento.
+export interface CashierSettlementInternal {
+  settlement_id: string
+  status: 'Em aberto' | 'Devendo' | 'Acertado'
+  pending_amount: number | null
+  internal_notes: string | null
+  payment_receipt_data: string | null
+  updated_by: string | null
+  updated_at: string
+}
+
 export interface EventRepasse {
   id: string
   event_id: string

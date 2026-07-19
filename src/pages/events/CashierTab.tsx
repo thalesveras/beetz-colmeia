@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
-import { createCashierSettlement, listCashierSettlementsForEvent, listProfiles, updateCashierSettlementStatus } from '../../lib/dataService'
+import {
+  createCashierSettlement, listCashierSettlementsForEvent, listProfiles,
+  listSettlementInternalsForEvent, updateCashierSettlementStatus
+} from '../../lib/dataService'
 import type { CashierRoleType, CashierSettlement, CashierStatus, Profile } from '../../lib/types'
 import Avatar from '../../components/ui/Avatar'
 import EditSettlementModal from './EditSettlementModal'
@@ -30,6 +33,8 @@ interface Props {
 export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Props) {
   const { userId, profile, accessRole } = useAuth()
   const [settlements, setSettlements] = useState<CashierSettlement[]>([])
+  // Controle interno: RLS devolve vazio pra quem não revisa — sem badge, sem erro.
+  const [internals, setInternals] = useState<Map<string, { status: string; pending_amount: number | null }>>(new Map())
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -47,7 +52,12 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
 
   async function load() {
     setLoading(true)
-    const [s, p] = await Promise.all([listCashierSettlementsForEvent(eventId), listProfiles()])
+    const [s, p, ints] = await Promise.all([
+      listCashierSettlementsForEvent(eventId),
+      listProfiles(),
+      listSettlementInternalsForEvent(eventId).catch(() => [])
+    ])
+    setInternals(new Map(ints.map((i) => [i.settlement_id, { status: i.status, pending_amount: i.pending_amount }] as const)))
     setSettlements(s)
     setProfiles(p)
     setLoading(false)
@@ -230,6 +240,17 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
               <div className="text-right">
                 <p className="font-bold text-sm">{currency(s.total)}</p>
                 {s.role_type === 'Garçom' && <p className="text-xs text-beetz-dark/50">comissão {currency(s.commission_amount)}</p>}
+                {(() => {
+                  const internal = internals.get(s.id)
+                  if (!internal || internal.status === 'Em aberto') return null
+                  return internal.status === 'Acertado' ? (
+                    <span className="inline-block text-[10px] font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full mt-0.5">Acertado ✓</span>
+                  ) : (
+                    <span className="inline-block text-[10px] font-bold bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full mt-0.5">
+                      Devendo{internal.pending_amount ? ` ${currency(internal.pending_amount)}` : ''}
+                    </span>
+                  )
+                })()}
               </div>
               {canEditThis && <ChevronRight size={15} className="text-beetz-dark/25" />}
             </div>

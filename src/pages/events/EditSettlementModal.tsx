@@ -1,7 +1,11 @@
-import { useState } from 'react'
-import { Trash2, X } from 'lucide-react'
-import { deleteCashierSettlement, updateCashierSettlement } from '../../lib/dataService'
-import type { CashierRoleType, CashierSettlement, Profile } from '../../lib/types'
+import { useEffect, useState } from 'react'
+import { Lock, Trash2, X } from 'lucide-react'
+import {
+  deleteCashierSettlement, listSettlementInternalsForEvent, updateCashierSettlement, upsertSettlementInternal
+} from '../../lib/dataService'
+import { useAuth } from '../../contexts/AuthContext'
+import FileField from '../../components/ui/FileField'
+import type { CashierRoleType, CashierSettlement, CashierSettlementInternal, Profile } from '../../lib/types'
 
 // Modal de edição de um recebimento (fechamento de caixa/garçom), no padrão
 // elegante da casa. Total e comissão recalculam ao vivo — no banco são colunas
@@ -41,6 +45,32 @@ export default function EditSettlementModal({ settlement, profiles, canReview, o
   const [removing, setRemoving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Controle interno do acerto — invisível pro dono (a tabela tem RLS só de
+  // revisores; aqui a gente nem tenta carregar sem canReview).
+  const { userId } = useAuth()
+  const [intStatus, setIntStatus] = useState<CashierSettlementInternal['status']>('Em aberto')
+  const [intPending, setIntPending] = useState('')
+  const [intNotes, setIntNotes] = useState('')
+  const [intReceipt, setIntReceipt] = useState<string | null>(null)
+  const [intLoaded, setIntLoaded] = useState(false)
+  const [intDirty, setIntDirty] = useState(false)
+
+  useEffect(() => {
+    if (!canReview) return
+    listSettlementInternalsForEvent(settlement.event_id)
+      .then((rows) => {
+        const mine = rows.find((r) => r.settlement_id === settlement.id)
+        if (mine) {
+          setIntStatus(mine.status)
+          setIntPending(mine.pending_amount != null ? String(mine.pending_amount) : '')
+          setIntNotes(mine.internal_notes ?? '')
+          setIntReceipt(mine.payment_receipt_data)
+        }
+        setIntLoaded(true)
+      })
+      .catch(() => setIntLoaded(true))
+  }, [canReview, settlement.id])
+
   const n = (v: string) => Number(v.replace(',', '.')) || 0
   const total = n(cash) + n(debit) + n(credit) + n(pix)
   const commission = roleType === 'Garçom' ? total * 0.1 : 0
@@ -62,6 +92,16 @@ export default function EditSettlementModal({ settlement, profiles, canReview, o
         pix_amount: n(pix),
         notes: notes.trim() || null
       })
+      if (canReview && (intDirty || intStatus !== 'Em aberto' || intNotes.trim() || intReceipt)) {
+        await upsertSettlementInternal({
+          settlement_id: settlement.id,
+          status: intStatus,
+          pending_amount: intStatus === 'Devendo' && intPending.trim() ? n(intPending) : null,
+          internal_notes: intNotes.trim() || null,
+          payment_receipt_data: intReceipt,
+          updated_by: userId ?? null
+        })
+      }
       onSaved()
       onClose()
     } catch (e: any) {
@@ -153,6 +193,58 @@ export default function EditSettlementModal({ settlement, profiles, canReview, o
             <div className="bg-beetz-yellow/20 rounded-xl px-4 py-2.5 flex items-center justify-between">
               <span className="text-sm text-beetz-dark/70">Comissão do garçom (10%)</span>
               <span className="font-bold">{currency(commission)}</span>
+            </div>
+          )}
+
+          {canReview && (
+            <div className="bg-beetz-dark text-white rounded-2xl p-4 space-y-3">
+              <p className="text-xs font-bold uppercase tracking-wide text-beetz-yellow flex items-center gap-1.5">
+                <Lock size={12} /> Controle interno · só quem revisa vê
+              </p>
+              <div className="grid grid-cols-3 gap-2">
+                {(['Em aberto', 'Devendo', 'Acertado'] as const).map((st) => (
+                  <button
+                    type="button" key={st}
+                    onClick={() => { setIntStatus(st); setIntDirty(true) }}
+                    disabled={!intLoaded}
+                    className={`text-xs font-semibold px-2 py-2 rounded-xl border transition-colors disabled:opacity-40 ${
+                      intStatus === st
+                        ? st === 'Acertado' ? 'bg-green-500 border-green-500 text-white'
+                          : st === 'Devendo' ? 'bg-red-500 border-red-500 text-white'
+                          : 'bg-beetz-yellow border-beetz-yellow text-beetz-dark'
+                        : 'border-white/20 text-white/60 hover:border-white/40'
+                    }`}
+                  >
+                    {st}
+                  </button>
+                ))}
+              </div>
+              {intStatus === 'Devendo' && (
+                <div>
+                  <label className="text-xs font-medium block mb-1 text-white/60">Quanto falta acertar (R$)</label>
+                  <input
+                    type="text" inputMode="decimal"
+                    className="w-full border border-white/20 bg-white/10 text-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow placeholder:text-white/30"
+                    value={intPending} onChange={(e) => { setIntPending(e.target.value); setIntDirty(true) }}
+                    placeholder="Ex: 350"
+                  />
+                </div>
+              )}
+              <div>
+                <label className="text-xs font-medium block mb-1 text-white/60">Anotações internas</label>
+                <textarea
+                  className="w-full border border-white/20 bg-white/10 text-white rounded-xl px-3 py-2 text-sm min-h-[60px] resize-y focus:outline-none focus:ring-2 focus:ring-beetz-yellow placeholder:text-white/30"
+                  value={intNotes} onChange={(e) => { setIntNotes(e.target.value); setIntDirty(true) }}
+                  placeholder="Ex: entregou só o cartão, dinheiro fica pro acerto de segunda..."
+                />
+              </div>
+              <div className="bg-white rounded-xl p-3">
+                <FileField
+                  label="Comprovante de pagamento"
+                  value={intReceipt}
+                  onChange={(v) => { setIntReceipt(v); setIntDirty(true) }}
+                />
+              </div>
             </div>
           )}
 
