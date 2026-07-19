@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import {
+  deleteExpense,
   createExpense, createSupplier, listEventMembers, listExpenseCategories, listExpensesForEvent,
   listPaymentMethods, listPendingProfilesForPicker, listProfiles, listSuppliers, updateExpense,
   updateExpenseStatus
@@ -12,7 +13,7 @@ import type {
 import { canEditExpense, canReviewExpense } from '../../lib/permissions'
 import FileField from '../../components/ui/FileField'
 import SignaturePad from '../../components/ui/SignaturePad'
-import { Pencil, Plus, X } from 'lucide-react'
+import { Pencil, Plus, Trash2, X } from 'lucide-react'
 
 const statuses: ExpenseStatus[] = ['Pendente', 'Aprovado', 'Pago', 'Rejeitado', 'Cancelado']
 
@@ -41,6 +42,26 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [detail, setDetail] = useState<Expense | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  // Apagar é privilégio da Diretoria (a RLS do banco também barra) — os
+  // demais seguem com o cancelamento via status.
+  const canDelete = accessRole === 'diretoria'
+
+  async function handleDeleteExpense(id: string) {
+    setDeletingId(id)
+    try {
+      await deleteExpense(id)
+      setConfirmDeleteId(null)
+      setDetail(null)
+      await load()
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Não foi possível excluir (pode ser falta de permissão).')
+    } finally {
+      setDeletingId(null)
+    }
+  }
   const [saving, setSaving] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
 
@@ -314,11 +335,34 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
                 <button onClick={() => setDetail(exp)} className="text-xs font-semibold text-beetz-dark/45 hover:text-beetz-dark">
                   Ver detalhes
                 </button>
-                {canEditExpense(accessRole) && (
-                  <button onClick={() => handleEdit(exp)} className="flex items-center gap-1 text-xs font-semibold text-beetz-dark/45 hover:text-beetz-dark p-1.5 rounded-lg hover:bg-beetz-gray">
-                    <Pencil size={13} /> Editar
-                  </button>
-                )}
+                <div className="flex items-center gap-1">
+                  {canDelete && (
+                    confirmDeleteId === exp.id ? (
+                      <span className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleDeleteExpense(exp.id)}
+                          disabled={deletingId === exp.id}
+                          className="text-xs font-semibold bg-red-600 text-white px-2.5 py-1.5 rounded-lg hover:bg-red-700 disabled:opacity-60"
+                        >
+                          {deletingId === exp.id ? '...' : 'Confirmar exclusão'}
+                        </button>
+                        <button onClick={() => setConfirmDeleteId(null)} className="text-xs font-semibold text-beetz-dark/50 px-2 py-1.5">Voltar</button>
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDeleteId(exp.id)}
+                        className="flex items-center gap-1 text-xs font-semibold text-red-500 hover:text-red-700 p-1.5 rounded-lg hover:bg-red-50"
+                      >
+                        <Trash2 size={13} /> Excluir
+                      </button>
+                    )
+                  )}
+                  {canEditExpense(accessRole) && (
+                    <button onClick={() => handleEdit(exp)} className="flex items-center gap-1 text-xs font-semibold text-beetz-dark/45 hover:text-beetz-dark p-1.5 rounded-lg hover:bg-beetz-gray">
+                      <Pencil size={13} /> Editar
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           ))}
