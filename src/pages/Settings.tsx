@@ -11,7 +11,7 @@ import { ACCESS_ROLE_LABELS, ACCESS_ROLES, canManageUsers, departmentToAccessRol
 import {
   createExpenseCategory, createPaymentMethod, createServiceModality, deleteExpenseCategory,
   deletePaymentMethod, deleteServiceModality, getZohoPendingProfilesStats, importPendingPhotosBatch,
-  authorizeZohoWithCode,
+  authorizeZohoWithCode, createDepartment, createRolePermission, deleteDepartment, deleteRolePermission,
   importZohoPendingProfiles, inspectZohoCreatorFields, listBadgeDefsConfig, listDepartments,
   listExpenseCategories, listEmailLog, listHiveLevelsConfig, listPaymentMethods, listRolePermissions,
   listServiceModalities, listTeamEmails, listZohoMeta, peekZohoReport, sendCampaignEmail, sendEmail,
@@ -83,7 +83,6 @@ const PERMISSION_GROUPS: { title: string; fields: { key: PermissionKey; label: s
   }
 ]
 
-const ROLE_ORDER: AccessRole[] = ['diretoria', 'garcom', 'caixa', 'operacional', 'colaborador']
 
 type SettingsTabKey = 'perfis' | 'listas' | 'funcoes' | 'modalidades' | 'gamificacao' | 'marca' | 'dados' | 'comunicacao'
 
@@ -175,15 +174,57 @@ function RolePermissionsSection({ onSaved }: { onSaved: () => void }) {
   // cadastrado (ex: Bar, Produção, Segurança, Credenciamento e Limpeza todos
   // caem em "Operacional") — mostramos os nomes reais dos departamentos em
   // vez de uma descrição fixa, pra ficar claro quem cada perfil afeta.
-  const deptNamesByRole: Record<AccessRole, string[]> = { diretoria: [], garcom: [], caixa: [], operacional: [], colaborador: [] }
+  // Perfis dinâmicos: a ordem e os rótulos saem do banco (diretoria primeiro).
+  const roleOrder: AccessRole[] = [...permissions]
+    .sort((a, b) => {
+      if (a.role === 'diretoria') return -1
+      if (b.role === 'diretoria') return 1
+      return a.label.localeCompare(b.label, 'pt-BR')
+    })
+    .map((p) => p.role)
+  const deptNamesByRole: Record<string, string[]> = {}
   for (const dept of departments) {
-    deptNamesByRole[departmentToAccessRole(dept)].push(dept.name)
+    const r = departmentToAccessRole(dept)
+    deptNamesByRole[r] = [...(deptNamesByRole[r] ?? []), dept.name]
   }
   function roleLabel(role: AccessRole): string {
-    const names = deptNamesByRole[role]
-    if (names.length === 0) return ACCESS_ROLE_LABELS[role]
-    const roleName = ACCESS_ROLE_LABELS[role].split(' (')[0]
-    return `${roleName} (${names.join(', ')})`
+    const base = permissions.find((p) => p.role === role)?.label ?? ACCESS_ROLE_LABELS[role] ?? role
+    const names = deptNamesByRole[role] ?? []
+    const roleName = base.split(' (')[0]
+    return names.length === 0 ? roleName : `${roleName} (${names.join(', ')})`
+  }
+
+  const [newRoleName, setNewRoleName] = useState('')
+  const [creatingRole, setCreatingRole] = useState(false)
+  const [roleError, setRoleError] = useState<string | null>(null)
+
+  async function handleCreateRole() {
+    if (!newRoleName.trim()) return
+    setCreatingRole(true); setRoleError(null)
+    try {
+      const created = await createRolePermission(newRoleName)
+      setNewRoleName('')
+      await load()
+      await onSaved()
+      setSelectedRole(created.role)
+    } catch (e: any) {
+      setRoleError(e?.message ?? 'Não foi possível criar o perfil.')
+    } finally {
+      setCreatingRole(false)
+    }
+  }
+
+  async function handleDeleteRole(role: AccessRole) {
+    if (!window.confirm('Excluir este perfil? Departamentos apontando pra ele impedem a exclusão.')) return
+    setRoleError(null)
+    try {
+      await deleteRolePermission(role)
+      setSelectedRole('diretoria')
+      await load()
+      await onSaved()
+    } catch (e: any) {
+      setRoleError(e?.message ?? 'Não foi possível excluir o perfil.')
+    }
   }
 
   async function toggle(field: PermissionKey, currentValue: boolean) {
@@ -201,10 +242,10 @@ function RolePermissionsSection({ onSaved }: { onSaved: () => void }) {
         Defina o que cada papel pode fazer. A Diretoria continua sendo o único perfil que não pode se autocadastrar.
       </p>
 
-      <DepartmentRoleMappingSection departments={departments} onChanged={load} />
+      <DepartmentRoleMappingSection departments={departments} roles={permissions} onChanged={load} />
 
-      <div className="flex flex-wrap gap-2 mb-5">
-        {ROLE_ORDER.map((role) => (
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        {roleOrder.map((role) => (
           <button
             key={role}
             onClick={() => setSelectedRole(role)}
@@ -215,7 +256,34 @@ function RolePermissionsSection({ onSaved }: { onSaved: () => void }) {
             {roleLabel(role)}
           </button>
         ))}
+        {/* Perfil novo nasce com tudo desligado — a matriz abaixo liga o que
+            ele pode. Depois é só apontar departamentos pra ele. */}
+        <span className="inline-flex items-center gap-1.5">
+          <input
+            className="border border-dashed border-beetz-dark/25 rounded-xl px-3 py-2 text-sm w-40 focus:outline-none focus:ring-2 focus:ring-beetz-yellow"
+            placeholder="Novo perfil (ex: Gerente)"
+            value={newRoleName}
+            onChange={(e) => setNewRoleName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleCreateRole() }}
+          />
+          <button
+            onClick={handleCreateRole}
+            disabled={creatingRole || !newRoleName.trim()}
+            className="text-sm font-bold bg-beetz-dark text-white px-3 py-2 rounded-xl disabled:opacity-40"
+          >
+            {creatingRole ? '...' : '+'}
+          </button>
+        </span>
       </div>
+      {roleError && <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mb-4">{roleError}</p>}
+      {current && !current.builtin && (
+        <button
+          onClick={() => handleDeleteRole(current.role)}
+          className="text-xs font-semibold text-red-500 hover:text-red-700 mb-4"
+        >
+          Excluir o perfil "{current.label}"
+        </button>
+      )}
 
       {loading || !current ? (
         <p className="text-sm text-beetz-dark/50">Carregando...</p>
@@ -258,8 +326,20 @@ function RolePermissionsSection({ onSaved }: { onSaved: () => void }) {
 // (só mostrado, não editável). Agora é um filtro de verdade: cada
 // departamento cadastrado tem um seletor pra escolher a que perfil ele
 // aponta, salvo direto em departments.access_role.
-function DepartmentRoleMappingSection({ departments, onChanged }: { departments: Department[]; onChanged: () => void }) {
+function DepartmentRoleMappingSection({ departments, roles, onChanged }: {
+  departments: Department[]
+  roles: RolePermissions[]
+  onChanged: () => void
+}) {
   const [savingId, setSavingId] = useState<string | null>(null)
+  const [newName, setNewName] = useState('')
+  const [newIcon, setNewIcon] = useState('🐝')
+  const [newRole, setNewRole] = useState('colaborador')
+  const [creating, setCreating] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const roleOptions = [...roles].sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'))
+  const roleLabelOf = (slug: string) => roles.find((r) => r.role === slug)?.label ?? slug
 
   async function handleChange(deptId: string, role: AccessRole) {
     setSavingId(deptId)
@@ -268,27 +348,92 @@ function DepartmentRoleMappingSection({ departments, onChanged }: { departments:
     setSavingId(null)
   }
 
+  async function handleCreate() {
+    if (!newName.trim()) return
+    setCreating(true); setError(null)
+    try {
+      await createDepartment({ name: newName, icon: newIcon.trim() || '🐝', access_role: newRole })
+      setNewName(''); setNewIcon('🐝')
+      await onChanged()
+    } catch (e: any) {
+      setError(e?.message ?? 'Não foi possível criar o departamento.')
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  async function handleDelete(dept: Department) {
+    if (!window.confirm(`Excluir o departamento "${dept.name}"? Só é possível sem pessoas vinculadas.`)) return
+    setError(null)
+    try {
+      await deleteDepartment(dept.id)
+      await onChanged()
+    } catch (e: any) {
+      setError(e?.message ?? 'Não foi possível excluir.')
+    }
+  }
+
   return (
     <div className="mb-5">
       <h3 className="text-xs font-bold uppercase tracking-wide text-beetz-dark/40 mb-2">Departamentos → perfil de acesso</h3>
       <p className="text-xs text-beetz-dark/50 mb-3">
-        Escolha a que perfil cada departamento cadastrado aponta. Vários departamentos podem apontar pro mesmo perfil.
+        Escolha a que perfil cada departamento aponta — ou crie um departamento novo, que já nasce no
+        cadastro, no Mapa da Colmeia e nos filtros. Vários departamentos podem apontar pro mesmo perfil.
       </p>
+
+      {/* Criar departamento: emoji + nome + perfil apontado. */}
+      <div className="bg-beetz-gray/60 rounded-xl p-2.5 mb-3 grid grid-cols-[3.2rem_1fr] sm:grid-cols-[3.2rem_1fr_auto_auto] gap-2">
+        <input
+          className="border border-beetz-dark/15 rounded-lg px-2 py-2 text-center text-lg bg-white"
+          value={newIcon} onChange={(e) => setNewIcon(e.target.value)} maxLength={4} title="Emoji do departamento"
+        />
+        <input
+          className="border border-beetz-dark/15 rounded-lg px-3 py-2 text-sm bg-white min-w-0"
+          placeholder="Novo departamento (ex: Gerência)"
+          value={newName} onChange={(e) => setNewName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleCreate() }}
+        />
+        <select
+          className="col-span-2 sm:col-span-1 border border-beetz-dark/15 rounded-lg px-2.5 py-2 text-sm bg-white"
+          value={newRole} onChange={(e) => setNewRole(e.target.value)}
+        >
+          {roleOptions.map((r) => <option key={r.role} value={r.role}>{r.label.split(' (')[0]}</option>)}
+        </select>
+        <button
+          onClick={handleCreate}
+          disabled={creating || !newName.trim()}
+          className="col-span-2 sm:col-span-1 text-sm font-bold bg-beetz-dark text-white px-4 py-2 rounded-lg disabled:opacity-40"
+        >
+          {creating ? '...' : 'Criar'}
+        </button>
+      </div>
+      {error && <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mb-3">{error}</p>}
+
       <div className="divide-y divide-beetz-dark/5 border border-beetz-dark/5 rounded-xl overflow-hidden">
         {departments.map((dept) => (
           <div key={dept.id} className={`flex items-center gap-3 px-4 py-2.5 ${savingId === dept.id ? 'opacity-50' : ''}`}>
             <span className="text-lg shrink-0">{dept.icon}</span>
             <span className="text-sm font-medium flex-1 min-w-0 truncate">{dept.name}</span>
             <select
-              className="text-sm border border-beetz-dark/15 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-beetz-yellow"
+              className="text-sm border border-beetz-dark/15 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-beetz-yellow max-w-[45%]"
               value={dept.access_role}
               disabled={savingId === dept.id}
               onChange={(e) => handleChange(dept.id, e.target.value as AccessRole)}
+              title={`Aponta pra: ${roleLabelOf(dept.access_role)}`}
             >
-              {ACCESS_ROLES.map((role) => (
-                <option key={role} value={role}>{ACCESS_ROLE_LABELS[role].split(' (')[0]}</option>
+              {roleOptions.map((r) => (
+                <option key={r.role} value={r.role}>{r.label.split(' (')[0]}</option>
               ))}
             </select>
+            {dept.slug !== 'diretoria' && (
+              <button
+                onClick={() => handleDelete(dept)}
+                className="text-beetz-dark/30 hover:text-red-600 p-1.5 rounded-lg hover:bg-beetz-gray shrink-0"
+                title="Excluir departamento (só sem pessoas vinculadas)"
+              >
+                <Trash2 size={14} />
+              </button>
+            )}
           </div>
         ))}
         {departments.length === 0 && <p className="text-xs text-beetz-dark/40 px-4 py-3">Nenhum departamento cadastrado.</p>}
