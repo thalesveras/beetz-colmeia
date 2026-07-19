@@ -52,9 +52,14 @@ export default function StaffingRequirementsEditor({ eventId, confirmedByRequire
     const role = roles.find((r) => r.id === id)
     if (role) {
       setNewLabel(role.name)
-      setNewValue(role.default_value > 0 ? String(role.default_value) : '')
+      // Função comissionada não tem R$ fixo — o campo de valor some do form
+      // e a vaga nasce sem unit_cost (o % vive na função/pessoa).
+      setNewValue(role.pay_type === 'percent' ? '' : (role.default_value > 0 ? String(role.default_value) : ''))
     }
   }
+
+  const selectedRole = roles.find((r) => r.id === newRoleId)
+  const selectedIsPercent = selectedRole?.pay_type === 'percent'
 
   async function load() {
     setLoading(true)
@@ -160,7 +165,10 @@ export default function StaffingRequirementsEditor({ eventId, confirmedByRequire
             <option value="">Função avulsa (digitar na mão)</option>
             {roles.map((r) => (
               <option key={r.id} value={r.id}>
-                {r.name}{r.default_value > 0 ? ` — ${brl(r.default_value)}` : ''}
+                {r.name}
+                {r.pay_type === 'percent'
+                  ? ` — ${r.default_percent ?? 0}% das vendas`
+                  : r.default_value > 0 ? ` — ${brl(r.default_value)}` : ''}
               </option>
             ))}
           </select>
@@ -178,12 +186,22 @@ export default function StaffingRequirementsEditor({ eventId, confirmedByRequire
             onChange={(e) => setNewQty(e.target.value)}
             className={`${inputClass} sm:w-24 bg-white`}
           />
-          <input
-            type="text" inputMode="decimal" placeholder="R$ por pessoa"
-            value={newValue}
-            onChange={(e) => setNewValue(e.target.value)}
-            className={`${inputClass} sm:w-32 bg-white`}
-          />
+          {selectedIsPercent && (
+            <span
+              className="flex items-center justify-center text-xs font-bold bg-beetz-yellow/25 px-3 py-2 rounded-xl whitespace-nowrap"
+              title="A comissão é calculada sobre os Recebimentos que a pessoa lança no fim do evento — não há valor fixo por vaga."
+            >
+              {selectedRole?.default_percent ?? 0}% das vendas
+            </span>
+          )}
+          {!selectedIsPercent && (
+            <input
+              type="text" inputMode="decimal" placeholder="R$ por pessoa"
+              value={newValue}
+              onChange={(e) => setNewValue(e.target.value)}
+              className={`${inputClass} sm:w-32 bg-white`}
+            />
+          )}
         </div>
         <input
           placeholder="Observação (opcional — ex: chegar 18h, camisa preta)"
