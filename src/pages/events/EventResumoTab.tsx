@@ -107,23 +107,6 @@ export default function EventResumoTab({ eventId, canExpenses, canCashier, canSt
 
   return (
     <div className="space-y-4">
-      {/* Lucro é O número do evento — quando a pessoa pode vê-lo, merece o topo. */}
-      {canFinance && nums.fin && (
-        <button onClick={() => onNavigate('fechamentos')} className="w-full bg-beetz-dark text-white rounded-2xl p-5 shadow-soft flex flex-wrap items-center gap-4 text-left active:scale-[0.99] transition">
-          <div className="bg-beetz-yellow/20 text-beetz-yellow rounded-xl p-2.5"><BarChart3 size={22} /></div>
-          <div className="flex-1 min-w-[150px]">
-            <p className={`text-2xl font-extrabold leading-none ${nums.fin.lucroOuPerda >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-              {brl(nums.fin.lucroOuPerda)}
-            </p>
-            <p className="text-xs text-white/50 mt-1.5">Lucro do evento (visão empresa) · toque pra ver a prestação de contas</p>
-          </div>
-          <div className="text-right">
-            <p className="text-sm font-bold text-beetz-yellow">{brl(nums.fin.aReceber + nums.fin.creditosOuBonificacoes)}</p>
-            <p className="text-[11px] text-white/40">receita da Beetz</p>
-          </div>
-        </button>
-      )}
-
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
         <button onClick={() => onNavigate('equipe')} className={cardClass}>
           <span className={chip}><Users size={18} /></span>
@@ -197,6 +180,24 @@ export default function EventResumoTab({ eventId, canExpenses, canCashier, canSt
           </button>
         )}
       </div>
+
+      {/* Lucro fecha a página: primeiro os pedaços da operação, no fim a
+          conta que eles somam — leitura de cima pra baixo termina no veredito. */}
+      {canFinance && nums.fin && (
+        <button onClick={() => onNavigate('fechamentos')} className="w-full bg-beetz-dark text-white rounded-2xl p-5 shadow-soft flex flex-wrap items-center gap-4 text-left active:scale-[0.99] transition">
+          <div className="bg-beetz-yellow/20 text-beetz-yellow rounded-xl p-2.5"><BarChart3 size={22} /></div>
+          <div className="flex-1 min-w-[150px]">
+            <p className={`text-2xl font-extrabold leading-none ${nums.fin.lucroOuPerda >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+              {brl(nums.fin.lucroOuPerda)}
+            </p>
+            <p className="text-xs text-white/50 mt-1.5">Lucro do evento (visão empresa) · toque pra ver a prestação de contas</p>
+          </div>
+          <div className="text-right">
+            <p className="text-sm font-bold text-beetz-yellow">{brl(nums.fin.aReceber + nums.fin.creditosOuBonificacoes)}</p>
+            <p className="text-[11px] text-white/40">receita da Beetz</p>
+          </div>
+        </button>
+      )}
     </div>
   )
 }
