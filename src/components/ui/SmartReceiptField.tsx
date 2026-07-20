@@ -14,6 +14,52 @@ export interface ExtractedReceipt {
   notes: string | null
 }
 
+// Fechamento de maquininha: valores por forma de pagamento. Cada linha do
+// print que tenha a palavra-chave E um valor R$ soma no campo (crédito à
+// vista + parcelado, por exemplo, entram juntos em "crédito").
+export interface ExtractedPayments {
+  dinheiro: number | null
+  debito: number | null
+  credito: number | null
+  pix: number | null
+  total: number | null
+}
+
+export function extractPaymentFields(text: string): ExtractedPayments {
+  const stripAccents = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
+  // Exige casa decimal com vírgula pra não confundir valor com ID/quantidade.
+  const moneyIn = (l: string): number | null => {
+    const ms = Array.from(l.matchAll(/R?\$?\s*([\d.]+,\d{2})/g)).map((m) => Number(m[1].replace(/\./g, '').replace(',', '.')))
+    return ms.length > 0 ? ms[ms.length - 1] : null
+  }
+  const sums: { dinheiro: number | null; debito: number | null; credito: number | null; pix: number | null } = {
+    dinheiro: null, debito: null, credito: null, pix: null
+  }
+  const KEYS: [keyof typeof sums, RegExp][] = [
+    ['dinheiro', /dinheiro|especie/],
+    ['debito', /debito/],
+    ['credito', /credito/],
+    ['pix', /\bpix\b/]
+  ]
+  let total: number | null = null
+  for (const raw of lines) {
+    const l = stripAccents(raw)
+    const v = moneyIn(raw)
+    if (v == null) continue
+    let matched = false
+    for (const [key, re] of KEYS) {
+      if (re.test(l)) {
+        sums[key] = (sums[key] ?? 0) + v
+        matched = true
+        break
+      }
+    }
+    if (!matched && /total/.test(l) && total == null) total = v
+  }
+  return { ...sums, total }
+}
+
 // Extração pura (testável): recebe o texto do OCR, devolve os campos.
 export function extractReceiptFields(text: string): ExtractedReceipt {
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
@@ -97,10 +143,14 @@ async function fileToDataUrl(file: File): Promise<string> {
   return canvas.toDataURL('image/jpeg', 0.85)
 }
 
-export default function SmartReceiptField({ value, onChange, onExtracted }: {
+export default function SmartReceiptField({ value, onChange, onExtracted, onExtractedPayments, variant = 'repasse' }: {
   value: string | null
   onChange: (dataUrl: string | null) => void
   onExtracted?: (fields: ExtractedReceipt) => void
+  // variant 'pagamentos': em vez de valor/data/ID, o OCR procura os totais
+  // por forma de pagamento (fechamento de maquininha) e devolve aqui.
+  onExtractedPayments?: (fields: ExtractedPayments) => void
+  variant?: 'repasse' | 'pagamentos'
 }) {
   const fileRef = useRef<HTMLInputElement | null>(null)
   const [dragOver, setDragOver] = useState(false)
@@ -108,10 +158,12 @@ export default function SmartReceiptField({ value, onChange, onExtracted }: {
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [lastExtract, setLastExtract] = useState<ExtractedReceipt | null>(null)
+  const [lastPayments, setLastPayments] = useState<ExtractedPayments | null>(null)
 
   async function handleFile(file: File) {
     setError(null)
     setLastExtract(null)
+    setLastPayments(null)
     try {
       const dataUrl = await fileToDataUrl(file)
       onChange(dataUrl)
@@ -134,12 +186,23 @@ export default function SmartReceiptField({ value, onChange, onExtracted }: {
           }
         }
       })
-      const fields = extractReceiptFields(result?.data?.text ?? '')
-      setLastExtract(fields)
-      if (fields.amount == null && fields.date == null && fields.notes == null) {
-        setError('Li a imagem mas não achei valor nem data — preencha na mão que o comprovante fica salvo mesmo assim.')
+      const text = result?.data?.text ?? ''
+      if (variant === 'pagamentos') {
+        const pay = extractPaymentFields(text)
+        setLastPayments(pay)
+        if (pay.dinheiro == null && pay.debito == null && pay.credito == null && pay.pix == null) {
+          setError('Li a imagem mas não achei os valores por forma de pagamento — preencha na mão que o comprovante fica salvo mesmo assim.')
+        } else {
+          onExtractedPayments?.(pay)
+        }
       } else {
-        onExtracted?.(fields)
+        const fields = extractReceiptFields(text)
+        setLastExtract(fields)
+        if (fields.amount == null && fields.date == null && fields.notes == null) {
+          setError('Li a imagem mas não achei valor nem data — preencha na mão que o comprovante fica salvo mesmo assim.')
+        } else {
+          onExtracted?.(fields)
+        }
       }
     } catch (e: any) {
       setError(e?.message ?? 'Não deu pra ler o comprovante — preencha os campos na mão.')
@@ -168,6 +231,21 @@ export default function SmartReceiptField({ value, onChange, onExtracted }: {
           <div className="flex-1 min-w-0">
             {reading ? (
               <p className="text-xs text-beetz-dark/60">Lendo o comprovante... {progress > 0 ? `${progress}%` : ''}</p>
+            ) : lastPayments ? (
+              <div className="flex flex-wrap gap-1.5">
+                {([['Dinheiro', lastPayments.dinheiro], ['Débito', lastPayments.debito], ['Crédito', lastPayments.credito], ['Pix', lastPayments.pix]] as [string, number | null][])
+                  .filter(([, v]) => v != null)
+                  .map(([label, v]) => (
+                    <span key={label} className="text-[11px] font-semibold bg-green-50 text-green-700 border border-green-200 px-2 py-0.5 rounded-full">
+                      {label} {brl(v!)}
+                    </span>
+                  ))}
+                {lastPayments.total != null && (
+                  <span className="text-[11px] font-medium bg-beetz-gray text-beetz-dark/70 px-2 py-0.5 rounded-full">
+                    Total {brl(lastPayments.total)}
+                  </span>
+                )}
+              </div>
             ) : lastExtract ? (
               <div className="flex flex-wrap gap-1.5">
                 {lastExtract.amount != null && (
@@ -192,7 +270,7 @@ export default function SmartReceiptField({ value, onChange, onExtracted }: {
                   <ScanLine size={11} /> Ler de novo
                 </button>
               )}
-              <button type="button" onClick={() => { onChange(null); setLastExtract(null); setError(null) }} className="flex items-center gap-1 text-[11px] font-semibold text-red-500 hover:text-red-700">
+              <button type="button" onClick={() => { onChange(null); setLastExtract(null); setLastPayments(null); setError(null) }} className="flex items-center gap-1 text-[11px] font-semibold text-red-500 hover:text-red-700">
                 <Trash2 size={11} /> Remover
               </button>
             </div>
@@ -218,7 +296,11 @@ export default function SmartReceiptField({ value, onChange, onExtracted }: {
         >
           <Upload size={18} className="text-beetz-dark/35" />
           <p className="text-xs font-semibold text-beetz-dark/60">Arraste o comprovante aqui, cole (Ctrl+V) ou toque</p>
-          <p className="text-[11px] text-beetz-dark/40">Eu leio o print e preencho valor, data e observações</p>
+          <p className="text-[11px] text-beetz-dark/40">
+            {variant === 'pagamentos'
+              ? 'Eu leio o fechamento e preencho dinheiro, débito, crédito e pix'
+              : 'Eu leio o print e preencho valor, data e observações'}
+          </p>
           {error && <p className="text-[11px] text-amber-700">{error}</p>}
         </div>
       )}

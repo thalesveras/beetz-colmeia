@@ -637,6 +637,9 @@ export interface CashierSettlement {
   event_id: string
   profile_id: string | null
   role_type: CashierRoleType
+  // Foto do fechamento da maquininha (base64) — o OCR preenche os valores
+  // a partir dela e a imagem fica de prova no lançamento.
+  receipt_data?: string | null
   cash_amount: number
   debit_amount: number
   credit_amount: number

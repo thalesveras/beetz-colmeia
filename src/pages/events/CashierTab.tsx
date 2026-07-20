@@ -7,6 +7,8 @@ import {
 import type { CashierRoleType, CashierSettlement, CashierStatus, Profile } from '../../lib/types'
 import Avatar from '../../components/ui/Avatar'
 import EditSettlementModal from './EditSettlementModal'
+import SmartReceiptField from '../../components/ui/SmartReceiptField'
+import type { ExtractedPayments } from '../../components/ui/SmartReceiptField'
 import { ChevronRight, Plus } from 'lucide-react'
 import { canReviewCashier } from '../../lib/permissions'
 
@@ -49,6 +51,16 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
   const [credit, setCredit] = useState(0)
   const [pix, setPix] = useState(0)
   const [notes, setNotes] = useState('')
+  const [receipt, setReceipt] = useState<string | null>(null)
+
+  // O que o OCR leu do fechamento entra nos campos — sem apagar o que já foi
+  // digitado: só preenche quem ainda está em zero.
+  function applyPayments(p: ExtractedPayments) {
+    if (p.dinheiro != null) setCash((c) => (c > 0 ? c : p.dinheiro!))
+    if (p.debito != null) setDebit((c) => (c > 0 ? c : p.debito!))
+    if (p.credito != null) setCredit((c) => (c > 0 ? c : p.credito!))
+    if (p.pix != null) setPix((c) => (c > 0 ? c : p.pix!))
+  }
 
   async function load() {
     setLoading(true)
@@ -86,7 +98,7 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
   const grandCommission = visibleSettlements.reduce((sum, s) => sum + s.commission_amount, 0)
 
   function resetForm() {
-    setProfileId(canViewAll ? '' : (userId ?? '')); setRoleType('Caixa'); setCash(0); setDebit(0); setCredit(0); setPix(0); setNotes('')
+    setProfileId(canViewAll ? '' : (userId ?? '')); setRoleType('Caixa'); setCash(0); setDebit(0); setCredit(0); setPix(0); setNotes(''); setReceipt(null)
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -101,6 +113,7 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
       debit_amount: debit,
       credit_amount: credit,
       pix_amount: pix,
+      receipt_data: receipt,
       notes: notes || null,
       created_by: userId
     })
@@ -171,6 +184,13 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
                 ))}
               </div>
             </div>
+          </div>
+
+          {/* Foto do fechamento primeiro: solta o print da maquininha e os 4
+              valores de baixo já chegam preenchidos — só conferir e salvar. */}
+          <div>
+            <label className="text-sm font-medium block mb-1">Comprovante do fechamento</label>
+            <SmartReceiptField variant="pagamentos" value={receipt} onChange={setReceipt} onExtractedPayments={applyPayments} />
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
