@@ -1269,6 +1269,22 @@ export async function createStockMovement(input: NewStockMovementInput): Promise
   return data as StockMovement
 }
 
+// Carga em lote: N movimentações num INSERT só — ou entra tudo, ou nada.
+// É a ferramenta que faltava quando a carga inicial foi feita direto no banco:
+// agora lista colada na tela vira Compra padrão, com autor e status certos.
+export async function createStockMovementsBulk(rows: NewStockMovementInput[]): Promise<number> {
+  if (rows.length === 0) return 0
+  if (isDemoMode) {
+    for (const r of rows) {
+      demoState.stockMovements.push({ ...r, unit_cost: r.unit_cost ?? null, id: uid('sm'), status: 'Ativo', created_at: new Date().toISOString() })
+    }
+    return rows.length
+  }
+  const { error } = await supabase.from('stock_movements').insert(rows.map((r) => ({ ...r, status: 'Ativo' })))
+  if (error) throw error
+  return rows.length
+}
+
 // Edição de uma movimentação (quantidade, tipo etc.) — "excluir" na prática é
 // trocar o status pra Cancelado, que fica fora do saldo mas continua no histórico.
 export async function updateStockMovement(id: string, patch: Partial<Omit<StockMovement, 'id' | 'created_at'>>): Promise<StockMovement> {

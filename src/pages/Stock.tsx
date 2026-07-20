@@ -12,6 +12,7 @@ import {
 } from '../lib/dataService'
 import type { EventItem, Product, ProductAvgCost, Profile, StockAvailable, StockBalance, StockLocation, StockMovement, TransferRequest, TransferRequestStatus } from '../lib/types'
 import StockMovementForm from '../components/stock/StockMovementForm'
+import BulkStockEntry from '../components/stock/BulkStockEntry'
 import ProductTimeline from '../components/stock/ProductTimeline'
 import ReservationsSection from '../components/stock/ReservationsSection'
 import InventoryCount from '../components/stock/InventoryCount'
@@ -71,6 +72,7 @@ export default function Stock() {
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<StockTabKey>('resumo')
   const [showMovementForm, setShowMovementForm] = useState(false)
+  const [showBulkEntry, setShowBulkEntry] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editQuantity, setEditQuantity] = useState(0)
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -692,11 +694,26 @@ export default function Stock() {
 
           {tab === 'movimentacoes' && (<>
           {showMovementForm && <StockMovementForm onSaved={() => { setShowMovementForm(false); load() }} />}
+          {showBulkEntry && (
+            <BulkStockEntry
+              products={products} locations={locations} userId={userId}
+              onDone={load}
+            />
+          )}
 
           <section>
             <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
               <h2 className="text-lg font-bold">Movimentações recentes</h2>
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowBulkEntry((v) => !v)}
+                  className={`flex items-center gap-1.5 text-sm font-semibold px-3 py-2 rounded-xl border transition-colors ${
+                    showBulkEntry ? 'bg-beetz-dark text-white border-beetz-dark' : 'border-beetz-dark/15 text-beetz-dark/70 hover:bg-beetz-gray'
+                  }`}
+                >
+                  <ListChecks size={15} /> Carga em lote
+                </button>
                 <button
                   type="button"
                   onClick={() => setShowMovementFilters((v) => !v)}
