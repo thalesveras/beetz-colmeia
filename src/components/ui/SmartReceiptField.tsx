@@ -28,19 +28,26 @@ export interface ExtractedPayments {
 export function extractPaymentFields(text: string): ExtractedPayments {
   const stripAccents = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
-  // Exige casa decimal com vírgula pra não confundir valor com ID/quantidade.
+  // Exige casa decimal (vírgula OU ponto) pra não confundir valor com
+  // ID/quantidade. "1.660,30" e "1660.30" entram; "298" não.
+  const parseTok = (t: string): number => {
+    if (t.includes(',')) return Number(t.replace(/\./g, '').replace(',', '.')) || 0
+    return Number(t.replace(/,/g, '')) || 0
+  }
   const moneyIn = (l: string): number | null => {
-    const ms = Array.from(l.matchAll(/R?\$?\s*([\d.]+,\d{2})/g)).map((m) => Number(m[1].replace(/\./g, '').replace(',', '.')))
+    const ms = Array.from(l.matchAll(/R?\$?\s*(\d[\d.,]*[.,]\d{2})\b/g)).map((m) => parseTok(m[1]))
     return ms.length > 0 ? ms[ms.length - 1] : null
   }
   const sums: { dinheiro: number | null; debito: number | null; credito: number | null; pix: number | null } = {
     dinheiro: null, debito: null, credito: null, pix: null
   }
+  // OCR de papel térmico estropia letra: "débito" vira "d3bito", "pix" vira
+  // "p1x". As chaves toleram as trocas comuns sem abraçar o mundo.
   const KEYS: [keyof typeof sums, RegExp][] = [
-    ['dinheiro', /dinheiro|especie/],
-    ['debito', /debito/],
-    ['credito', /credito/],
-    ['pix', /\bpix\b/]
+    ['dinheiro', /d[i1l]nhe[i1l]ro|espec[i1l]e/],
+    ['debito', /d[e3]b[i1l]to|\bdeb\b/],
+    ['credito', /cr[e3]d[i1l]to|\bcred\b/],
+    ['pix', /\bp[i1l]x\b/]
   ]
   let total: number | null = null
   for (const raw of lines) {
@@ -119,28 +126,61 @@ async function loadTesseract(): Promise<any> {
   return (window as any).Tesseract
 }
 
-// Print gigante vira base64 gigante no banco — reduz pra no máx 1600px.
-async function fileToDataUrl(file: File): Promise<string> {
-  const raw = await new Promise<string>((resolve, reject) => {
+function readAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(String(reader.result))
     reader.onerror = () => reject(new Error('Não deu pra ler o arquivo.'))
     reader.readAsDataURL(file)
   })
-  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+}
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
     const i = new Image()
     i.onload = () => resolve(i)
     i.onerror = () => reject(new Error('O arquivo não parece uma imagem.'))
-    i.src = raw
+    i.src = src
   })
-  const MAX = 1600
-  if (img.width <= MAX && img.height <= MAX) return raw
-  const scale = MAX / Math.max(img.width, img.height)
+}
+
+// Duas versões da mesma foto: a que vai pro banco (1600px, leve) e a que vai
+// pro OCR (2400px, preto-e-branco com contraste reforçado — papel térmico
+// fotografado é cinza sobre cinza, e o leitor melhora muito com o realce).
+// O realce é pixel a pixel de propósito: ctx.filter não existe em todo Safari.
+function drawScaled(img: HTMLImageElement, maxSide: number, enhanceForOcr: boolean): string {
+  const scale = Math.min(1, maxSide / Math.max(img.width, img.height))
+  const w = Math.max(1, Math.round(img.width * scale))
+  const h = Math.max(1, Math.round(img.height * scale))
   const canvas = document.createElement('canvas')
-  canvas.width = Math.round(img.width * scale)
-  canvas.height = Math.round(img.height * scale)
-  canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height)
-  return canvas.toDataURL('image/jpeg', 0.85)
+  canvas.width = w
+  canvas.height = h
+  const ctx = canvas.getContext('2d')!
+  ctx.drawImage(img, 0, 0, w, h)
+  if (enhanceForOcr) {
+    const data = ctx.getImageData(0, 0, w, h)
+    const px = data.data
+    const CONTRAST = 1.45
+    for (let i = 0; i < px.length; i += 4) {
+      const g = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]
+      const v = Math.max(0, Math.min(255, (g - 128) * CONTRAST + 136))
+      px[i] = v; px[i + 1] = v; px[i + 2] = v
+    }
+    ctx.putImageData(data, 0, 0)
+  }
+  return canvas.toDataURL('image/jpeg', enhanceForOcr ? 0.9 : 0.85)
+}
+
+async function fileToVersions(file: File): Promise<{ store: string; ocr: string }> {
+  const raw = await readAsDataUrl(file)
+  const img = await loadImage(raw)
+  const store = img.width <= 1600 && img.height <= 1600 ? raw : drawScaled(img, 1600, false)
+  return { store, ocr: drawScaled(img, 2400, true) }
+}
+
+async function prepareForOcr(dataUrl: string): Promise<string> {
+  const img = await loadImage(dataUrl)
+  return drawScaled(img, 2400, true)
 }
 
 export default function SmartReceiptField({ value, onChange, onExtracted, onExtractedPayments, variant = 'repasse' }: {
@@ -165,11 +205,19 @@ export default function SmartReceiptField({ value, onChange, onExtracted, onExtr
     setLastExtract(null)
     setLastPayments(null)
     try {
-      const dataUrl = await fileToDataUrl(file)
-      onChange(dataUrl)
-      await runOcr(dataUrl)
+      const { store, ocr } = await fileToVersions(file)
+      onChange(store)
+      await runOcr(ocr)
     } catch (e: any) {
       setError(e?.message ?? 'Não deu pra processar a imagem.')
+    }
+  }
+
+  async function rerunOcr(dataUrl: string) {
+    try {
+      await runOcr(await prepareForOcr(dataUrl))
+    } catch (e: any) {
+      setError(e?.message ?? 'Não deu pra reler a imagem.')
     }
   }
 
@@ -191,7 +239,11 @@ export default function SmartReceiptField({ value, onChange, onExtracted, onExtr
         const pay = extractPaymentFields(text)
         setLastPayments(pay)
         if (pay.dinheiro == null && pay.debito == null && pay.credito == null && pay.pix == null) {
-          setError('Li a imagem mas não achei os valores por forma de pagamento — preencha na mão que o comprovante fica salvo mesmo assim.')
+          setError(
+            pay.total != null
+              ? `Achei só o total — as linhas por forma de pagamento não ficaram legíveis. Tente uma foto de frente, sem inclinação e com boa luz (ou toque em "Ler de novo"), senão preencha na mão.`
+              : 'Li a imagem mas não achei os valores por forma de pagamento — preencha na mão que o comprovante fica salvo mesmo assim.'
+          )
         } else {
           onExtractedPayments?.(pay)
         }
@@ -266,7 +318,7 @@ export default function SmartReceiptField({ value, onChange, onExtracted, onExtr
             {error && <p className="text-[11px] text-amber-700 mt-1">{error}</p>}
             <div className="flex gap-2 mt-2">
               {!reading && (
-                <button type="button" onClick={() => runOcr(value)} className="flex items-center gap-1 text-[11px] font-semibold text-beetz-dark/60 hover:text-beetz-dark">
+                <button type="button" onClick={() => rerunOcr(value)} className="flex items-center gap-1 text-[11px] font-semibold text-beetz-dark/60 hover:text-beetz-dark">
                   <ScanLine size={11} /> Ler de novo
                 </button>
               )}
@@ -298,7 +350,7 @@ export default function SmartReceiptField({ value, onChange, onExtracted, onExtr
           <p className="text-xs font-semibold text-beetz-dark/60">Arraste o comprovante aqui, cole (Ctrl+V) ou toque</p>
           <p className="text-[11px] text-beetz-dark/40">
             {variant === 'pagamentos'
-              ? 'Eu leio o fechamento e preencho dinheiro, débito, crédito e pix'
+              ? 'Eu leio o fechamento e preencho dinheiro, débito, crédito e pix — foto de frente e com luz ajuda'
               : 'Eu leio o print e preencho valor, data e observações'}
           </p>
           {error && <p className="text-[11px] text-amber-700">{error}</p>}
