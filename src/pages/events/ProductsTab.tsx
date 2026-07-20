@@ -106,6 +106,12 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
     [stockLines]
   )
 
+  // DECLARADA ANTES dos memos da tabela de propósito: visibleRows chama
+  // productName quando a busca/ordenação por nome roda — com a const depois,
+  // era ReferenceError (TDZ) e TELA BRANCA ao digitar na busca. O tsc não
+  // pega esse caso porque a chamada está dentro de um callback.
+  const productName = (id: string) => products.find((p) => p.id === id)?.name ?? '—'
+
   // Tabela ordenável + filtros: a pergunta é "quem carrega o evento e quem
   // está com preço errado". Participação % = valor do item ÷ total do evento,
   // onde valor = vendido × preço (real) ou, sem vendas ainda, entrou × preço
@@ -209,8 +215,6 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
     const e = lineEconomics(i.sold_quantity ?? null, i.unit_price, i.sale_price, i.producer_percent)
     return s + (e.resultado ?? 0)
   }, 0)
-
-  const productName = (id: string) => products.find((p) => p.id === id)?.name ?? '—'
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
