@@ -60,6 +60,12 @@ export default function StockMovementForm({ fixedEventId, onSaved }: Props) {
   }, [fixedEventId])
 
   const isTransfer = movementType === 'Transferência'
+  // Compra e Ajuste são patrimônio da empresa: o banco RECUSA vínculo com
+  // evento (trigger check_movement_event_coherence). O form escondia o erro e
+  // ficava "Salvando..." eterno — agora esconde o campo e não manda o vínculo.
+  // Compra no almoxarifado DO evento continua valendo (gelo comprado na porta
+  // da festa): o local já diz de quem é, sem precisar do vínculo.
+  const isWarehouseOnly = movementType === 'Compra' || movementType === 'Ajuste (entrada)' || movementType === 'Ajuste (saída)'
 
   // Aviso não-bloqueante: mostra o saldo atual quando o tipo escolhido é de
   // saída e a quantidade vai deixar esse produto/estoque negativo. Não
@@ -98,28 +104,37 @@ export default function StockMovementForm({ fixedEventId, onSaved }: Props) {
     const parsedCost = movementType === 'Compra' && unitCost.trim()
       ? Number(unitCost.replace(',', '.')) || null
       : null
-    const movement = await createStockMovement({
-      product_id: productId,
-      stock_location_id: locationId,
-      event_id: fixedEventId || eventId || null,
-      // Cast seguro: o caminho Transferência já retornou lá em cima.
-      movement_type: movementType as MovementType,
-      quantity,
-      unit_cost: parsedCost,
-      notes: notes || null,
-      created_by: userId
-    })
+    let movement
+    try {
+      movement = await createStockMovement({
+        product_id: productId,
+        stock_location_id: locationId,
+        event_id: isWarehouseOnly ? null : (fixedEventId || eventId || null),
+        // Cast seguro: o caminho Transferência já retornou lá em cima.
+        movement_type: movementType as MovementType,
+        quantity,
+        unit_cost: parsedCost,
+        notes: notes || null,
+        created_by: userId
+      })
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Não foi possível registrar a movimentação.')
+      setSaving(false)
+      return
+    }
 
-    // Compra com preço pode gerar a despesa DA EMPRESA (sem evento — compra
-    // pertence ao almoxarifado) já vinculada à movimentação. Um lançamento,
-    // dois efeitos: estoque ganha quantidade+custo, financeiro ganha o gasto
-    // como Pendente pra Diretoria revisar. Se a despesa falhar, a Compra fica
-    // — o aviso diz o que faltou, e dá pra lançar a despesa à mão depois.
+    // Compra com preço pode gerar a despesa já vinculada à movimentação. Um
+    // lançamento, dois efeitos: estoque ganha quantidade+custo, financeiro
+    // ganha o gasto como Pendente pra Diretoria revisar. Se a compra foi no
+    // almoxarifado DE UM EVENTO (gelo comprado na porta da festa), a despesa
+    // nasce no evento certo — o local diz de quem é o gasto. Se a despesa
+    // falhar, a Compra fica — o aviso diz o que faltou.
     if (movementType === 'Compra' && generateExpense && allowExpense && parsedCost) {
       const productName = products.find((p) => p.id === productId)?.name ?? 'produto'
+      const locationEventId = locations.find((l) => l.id === locationId)?.event_id ?? null
       try {
         await createExpense({
-          event_id: null,
+          event_id: locationEventId,
           status: 'Pendente',
           category: 'Estoque',
           description: `Compra de estoque: ${productName} (${quantity} un)`,
@@ -242,7 +257,7 @@ export default function StockMovementForm({ fixedEventId, onSaved }: Props) {
         )}
       </div>
 
-      {!fixedEventId && !isTransfer && (
+      {!fixedEventId && !isTransfer && !isWarehouseOnly && (
         <div>
           <label className="text-sm font-medium block mb-1">Evento (opcional)</label>
           <select className={inputClass} value={eventId} onChange={(e) => setEventId(e.target.value)}>
