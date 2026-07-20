@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Lock, Trash2, X } from 'lucide-react'
 import {
-  deleteCashierSettlement, listSettlementInternalsForEvent, updateCashierSettlement, upsertSettlementInternal
+  createExpense, deleteCashierSettlement, listSettlementInternalsForEvent, updateCashierSettlement, upsertSettlementInternal
 } from '../../lib/dataService'
 import { useAuth } from '../../contexts/AuthContext'
 import FileField from '../../components/ui/FileField'
@@ -52,6 +52,8 @@ export default function EditSettlementModal({ settlement, profiles, canReview, o
   const [intPending, setIntPending] = useState('')
   const [intNotes, setIntNotes] = useState('')
   const [intReceipt, setIntReceipt] = useState<string | null>(null)
+  const [intReceivableId, setIntReceivableId] = useState<string | null>(null)
+  const [genReceivable, setGenReceivable] = useState(true)
   const [intLoaded, setIntLoaded] = useState(false)
   const [intDirty, setIntDirty] = useState(false)
 
@@ -65,6 +67,7 @@ export default function EditSettlementModal({ settlement, profiles, canReview, o
           setIntPending(mine.pending_amount != null ? String(mine.pending_amount) : '')
           setIntNotes(mine.internal_notes ?? '')
           setIntReceipt(mine.payment_receipt_data)
+          setIntReceivableId(mine.receivable_expense_id ?? null)
         }
         setIntLoaded(true)
       })
@@ -74,6 +77,14 @@ export default function EditSettlementModal({ settlement, profiles, canReview, o
   const n = (v: string) => Number(v.replace(',', '.')) || 0
   const total = n(cash) + n(debit) + n(credit) + n(pix)
   const commission = roleType === 'Garçom' ? total * 0.1 : 0
+
+  // A conta do Devendo: o que falta acertar entra CONTRA a comissão da pessoa.
+  // Comissão cobre → paga-se só a diferença na hora do pagamento. Não cobre →
+  // o excedente vira "a receber" no Financeiro (despesa com valor negativo,
+  // que soma A FAVOR no fechamento e não deixa a dívida se perder).
+  const pendingValue = intStatus === 'Devendo' ? n(intPending) : 0
+  const saldoComissao = commission - pendingValue
+  const receivableValue = saldoComissao < 0 ? -saldoComissao : 0
 
   const personName = (id: string | null) => {
     const p = profiles.find((pr) => pr.id === id)
@@ -93,12 +104,34 @@ export default function EditSettlementModal({ settlement, profiles, canReview, o
         notes: notes.trim() || null
       })
       if (canReview && (intDirty || intStatus !== 'Em aberto' || intNotes.trim() || intReceipt)) {
+        // Devendo além da comissão + opção ligada + ainda sem lançamento →
+        // gera o "a receber" UMA vez e grava o vínculo junto do controle.
+        let receivableId = intReceivableId
+        if (intStatus === 'Devendo' && receivableValue > 0.004 && genReceivable && !receivableId) {
+          const person = personName(profileId || settlement.profile_id)
+          const exp = await createExpense({
+            event_id: settlement.event_id,
+            status: 'Pendente',
+            category: 'Equipe',
+            description: `A receber — ${person} deve ${currency(receivableValue)} além da comissão (acerto)`,
+            quantity: 1,
+            unit_value: -receivableValue,
+            dex_fee: 0,
+            receipt_data: null, payment_method: null, signature_data: null, repasse_data: null,
+            created_by: userId ?? null,
+            team_member_id: profileId || settlement.profile_id || null,
+            supplier_id: null, pending_team_member_id: null
+          })
+          receivableId = exp.id
+          setIntReceivableId(exp.id)
+        }
         await upsertSettlementInternal({
           settlement_id: settlement.id,
           status: intStatus,
           pending_amount: intStatus === 'Devendo' && intPending.trim() ? n(intPending) : null,
           internal_notes: intNotes.trim() || null,
           payment_receipt_data: intReceipt,
+          receivable_expense_id: receivableId,
           updated_by: userId ?? null
         })
       }
@@ -220,14 +253,57 @@ export default function EditSettlementModal({ settlement, profiles, canReview, o
                 ))}
               </div>
               {intStatus === 'Devendo' && (
-                <div>
-                  <label className="text-xs font-medium block mb-1 text-white/60">Quanto falta acertar (R$)</label>
-                  <input
-                    type="text" inputMode="decimal"
-                    className="w-full border border-white/20 bg-white/10 text-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow placeholder:text-white/30"
-                    value={intPending} onChange={(e) => { setIntPending(e.target.value); setIntDirty(true) }}
-                    placeholder="Ex: 350"
-                  />
+                <div className="space-y-2">
+                  <div>
+                    <label className="text-xs font-medium block mb-1 text-white/60">Quanto falta acertar (R$)</label>
+                    <input
+                      type="text" inputMode="decimal"
+                      className="w-full border border-white/20 bg-white/10 text-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow placeholder:text-white/30"
+                      value={intPending} onChange={(e) => { setIntPending(e.target.value); setIntDirty(true) }}
+                      placeholder="Ex: 350"
+                    />
+                  </div>
+
+                  {/* A conta da comissão, ao vivo: cobre ou não cobre? */}
+                  {pendingValue > 0 && (
+                    <div className="bg-white/10 rounded-xl px-3 py-2.5 space-y-1 text-xs">
+                      <div className="flex justify-between text-white/60">
+                        <span>Comissão deste acerto</span><span>{currency(commission)}</span>
+                      </div>
+                      <div className="flex justify-between text-white/60">
+                        <span>Falta acertar</span><span>− {currency(pendingValue)}</span>
+                      </div>
+                      {saldoComissao >= 0 ? (
+                        <p className="text-green-400 font-semibold border-t border-white/10 pt-1.5">
+                          A comissão cobre: na hora de pagar, pague {currency(saldoComissao)} em vez de {currency(commission)}.
+                        </p>
+                      ) : (
+                        <p className="text-red-400 font-semibold border-t border-white/10 pt-1.5">
+                          Deve {currency(receivableValue)} além da comissão.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {receivableValue > 0.004 && (
+                    intReceivableId ? (
+                      <p className="text-[11px] text-white/50">
+                        ✓ Lançamento "a receber" já gerado no Financeiro do evento — quando pagar, aprove-o lá.
+                      </p>
+                    ) : (
+                      <label className="flex items-start gap-2 cursor-pointer">
+                        <input
+                          type="checkbox" checked={genReceivable}
+                          onChange={(e) => { setGenReceivable(e.target.checked); setIntDirty(true) }}
+                          className="mt-0.5 rounded border-white/30"
+                        />
+                        <span className="text-[11px] text-white/60">
+                          Gerar lançamento <span className="font-semibold text-white/90">"a receber" de {currency(receivableValue)}</span> no
+                          Financeiro do evento ao salvar (entra como crédito — soma a favor no fechamento).
+                        </span>
+                      </label>
+                    )
+                  )}
                 </div>
               )}
               <div>

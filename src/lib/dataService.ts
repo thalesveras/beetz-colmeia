@@ -3216,7 +3216,7 @@ export async function listSettlementInternalsForEvent(eventId: string): Promise<
 }
 
 export async function upsertSettlementInternal(
-  input: Pick<CashierSettlementInternal, 'settlement_id' | 'status' | 'pending_amount' | 'internal_notes' | 'payment_receipt_data'> & { updated_by: string | null }
+  input: Pick<CashierSettlementInternal, 'settlement_id' | 'status' | 'pending_amount' | 'internal_notes' | 'payment_receipt_data' | 'receivable_expense_id'> & { updated_by: string | null }
 ): Promise<void> {
   if (isDemoMode) throw new Error('Indisponível no modo demonstração.')
   const { error } = await supabase.from('cashier_settlement_internal').upsert({

@@ -592,6 +592,9 @@ export interface CashierSettlementInternal {
   pending_amount: number | null
   internal_notes: string | null
   payment_receipt_data: string | null
+  // Quando o devendo excede a comissão, o excedente vira lançamento "a
+  // receber" no Financeiro — o vínculo evita gerar duas vezes.
+  receivable_expense_id?: string | null
   updated_by: string | null
   updated_at: string
 }
