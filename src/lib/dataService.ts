@@ -1283,6 +1283,34 @@ export async function updateStockMovement(id: string, patch: Partial<Omit<StockM
   return data as StockMovement
 }
 
+// Editar uma Compra mexe em DUAS pontas: o estoque (quantidade + custo, que
+// alimenta o custo médio) e a despesa vinculada no Financeiro. Se a despesa
+// ainda está Pendente, ela acompanha a edição (quantidade, valor unitário e o
+// "(N un)" da descrição); se já foi aprovada/paga, financeiro fechado não se
+// mexe por tabela — devolve 'locked' pra tela avisar que o ajuste é manual.
+export type CompraEditSync = 'synced' | 'none' | 'locked'
+
+export async function updateCompraMovement(
+  id: string, patch: { quantity: number; unit_cost: number | null }
+): Promise<CompraEditSync> {
+  const movement = await updateStockMovement(id, patch)
+  if (isDemoMode || movement.movement_type !== 'Compra') return 'none'
+  const { data, error } = await supabase.from('expenses')
+    .select('id, status, description').eq('stock_movement_id', id).limit(1)
+  if (error) return 'none'
+  const exp = ((data ?? []) as { id: string; status: string; description: string | null }[])[0]
+  if (!exp) return 'none'
+  if (exp.status !== 'Pendente') return 'locked'
+  const description = exp.description
+    ? exp.description.replace(/\(\d+(?:[.,]\d+)? un\)/, `(${patch.quantity} un)`)
+    : exp.description
+  const { error: updErr } = await supabase.from('expenses')
+    .update({ quantity: patch.quantity, unit_value: patch.unit_cost ?? 0, description })
+    .eq('id', exp.id)
+  if (updErr) throw updErr
+  return 'synced'
+}
+
 export async function getStockBalances(): Promise<StockBalance[]> {
   if (isDemoMode) {
     const balances: StockBalance[] = []

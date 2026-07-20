@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Plus, Pencil, Ban, RotateCcw, Check, ChevronDown, ChevronUp } from 'lucide-react'
-import { isPositiveMovementType, listEventStockMovementsWide, listProducts, listProfiles, listStockLocations, updateStockMovement } from '../../lib/dataService'
+import { isPositiveMovementType, listEventStockMovementsWide, listProducts, listProfiles, listStockLocations, updateCompraMovement, updateStockMovement } from '../../lib/dataService'
 import type { Product, Profile, StockLocation, StockMovement } from '../../lib/types'
 import StockMovementForm from '../../components/stock/StockMovementForm'
 import { useAuth } from '../../contexts/AuthContext'
@@ -49,13 +49,26 @@ export default function StockTab({ eventId }: { eventId: string }) {
     return canEditStock(accessRole) || (canEditOwnStock(accessRole) && m.created_by === userId)
   }
 
+  const [editCost, setEditCost] = useState('')
+
   function startEdit(m: StockMovement) {
     setEditingId(m.id)
     setEditQuantity(m.quantity)
+    setEditCost(m.unit_cost != null ? String(m.unit_cost) : '')
   }
 
-  async function saveEdit(id: string) {
-    await updateStockMovement(id, { quantity: editQuantity })
+  // Compra edita quantidade E preço — e a despesa vinculada acompanha
+  // enquanto estiver Pendente. Financeiro já aprovado não se mexe por tabela.
+  async function saveEdit(m: StockMovement) {
+    if (m.movement_type === 'Compra') {
+      const cost = editCost.trim() ? Number(editCost.replace(',', '.')) || null : null
+      const sync = await updateCompraMovement(m.id, { quantity: editQuantity, unit_cost: cost })
+      if (sync === 'locked') {
+        alert('A despesa vinculada a esta compra já saiu de Pendente — ajuste o valor no Financeiro manualmente.')
+      }
+    } else {
+      await updateStockMovement(m.id, { quantity: editQuantity })
+    }
     setEditingId(null)
     load()
   }
@@ -101,11 +114,27 @@ export default function StockTab({ eventId }: { eventId: string }) {
                     <input
                       type="number" min={0} value={editQuantity} onChange={(e) => setEditQuantity(Number(e.target.value))}
                       className="w-20 border border-beetz-dark/15 rounded-lg px-2 py-1 text-sm"
+                      title="Quantidade"
                     />
-                    <button onClick={() => saveEdit(m.id)} className="text-green-600 p-1.5 rounded-lg hover:bg-green-50"><Check size={14} /></button>
+                    {m.movement_type === 'Compra' && (
+                      <input
+                        type="text" inputMode="decimal" placeholder="R$/un"
+                        value={editCost} onChange={(e) => setEditCost(e.target.value)}
+                        className="w-20 border border-beetz-dark/15 rounded-lg px-2 py-1 text-sm"
+                        title="Preço unitário (R$) — a despesa Pendente vinculada acompanha"
+                      />
+                    )}
+                    <button onClick={() => saveEdit(m)} className="text-green-600 p-1.5 rounded-lg hover:bg-green-50"><Check size={14} /></button>
                   </div>
                 ) : (
-                  <span className="font-bold text-sm">{m.quantity}</span>
+                  <div className="text-right">
+                    <span className="font-bold text-sm">{m.quantity}</span>
+                    {m.unit_cost != null && (
+                      <p className="text-[10px] text-beetz-dark/40 leading-tight">
+                        {Number(m.unit_cost).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/un
+                      </p>
+                    )}
+                  </div>
                 )}
                 {canEditMovement(m) && editingId !== m.id && (
                   <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
@@ -127,6 +156,12 @@ export default function StockTab({ eventId }: { eventId: string }) {
                 <div className="px-4 pb-4 -mt-1 text-xs text-beetz-dark/60 space-y-1">
                   <p><span className="font-semibold">Registrado por:</span> {creatorName(m.created_by)}</p>
                   <p><span className="font-semibold">Data:</span> {formatDateTime(m.created_at)}</p>
+                  {m.unit_cost != null && (
+                    <p>
+                      <span className="font-semibold">Custo:</span> {Number(m.unit_cost).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/un
+                      · total {(m.unit_cost * m.quantity).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    </p>
+                  )}
                   {m.notes && <p><span className="font-semibold">Observações:</span> {m.notes}</p>}
                 </div>
               )}

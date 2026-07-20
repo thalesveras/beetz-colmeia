@@ -8,7 +8,7 @@ import {
   approveTransferRequest, createStockLocation, createTransferRequest,
   deleteStockLocation, getStockBalances, listProductAvgCosts, listStockAvailability, isPositiveMovementType, listEvents, listProducts, listProfiles,
   listStockLocations, listStockMovements, listTransferRequests, registerTransferReturn,
-  transferEventLeftover, updateStockLocation, updateStockMovement, updateTransferRequestStatus
+  transferEventLeftover, updateCompraMovement, updateStockLocation, updateStockMovement, updateTransferRequestStatus
 } from '../lib/dataService'
 import type { EventItem, Product, ProductAvgCost, Profile, StockAvailable, StockBalance, StockLocation, StockMovement, TransferRequest, TransferRequestStatus } from '../lib/types'
 import StockMovementForm from '../components/stock/StockMovementForm'
@@ -347,13 +347,25 @@ export default function Stock() {
     setMovementFilterFrom(''); setMovementFilterTo('')
   }
 
+  const [editCost, setEditCost] = useState('')
+
   function startEdit(m: StockMovement) {
     setEditingId(m.id)
     setEditQuantity(m.quantity)
+    setEditCost(m.unit_cost != null ? String(m.unit_cost) : '')
   }
 
-  async function saveEdit(id: string) {
-    await updateStockMovement(id, { quantity: editQuantity })
+  // Compra edita quantidade E preço; a despesa Pendente vinculada acompanha.
+  async function saveEdit(m: StockMovement) {
+    if (m.movement_type === 'Compra') {
+      const cost = editCost.trim() ? Number(editCost.replace(',', '.')) || null : null
+      const sync = await updateCompraMovement(m.id, { quantity: editQuantity, unit_cost: cost })
+      if (sync === 'locked') {
+        alert('A despesa vinculada a esta compra já saiu de Pendente — ajuste o valor no Financeiro manualmente.')
+      }
+    } else {
+      await updateStockMovement(m.id, { quantity: editQuantity })
+    }
     setEditingId(null)
     load()
   }
@@ -786,8 +798,17 @@ export default function Stock() {
                         <input
                           type="number" min={0} value={editQuantity} onChange={(e) => setEditQuantity(Number(e.target.value))}
                           className="w-20 border border-beetz-dark/15 rounded-lg px-2 py-1 text-sm"
+                          title="Quantidade"
                         />
-                        <button onClick={() => saveEdit(m.id)} className="text-green-600 p-1.5 rounded-lg hover:bg-green-50"><Check size={14} /></button>
+                        {m.movement_type === 'Compra' && (
+                          <input
+                            type="text" inputMode="decimal" placeholder="R$/un"
+                            value={editCost} onChange={(e) => setEditCost(e.target.value)}
+                            className="w-20 border border-beetz-dark/15 rounded-lg px-2 py-1 text-sm"
+                            title="Preço unitário (R$) — a despesa Pendente vinculada acompanha"
+                          />
+                        )}
+                        <button onClick={() => saveEdit(m)} className="text-green-600 p-1.5 rounded-lg hover:bg-green-50"><Check size={14} /></button>
                       </div>
                     ) : (
                       <div className="text-right shrink-0">
