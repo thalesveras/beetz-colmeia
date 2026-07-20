@@ -106,6 +106,71 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
     [stockLines]
   )
 
+  // Tabela ordenável + filtros: a pergunta é "quem carrega o evento e quem
+  // está com preço errado". Participação % = valor do item ÷ total do evento,
+  // onde valor = vendido × preço (real) ou, sem vendas ainda, entrou × preço
+  // (potencial) — dá pra priorizar o ajuste antes do evento começar.
+  type SortKey = 'name' | 'entrou' | 'vendido' | 'venda' | 'margin' | 'part' | 'resultado'
+  const [sortKey, setSortKey] = useState<SortKey>('part')
+  const [sortAsc, setSortAsc] = useState(false)
+  const [search, setSearch] = useState('')
+  const [marginFilter, setMarginFilter] = useState<'all' | 'neg' | 'pos' | 'noprice'>('all')
+
+  const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+
+  const enrichedRows = useMemo(() => {
+    const enriched = items.map((item) => {
+      const um = unitMargin(item.unit_price, item.sale_price, item.producer_percent)
+      const econ = lineEconomics(item.sold_quantity ?? null, item.unit_price, item.sale_price, item.producer_percent)
+      const valor = item.sale_price != null ? (item.sold_quantity ?? item.quantity) * item.sale_price : null
+      return { item, um, econ, valor, part: null as number | null }
+    })
+    const total = enriched.reduce((s, r) => s + (r.valor ?? 0), 0)
+    for (const r of enriched) r.part = r.valor != null && total > 0 ? (r.valor / total) * 100 : null
+    return enriched
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items])
+
+  const marginCounts = useMemo(() => ({
+    neg: enrichedRows.filter((r) => r.um != null && r.um.value < 0).length,
+    pos: enrichedRows.filter((r) => r.um != null && r.um.value >= 0).length,
+    noprice: enrichedRows.filter((r) => r.um == null).length
+  }), [enrichedRows])
+
+  const visibleRows = useMemo(() => {
+    let rows = enrichedRows
+    if (search.trim()) rows = rows.filter((r) => norm(productName(r.item.product_id)).includes(norm(search)))
+    if (marginFilter === 'neg') rows = rows.filter((r) => r.um != null && r.um.value < 0)
+    if (marginFilter === 'pos') rows = rows.filter((r) => r.um != null && r.um.value >= 0)
+    if (marginFilter === 'noprice') rows = rows.filter((r) => r.um == null)
+    const val = (r: (typeof enrichedRows)[number]): string | number | null => {
+      switch (sortKey) {
+        case 'name': return norm(productName(r.item.product_id))
+        case 'entrou': return r.item.quantity
+        case 'vendido': return r.item.sold_quantity ?? null
+        case 'venda': return r.item.sale_price ?? null
+        case 'margin': return r.um?.value ?? null
+        case 'part': return r.part
+        case 'resultado': return r.econ.resultado
+      }
+    }
+    // Nulo sempre no fim, independente da direção — "sem dado" não é ranking.
+    return [...rows].sort((a, b) => {
+      const va = val(a); const vb = val(b)
+      if (va == null && vb == null) return 0
+      if (va == null) return 1
+      if (vb == null) return -1
+      const cmp = typeof va === 'string' ? va.localeCompare(vb as string, 'pt-BR') : (va as number) - (vb as number)
+      return sortAsc ? cmp : -cmp
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enrichedRows, search, marginFilter, sortKey, sortAsc, products])
+
+  function toggleSort(k: SortKey) {
+    if (sortKey === k) setSortAsc((v) => !v)
+    else { setSortKey(k); setSortAsc(k === 'name') }
+  }
+
   // Enviado pro evento e ainda sem lançamento em Produtos — é o que falta
   // registrar. Um toque preenche a ENTRADA (líquido do estoque) e o custo
   // (custo médio); as vendas são informadas depois, no modal.
@@ -283,88 +348,117 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
         </div>
       )}
 
-      {!loading && (() => {
-        // A leitura que importa: quem dá dinheiro por unidade e quem NÃO dá.
-        // Margem negativa primeiro (pior no topo — é o que precisa de decisão:
-        // subir preço, renegociar % ou tirar do cardápio), depois as positivas
-        // da maior pra menor, e por fim quem ainda está sem preço de venda.
-        const withMargin = items.map((item) => ({
-          item,
-          um: unitMargin(item.unit_price, item.sale_price, item.producer_percent),
-          econ: lineEconomics(item.sold_quantity ?? null, item.unit_price, item.sale_price, item.producer_percent)
-        }))
-        const negatives = withMargin.filter((x) => x.um != null && x.um.value < 0).sort((a, b) => a.um!.value - b.um!.value)
-        const positives = withMargin.filter((x) => x.um != null && x.um.value >= 0).sort((a, b) => b.um!.value - a.um!.value)
-        const noPrice = withMargin.filter((x) => x.um == null)
-        const ordered = [...negatives, ...positives, ...noPrice]
-        return (
-        <div className="space-y-2">
-          <div className="flex flex-wrap gap-1.5">
-            {negatives.length > 0 && (
-              <span className="text-[11px] font-bold bg-red-50 text-red-700 border border-red-200 px-2.5 py-1 rounded-full">
-                {negatives.length} com margem negativa
-              </span>
-            )}
-            {positives.length > 0 && (
-              <span className="text-[11px] font-bold bg-green-50 text-green-700 border border-green-200 px-2.5 py-1 rounded-full">
-                {positives.length} com margem positiva
-              </span>
-            )}
-            {noPrice.length > 0 && (
-              <span className="text-[11px] font-semibold bg-beetz-gray text-beetz-dark/60 px-2.5 py-1 rounded-full">
-                {noPrice.length} sem preço de venda
-              </span>
-            )}
-          </div>
-
-          {/* Card inteiro é botão: no dedo, alvo grande; os detalhes e as
-              ações (editar/apagar) moram no modal. */}
-          {ordered.map(({ item, um, econ }) => (
+      {!loading && items.length > 0 && (
+        <div className="space-y-3">
+          {/* Filtros: busca + chips clicáveis (clicar de novo limpa). */}
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              className={`${inputClass} w-full sm:w-56`}
+              placeholder="Buscar produto..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
             <button
-              key={item.id}
-              onClick={() => setSelected(item)}
-              className={`w-full text-left flex items-center gap-3 bg-white border rounded-xl p-4 hover:shadow-glow active:scale-[0.99] transition ${
-                um != null && um.value < 0 ? 'border-red-200' : 'border-beetz-dark/5'
+              onClick={() => setMarginFilter((f) => (f === 'neg' ? 'all' : 'neg'))}
+              className={`text-[11px] font-bold px-2.5 py-1.5 rounded-full border transition-colors ${
+                marginFilter === 'neg' ? 'bg-red-600 text-white border-red-600' : 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100'
               }`}
             >
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-sm truncate">{productName(item.product_id)}</p>
-                <p className="text-xs text-beetz-dark/50 truncate">
-                  entrou {item.quantity} · vendido {item.sold_quantity ?? '—'}
-                  {item.sale_price != null ? ` · venda ${currency(item.sale_price)}` : ''}
-                  {` · custo ${currency(item.unit_price)}`}
-                  {item.producer_percent != null ? ` · produtor ${item.producer_percent}%` : ''}
-                </p>
-              </div>
-              {econ.resultado != null ? (
-                <div className="text-right shrink-0">
-                  <span className={`font-bold text-sm ${econ.resultado >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                    {econ.resultado >= 0 ? '+' : ''}{currency(econ.resultado)}
-                  </span>
-                  <p className="text-[10px] text-beetz-dark/40 leading-tight">
-                    {um != null ? `${um.value >= 0 ? '+' : ''}${currency(um.value)}/un` : 'resultado'}
-                  </p>
-                </div>
-              ) : um != null ? (
-                <div className="text-right shrink-0">
-                  <span className={`font-bold text-sm ${um.value >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                    {um.value >= 0 ? '+' : ''}{currency(um.value)}/un
-                  </span>
-                  <p className="text-[10px] text-beetz-dark/40 leading-tight">
-                    {um.pctOfSale != null ? `${Math.round(um.pctOfSale)}% da venda fica` : 'margem unitária'}
-                  </p>
-                </div>
-              ) : (
-                <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg shrink-0">
-                  sem preço de venda
-                </span>
-              )}
+              {marginCounts.neg} margem negativa
             </button>
-          ))}
-          {items.length === 0 && <p className="text-sm text-beetz-dark/50">Nenhum produto lançado neste evento ainda.</p>}
+            <button
+              onClick={() => setMarginFilter((f) => (f === 'pos' ? 'all' : 'pos'))}
+              className={`text-[11px] font-bold px-2.5 py-1.5 rounded-full border transition-colors ${
+                marginFilter === 'pos' ? 'bg-green-700 text-white border-green-700' : 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'
+              }`}
+            >
+              {marginCounts.pos} margem positiva
+            </button>
+            <button
+              onClick={() => setMarginFilter((f) => (f === 'noprice' ? 'all' : 'noprice'))}
+              className={`text-[11px] font-semibold px-2.5 py-1.5 rounded-full border transition-colors ${
+                marginFilter === 'noprice' ? 'bg-beetz-dark text-white border-beetz-dark' : 'bg-beetz-gray text-beetz-dark/60 border-transparent hover:bg-beetz-dark/10'
+              }`}
+            >
+              {marginCounts.noprice} sem preço
+            </button>
+          </div>
+
+          {/* Tabela ordenável: toque no cabeçalho ordena (de novo inverte).
+              Linha clicável abre o modal. Part.% = fatia do item no valor do
+              evento — quem representa mais é onde o ajuste de preço mais pesa. */}
+          <div className="bg-white rounded-2xl border border-beetz-dark/5 shadow-soft overflow-x-auto">
+            <table className="w-full text-sm min-w-[640px]">
+              <thead>
+                <tr className="border-b border-beetz-dark/10 text-left text-beetz-dark/50">
+                  {([
+                    { k: 'name', label: 'Produto', right: false },
+                    { k: 'entrou', label: 'Entrou', right: true },
+                    { k: 'vendido', label: 'Vendido', right: true },
+                    { k: 'venda', label: 'Venda', right: true },
+                    { k: 'margin', label: 'Margem/un', right: true },
+                    { k: 'part', label: 'Part.', right: true },
+                    { k: 'resultado', label: 'Resultado', right: true }
+                  ] as { k: typeof sortKey; label: string; right: boolean }[]).map((c) => (
+                    <th key={c.k} className={`py-1 ${c.right ? 'text-right' : ''}`}>
+                      <button
+                        onClick={() => toggleSort(c.k)}
+                        className={`px-3 py-1.5 font-medium rounded-lg hover:bg-beetz-gray/70 transition-colors ${
+                          sortKey === c.k ? 'text-beetz-dark font-bold' : ''
+                        }`}
+                      >
+                        {c.label}{sortKey === c.k ? (sortAsc ? ' ↑' : ' ↓') : ''}
+                      </button>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {visibleRows.map(({ item, um, econ, part }) => (
+                  <tr
+                    key={item.id}
+                    onClick={() => setSelected(item)}
+                    className={`border-b border-beetz-dark/5 last:border-0 cursor-pointer hover:bg-beetz-gray/40 transition-colors ${
+                      um != null && um.value < 0 ? 'bg-red-50/50' : ''
+                    }`}
+                  >
+                    <td className="py-2.5 px-3 font-semibold">{productName(item.product_id)}</td>
+                    <td className="py-2.5 px-3 text-right">{item.quantity}</td>
+                    <td className={`py-2.5 px-3 text-right ${item.sold_quantity == null ? 'text-beetz-dark/30' : ''}`}>
+                      {item.sold_quantity ?? '—'}
+                    </td>
+                    <td className={`py-2.5 px-3 text-right ${item.sale_price == null ? 'text-amber-600 text-xs font-semibold' : ''}`}>
+                      {item.sale_price != null ? currency(item.sale_price) : 'definir'}
+                    </td>
+                    <td className={`py-2.5 px-3 text-right font-bold ${um == null ? 'text-beetz-dark/30' : um.value >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                      {um != null ? `${um.value >= 0 ? '+' : ''}${currency(um.value)}` : '—'}
+                      {um?.pctOfSale != null && (
+                        <span className="block text-[10px] font-medium text-beetz-dark/40">{Math.round(um.pctOfSale)}% da venda</span>
+                      )}
+                    </td>
+                    <td className={`py-2.5 px-3 text-right font-bold ${part == null ? 'text-beetz-dark/30' : ''}`}>
+                      {part != null ? `${part < 1 ? part.toFixed(1) : Math.round(part)}%` : '—'}
+                    </td>
+                    <td className={`py-2.5 px-3 text-right font-semibold ${econ.resultado == null ? 'text-beetz-dark/30' : econ.resultado >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                      {econ.resultado != null ? currency(econ.resultado) : '—'}
+                    </td>
+                  </tr>
+                ))}
+                {visibleRows.length === 0 && (
+                  <tr><td colSpan={7} className="py-4 px-3 text-sm text-beetz-dark/40">Nenhum produto com esses filtros.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[11px] text-beetz-dark/40">
+            Part.% = fatia do produto no valor do evento (vendido × preço; sem vendas ainda, usa entrou × preço como potencial).
+            Toque na linha pra editar.
+          </p>
         </div>
-        )
-      })()}
+      )}
+      {!loading && items.length === 0 && (
+        <p className="text-sm text-beetz-dark/50">Nenhum produto lançado neste evento ainda.</p>
+      )}
 
       {selected && (
         <EditEventProductModal
