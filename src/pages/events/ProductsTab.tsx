@@ -110,7 +110,7 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
   // está com preço errado". Participação % = valor do item ÷ total do evento,
   // onde valor = vendido × preço (real) ou, sem vendas ainda, entrou × preço
   // (potencial) — dá pra priorizar o ajuste antes do evento começar.
-  type SortKey = 'name' | 'entrou' | 'vendido' | 'venda' | 'margin' | 'part' | 'resultado'
+  type SortKey = 'name' | 'entrou' | 'vendido' | 'venda' | 'margin' | 'marginPct' | 'part' | 'resultado'
   const [sortKey, setSortKey] = useState<SortKey>('part')
   const [sortAsc, setSortAsc] = useState(false)
   const [search, setSearch] = useState('')
@@ -150,6 +150,7 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
         case 'vendido': return r.item.sold_quantity ?? null
         case 'venda': return r.item.sale_price ?? null
         case 'margin': return r.um?.value ?? null
+        case 'marginPct': return r.um?.pctOfSale ?? null
         case 'part': return r.part
         case 'resultado': return r.econ.resultado
       }
@@ -388,7 +389,7 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
               Linha clicável abre o modal. Part.% = fatia do item no valor do
               evento — quem representa mais é onde o ajuste de preço mais pesa. */}
           <div className="bg-white rounded-2xl border border-beetz-dark/5 shadow-soft overflow-x-auto">
-            <table className="w-full text-sm min-w-[640px]">
+            <table className="w-full text-sm min-w-[720px]">
               <thead>
                 <tr className="border-b border-beetz-dark/10 text-left text-beetz-dark/50">
                   {([
@@ -397,6 +398,7 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
                     { k: 'vendido', label: 'Vendido', right: true },
                     { k: 'venda', label: 'Venda', right: true },
                     { k: 'margin', label: 'Margem/un', right: true },
+                    { k: 'marginPct', label: 'Margem %', right: true },
                     { k: 'part', label: 'Part.', right: true },
                     { k: 'resultado', label: 'Resultado', right: true }
                   ] as { k: typeof sortKey; label: string; right: boolean }[]).map((c) => (
@@ -432,9 +434,9 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
                     </td>
                     <td className={`py-2.5 px-3 text-right font-bold ${um == null ? 'text-beetz-dark/30' : um.value >= 0 ? 'text-green-700' : 'text-red-600'}`}>
                       {um != null ? `${um.value >= 0 ? '+' : ''}${currency(um.value)}` : '—'}
-                      {um?.pctOfSale != null && (
-                        <span className="block text-[10px] font-medium text-beetz-dark/40">{Math.round(um.pctOfSale)}% da venda</span>
-                      )}
+                    </td>
+                    <td className={`py-2.5 px-3 text-right font-bold ${um?.pctOfSale == null ? 'text-beetz-dark/30' : um.pctOfSale >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                      {um?.pctOfSale != null ? `${Math.round(um.pctOfSale)}%` : '—'}
                     </td>
                     <td className={`py-2.5 px-3 text-right font-bold ${part == null ? 'text-beetz-dark/30' : ''}`}>
                       {part != null ? `${part < 1 ? part.toFixed(1) : Math.round(part)}%` : '—'}
@@ -445,7 +447,7 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
                   </tr>
                 ))}
                 {visibleRows.length === 0 && (
-                  <tr><td colSpan={7} className="py-4 px-3 text-sm text-beetz-dark/40">Nenhum produto com esses filtros.</td></tr>
+                  <tr><td colSpan={8} className="py-4 px-3 text-sm text-beetz-dark/40">Nenhum produto com esses filtros.</td></tr>
                 )}
               </tbody>
             </table>
