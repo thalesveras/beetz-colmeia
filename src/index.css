@@ -12,6 +12,16 @@ body {
   color: #050505;
 }
 
+/* iOS dá ZOOM automático na página ao focar input/select/textarea com fonte
+   menor que 16px — a tela "pula" e some tudo, ficando só o campo à vista
+   (reportado na busca de Produtos do evento). 16px no celular desarma o zoom
+   sem mudar o design do desktop, onde o text-sm (14px) continua valendo. */
+@media (max-width: 640px) {
+  input, select, textarea {
+    font-size: 16px;
+  }
+}
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
