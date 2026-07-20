@@ -5,6 +5,8 @@ import {
 } from '../../lib/dataService'
 import { useAuth } from '../../contexts/AuthContext'
 import FileField from '../../components/ui/FileField'
+import SmartReceiptField from '../../components/ui/SmartReceiptField'
+import type { ExtractedPayments } from '../../components/ui/SmartReceiptField'
 import type { CashierRoleType, CashierSettlement, CashierSettlementInternal, Profile } from '../../lib/types'
 
 // Modal de edição de um recebimento (fechamento de caixa/garçom), no padrão
@@ -41,9 +43,19 @@ export default function EditSettlementModal({ settlement, profiles, canReview, o
   const [credit, setCredit] = useState(String(settlement.credit_amount))
   const [pix, setPix] = useState(String(settlement.pix_amount))
   const [notes, setNotes] = useState(settlement.notes ?? '')
+  const [receipt, setReceipt] = useState<string | null>(settlement.receipt_data ?? null)
   const [saving, setSaving] = useState(false)
   const [removing, setRemoving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Releitura do comprovante na edição só completa buraco: valor que já está
+  // preenchido (> 0) não é sobrescrito pelo OCR.
+  function applyPayments(p: ExtractedPayments) {
+    if (p.dinheiro != null) setCash((c) => (Number(c.replace(',', '.')) > 0 ? c : String(p.dinheiro)))
+    if (p.debito != null) setDebit((c) => (Number(c.replace(',', '.')) > 0 ? c : String(p.debito)))
+    if (p.credito != null) setCredit((c) => (Number(c.replace(',', '.')) > 0 ? c : String(p.credito)))
+    if (p.pix != null) setPix((c) => (Number(c.replace(',', '.')) > 0 ? c : String(p.pix)))
+  }
 
   // Controle interno do acerto — invisível pro dono (a tabela tem RLS só de
   // revisores; aqui a gente nem tenta carregar sem canReview).
@@ -101,7 +113,8 @@ export default function EditSettlementModal({ settlement, profiles, canReview, o
         debit_amount: n(debit),
         credit_amount: n(credit),
         pix_amount: n(pix),
-        notes: notes.trim() || null
+        notes: notes.trim() || null,
+        receipt_data: receipt
       })
       if (canReview && (intDirty || intStatus !== 'Em aberto' || intNotes.trim() || intReceipt)) {
         // Devendo além da comissão + opção ligada + ainda sem lançamento →
@@ -216,6 +229,20 @@ export default function EditSettlementModal({ settlement, profiles, canReview, o
 
           <Field label="Observações">
             <input className={inputClass} value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </Field>
+
+          {/* A foto que o garçom/caixa mandou no lançamento — quem revisa vê,
+              amplia, troca ou manda reler (a releitura só completa campo zerado). */}
+          <Field label="Comprovante do fechamento">
+            <SmartReceiptField variant="pagamentos" value={receipt} onChange={setReceipt} onExtractedPayments={applyPayments} />
+            {receipt && (
+              <a
+                href={receipt} target="_blank" rel="noreferrer"
+                className="inline-block text-[11px] font-semibold text-beetz-dark/50 hover:text-beetz-dark mt-1 underline"
+              >
+                Abrir em tamanho cheio
+              </a>
+            )}
           </Field>
 
           <div className="bg-beetz-gray/60 rounded-xl px-4 py-2.5 flex items-center justify-between">

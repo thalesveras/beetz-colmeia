@@ -1091,7 +1091,7 @@ export async function updateCashierSettlementStatus(id: string, status: CashierS
 // tudo; o dono edita o próprio lançamento só enquanto Pendente.
 export async function updateCashierSettlement(
   id: string,
-  patch: Partial<Pick<CashierSettlement, 'profile_id' | 'role_type' | 'cash_amount' | 'debit_amount' | 'credit_amount' | 'pix_amount' | 'notes'>>
+  patch: Partial<Pick<CashierSettlement, 'profile_id' | 'role_type' | 'cash_amount' | 'debit_amount' | 'credit_amount' | 'pix_amount' | 'notes' | 'receipt_data'>>
 ): Promise<CashierSettlement> {
   if (isDemoMode) {
     const idx = demoState.cashierSettlements.findIndex((c) => c.id === id)
