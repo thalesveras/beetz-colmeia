@@ -35,6 +35,15 @@ function lineEconomics(sold: number | null, cost: number, sale: number | null | 
   return { vendaTotal, produtor, custoVendido, resultado, margem }
 }
 
+// Margem UNITÁRIA: não precisa de venda informada — só dos preços.
+//   por unidade vendida: venda × (1 − % produtor) − custo.
+// É o que responde "esse produto dá dinheiro?" antes do evento começar.
+function unitMargin(cost: number, sale: number | null | undefined, pct: number | null | undefined): { value: number; pctOfSale: number | null } | null {
+  if (sale == null) return null
+  const value = sale * (1 - (pct ?? 0) / 100) - cost
+  return { value, pctOfSale: sale > 0 ? (value / sale) * 100 : null }
+}
+
 export default function ProductsTab({ eventId, defaultProducerPercent }: {
   eventId: string
   defaultProducerPercent?: number | null
@@ -274,43 +283,88 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
         </div>
       )}
 
-      {!loading && (
+      {!loading && (() => {
+        // A leitura que importa: quem dá dinheiro por unidade e quem NÃO dá.
+        // Margem negativa primeiro (pior no topo — é o que precisa de decisão:
+        // subir preço, renegociar % ou tirar do cardápio), depois as positivas
+        // da maior pra menor, e por fim quem ainda está sem preço de venda.
+        const withMargin = items.map((item) => ({
+          item,
+          um: unitMargin(item.unit_price, item.sale_price, item.producer_percent),
+          econ: lineEconomics(item.sold_quantity ?? null, item.unit_price, item.sale_price, item.producer_percent)
+        }))
+        const negatives = withMargin.filter((x) => x.um != null && x.um.value < 0).sort((a, b) => a.um!.value - b.um!.value)
+        const positives = withMargin.filter((x) => x.um != null && x.um.value >= 0).sort((a, b) => b.um!.value - a.um!.value)
+        const noPrice = withMargin.filter((x) => x.um == null)
+        const ordered = [...negatives, ...positives, ...noPrice]
+        return (
         <div className="space-y-2">
+          <div className="flex flex-wrap gap-1.5">
+            {negatives.length > 0 && (
+              <span className="text-[11px] font-bold bg-red-50 text-red-700 border border-red-200 px-2.5 py-1 rounded-full">
+                {negatives.length} com margem negativa
+              </span>
+            )}
+            {positives.length > 0 && (
+              <span className="text-[11px] font-bold bg-green-50 text-green-700 border border-green-200 px-2.5 py-1 rounded-full">
+                {positives.length} com margem positiva
+              </span>
+            )}
+            {noPrice.length > 0 && (
+              <span className="text-[11px] font-semibold bg-beetz-gray text-beetz-dark/60 px-2.5 py-1 rounded-full">
+                {noPrice.length} sem preço de venda
+              </span>
+            )}
+          </div>
+
           {/* Card inteiro é botão: no dedo, alvo grande; os detalhes e as
               ações (editar/apagar) moram no modal. */}
-          {items.map((item) => {
-            const e = lineEconomics(item.sold_quantity ?? null, item.unit_price, item.sale_price, item.producer_percent)
-            return (
+          {ordered.map(({ item, um, econ }) => (
             <button
               key={item.id}
               onClick={() => setSelected(item)}
-              className="w-full text-left flex items-center gap-3 bg-white border border-beetz-dark/5 rounded-xl p-4 hover:shadow-glow active:scale-[0.99] transition"
+              className={`w-full text-left flex items-center gap-3 bg-white border rounded-xl p-4 hover:shadow-glow active:scale-[0.99] transition ${
+                um != null && um.value < 0 ? 'border-red-200' : 'border-beetz-dark/5'
+              }`}
             >
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-sm truncate">{productName(item.product_id)}</p>
                 <p className="text-xs text-beetz-dark/50 truncate">
                   entrou {item.quantity} · vendido {item.sold_quantity ?? '—'}
                   {item.sale_price != null ? ` · venda ${currency(item.sale_price)}` : ''}
+                  {` · custo ${currency(item.unit_price)}`}
                   {item.producer_percent != null ? ` · produtor ${item.producer_percent}%` : ''}
                 </p>
               </div>
-              {e.resultado != null ? (
+              {econ.resultado != null ? (
                 <div className="text-right shrink-0">
-                  <span className={`font-bold text-sm ${e.resultado >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                    {e.resultado >= 0 ? '+' : ''}{currency(e.resultado)}
+                  <span className={`font-bold text-sm ${econ.resultado >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                    {econ.resultado >= 0 ? '+' : ''}{currency(econ.resultado)}
                   </span>
-                  <p className="text-[10px] text-beetz-dark/40 leading-tight">{e.margem != null ? `${Math.round(e.margem)}% da venda` : 'resultado'}</p>
+                  <p className="text-[10px] text-beetz-dark/40 leading-tight">
+                    {um != null ? `${um.value >= 0 ? '+' : ''}${currency(um.value)}/un` : 'resultado'}
+                  </p>
+                </div>
+              ) : um != null ? (
+                <div className="text-right shrink-0">
+                  <span className={`font-bold text-sm ${um.value >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                    {um.value >= 0 ? '+' : ''}{currency(um.value)}/un
+                  </span>
+                  <p className="text-[10px] text-beetz-dark/40 leading-tight">
+                    {um.pctOfSale != null ? `${Math.round(um.pctOfSale)}% da venda fica` : 'margem unitária'}
+                  </p>
                 </div>
               ) : (
                 <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg shrink-0">
-                  informar vendas
+                  sem preço de venda
                 </span>
               )}
             </button>
-          )})}
+          ))}
           {items.length === 0 && <p className="text-sm text-beetz-dark/50">Nenhum produto lançado neste evento ainda.</p>}
         </div>
-      )}
+        )
+      })()}
 
       {selected && (
         <EditEventProductModal
@@ -467,12 +521,28 @@ function EditEventProductModal({ item, name, defaultProducerPercent, stockNet, p
                   </p>
                 )}
               </>
-            ) : (
-              <p className="text-xs text-beetz-dark/45">
-                Preencha <span className="font-semibold">Vendido</span> e o <span className="font-semibold">preço de venda</span> pra
-                ver a conta: venda − produtor − custo do vendido = resultado.
-              </p>
-            )}
+            ) : (() => {
+              const um = unitMargin(cost, sale, pct)
+              return um != null ? (
+                <>
+                  <div className="flex justify-between">
+                    <span className="text-beetz-dark/60">Margem por unidade vendida</span>
+                    <span className={`font-bold ${um.value >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                      {um.value >= 0 ? '+' : ''}{currency(um.value)}{um.pctOfSale != null ? ` (${Math.round(um.pctOfSale)}%)` : ''}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-beetz-dark/45">
+                    {currency(sale ?? 0)} de venda − {pct ?? 0}% do produtor − {currency(cost)} de custo.
+                    Preencha <span className="font-semibold">Vendido</span> pra ver o resultado total.
+                  </p>
+                </>
+              ) : (
+                <p className="text-xs text-beetz-dark/45">
+                  Preencha o <span className="font-semibold">preço de venda</span> pra ver a margem por unidade,
+                  e <span className="font-semibold">Vendido</span> pra ver o resultado total.
+                </p>
+              )
+            })()}
           </div>
         </div>
 
