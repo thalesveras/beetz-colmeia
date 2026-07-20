@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Building2, Save, ShieldCheck, UserRound } from 'lucide-react'
-import { getEventFinancialSummary, listEventRepasses, updateEvent } from '../../lib/dataService'
-import type { EventFinancialSummary, EventItem, EventRepasse } from '../../lib/types'
+import { getEventFinancialSummary, listEventProducts, listEventRepasses, updateEvent } from '../../lib/dataService'
+import type { EventFinancialSummary, EventItem, EventProduct, EventRepasse } from '../../lib/types'
 
 // Fechamento como PRESTAÇÃO DE CONTAS, em duas visões (pedido do dono):
 // — Visão empresa: o resultado da Beetz no evento (receita − custos = lucro).
@@ -28,6 +28,7 @@ interface Props {
 export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
   const [summary, setSummary] = useState<EventFinancialSummary | null>(null)
   const [repasses, setRepasses] = useState<EventRepasse[]>([])
+  const [eventProducts, setEventProducts] = useState<EventProduct[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [view, setView] = useState<'empresa' | 'produtor'>('empresa')
@@ -40,9 +41,14 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
 
   async function load() {
     setLoading(true)
-    const [s, r] = await Promise.all([getEventFinancialSummary(event.id), listEventRepasses(event.id)])
+    const [s, r, ep] = await Promise.all([
+      getEventFinancialSummary(event.id),
+      listEventRepasses(event.id),
+      listEventProducts(event.id).catch(() => [])
+    ])
     setSummary(s)
     setRepasses(r)
+    setEventProducts(ep)
     setLoading(false)
   }
 
@@ -172,24 +178,56 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
 
         {view === 'produtor' && (loading || !summary ? (
           <p className="text-sm text-white/50">Montando a prestação de contas...</p>
-        ) : (
+        ) : (() => {
+          // O extrato do produtor no modelo da casa, com cada linha LIGADA na
+          // aba de origem — nada digitado duas vezes:
+          //   Vendas        ← aba Produtos (Σ vendido × preço); sem vendas lá,
+          //                   cai no campo Vendas do fechamento
+          //   % do produtor ← 100 − Percentual Beetz
+          //   Consumo       ← aba Consumo da produção (desconta do produtor)
+          //   Repasses      ← aba Repasses (o que já foi pago)
+          //   Saldo         = vendas × % + créditos − consumo − repasses
+          const vendasProdutos = eventProducts.reduce((s, p) => s + (p.sold_quantity ?? 0) * (p.sale_price ?? 0), 0)
+          const vendasBase = vendasProdutos > 0 ? vendasProdutos : summary.vendas
+          const vendasFonte = vendasProdutos > 0 ? 'aba Produtos' : 'campo do fechamento'
+          const pctProdutor = Math.max(0, 100 - summary.percentual)
+          const valorAReceber = vendasBase * (pctProdutor / 100)
+          const saldoAReceber = valorAReceber + summary.creditosOuBonificacoes - summary.consumoProducao - summary.repasses
+          return (
           // Documento branco de propósito: é a folha que se mostra pra
           // produtora, destacada do painel interno escuro.
           <div className="bg-white text-beetz-dark rounded-2xl p-5 md:p-6">
-            <div className="mb-4 pb-4 border-b border-beetz-dark/10">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-beetz-dark/40">Prestação de contas</p>
-              <p className="font-extrabold text-lg leading-tight mt-0.5">{event.name}</p>
-              {event.event_date && <p className="text-xs text-beetz-dark/50 mt-0.5">{dateBR(event.event_date)}</p>}
+            <div className="flex items-start gap-4 mb-4 pb-4 border-b border-beetz-dark/10">
+              {event.flyer_url && (
+                <img src={event.flyer_url} alt="Flyer" className="w-20 h-20 object-cover rounded-xl border border-beetz-dark/10 shrink-0" />
+              )}
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-beetz-dark/40">Fechamento do evento</p>
+                <p className="font-extrabold text-lg leading-tight mt-0.5">{event.name}</p>
+                <p className="text-xs text-beetz-dark/50 mt-1">
+                  {event.event_date ? dateBR(event.event_date) : ''}{event.start_time ? ` · ${event.start_time.slice(0, 5)}` : ''}
+                  {event.music_style ? ` · ${event.music_style}` : ''}
+                </p>
+                {(event.location || event.city) && (
+                  <p className="text-xs text-beetz-dark/50">📍 {[event.location, event.city].filter(Boolean).join(', ')}</p>
+                )}
+              </div>
             </div>
 
             <div className="space-y-1.5">
-              <StatementRowLight label="Arrecadado pelos caixas Beetz" value={summary.recebimentos} />
-              <StatementRowLight label={`Comissão Beetz (${summary.percentual}% de ${currency(summary.vendas)})`} value={-summary.aReceber} />
-              <StatementRowLight label="Créditos e bonificações" value={-summary.creditosOuBonificacoes} />
+              <StatementRowLight label={`Vendas (${vendasFonte})`} value={vendasBase} />
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-beetz-dark/70">Percentual do produtor</span>
+                <span className="font-semibold">{pctProdutor}%</span>
+              </div>
+              <StatementRowLight label={`Valor a receber (${pctProdutor}% de ${currency(vendasBase)})`} value={valorAReceber} />
+              <StatementRowLight label="Créditos ou bonificações" value={summary.creditosOuBonificacoes} />
+              <StatementRowLight label="Consumo da produção (aba Consumo)" value={-summary.consumoProducao} />
+              <StatementRowLight label="Repasses já pagos (aba Repasses)" value={-summary.repasses} />
               <div className="flex items-center justify-between pt-3 mt-2 border-t border-beetz-dark/15">
-                <span className="font-bold">Devido à produtora</span>
-                <span className="text-lg font-extrabold">
-                  {currency(summary.recebimentos - summary.receitaBeetz)}
+                <span className="font-bold">Saldo a receber</span>
+                <span className={`text-xl font-extrabold ${saldoAReceber >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {currency(saldoAReceber)}
                 </span>
               </div>
             </div>
@@ -210,19 +248,14 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
                   ))}
                 </div>
               )}
-              <div className="flex items-center justify-between mt-3 pt-3 border-t border-beetz-dark/10">
-                <span className="text-sm font-semibold text-beetz-dark/70">Saldo pendente a receber da Beetz</span>
-                <span className={`font-extrabold ${summary.saldoAPagarProdutora > 0 ? 'text-amber-600' : 'text-green-600'}`}>
-                  {currency(summary.saldoAPagarProdutora)}
-                </span>
-              </div>
             </div>
 
             <p className="text-[11px] text-beetz-dark/35 mt-5">
               Gerado automaticamente a partir dos lançamentos deste evento na Colmeia Beetz.
             </p>
           </div>
-        ))}
+          )
+        })())}
       </div>
     </div>
   )
