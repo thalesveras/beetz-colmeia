@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Plus, Trash2, X } from 'lucide-react'
 import {
   createEventProduct, deleteEventProduct, getEventStockByProduct, getProductAvgCosts,
-  listEventProducts, listEventSalesLines, listProducts, updateEventProduct
+  listEventProducts, listEventSalesLines, listProducts, propagateEventProductCostToMovements, updateEventProduct
 } from '../../lib/dataService'
 import type { EventStockLine } from '../../lib/dataService'
 import type { EventProduct, EventSalesLine, Product } from '../../lib/types'
@@ -520,6 +520,17 @@ function EditEventProductModal({ item, name, defaultProducerPercent, stockNet, p
         quantity: qty, unit_price: cost, sale_price: sale, producer_percent: pct,
         sold_quantity: sold, notes: notes.trim() || null
       })
+      // Custo é UM número só: mudou aqui, escreve na entrada correspondente
+      // das Movimentações (e a despesa Pendente vinculada acompanha). Com
+      // mais de uma entrada, movimentação não se reescreve — a tela avisa.
+      if (cost !== item.unit_price) {
+        try {
+          const sync = await propagateEventProductCostToMovements(item.event_id, item.product_id, cost)
+          if (sync === 'multiple') {
+            alert('Há mais de uma compra/entrada desse produto no evento — o custo delas não foi alterado. Se precisar, ajuste direto na aba Movimentações.')
+          }
+        } catch { /* sync é cortesia — o produto já foi salvo */ }
+      }
       onSaved()
     } catch (e: any) {
       setError(e?.message ?? 'Não foi possível salvar.')

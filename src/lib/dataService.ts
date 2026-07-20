@@ -1324,6 +1324,67 @@ export async function updateCompraMovement(
     .update({ quantity: patch.quantity, unit_value: patch.unit_cost ?? 0, description })
     .eq('id', exp.id)
   if (updErr) throw updErr
+  // Terceira ponta: se o movimento pertence ao almoxarifado de um EVENTO e o
+  // produto está lançado na aba Produtos, o preço de custo de lá acompanha
+  // (média ponderada das entradas com custo). Best-effort: falha aqui não
+  // derruba a edição da compra.
+  try { await propagateCompraCostToEventProduct(movement) } catch { /* sync é cortesia */ }
+  return 'synced'
+}
+
+// Movimento → produto do evento: recalcula o custo médio ponderado das
+// entradas COM custo desse produto dentro dos almoxarifados do evento e grava
+// no event_products.unit_price. É o que mantém "Preço de custo" da aba
+// Produtos igual ao que as Movimentações dizem.
+export async function propagateCompraCostToEventProduct(movement: StockMovement): Promise<void> {
+  if (isDemoMode) return
+  let eventId = movement.event_id
+  if (!eventId) {
+    const { data: loc } = await supabase.from('stock_locations').select('event_id').eq('id', movement.stock_location_id).single()
+    eventId = (loc as { event_id: string | null } | null)?.event_id ?? null
+  }
+  if (!eventId) return
+  const { data: locs } = await supabase.from('stock_locations').select('id').eq('event_id', eventId)
+  const locIds = ((locs ?? []) as { id: string }[]).map((l) => l.id)
+  if (locIds.length === 0) return
+  const { data: movs } = await supabase.from('stock_movements')
+    .select('quantity, unit_cost, movement_type, status')
+    .eq('product_id', movement.product_id)
+    .in('stock_location_id', locIds)
+  const withCost = ((movs ?? []) as { quantity: number; unit_cost: number | null; movement_type: string; status: string }[])
+    .filter((m) => m.status === 'Ativo' && m.unit_cost != null && ['Compra', 'Entrada', 'Ajuste (entrada)'].includes(m.movement_type))
+  const totQty = withCost.reduce((s, m) => s + Number(m.quantity), 0)
+  if (withCost.length === 0 || totQty <= 0) return
+  const avg = withCost.reduce((s, m) => s + Number(m.quantity) * Number(m.unit_cost), 0) / totQty
+  await supabase.from('event_products')
+    .update({ unit_price: Math.round(avg * 10000) / 10000 })
+    .eq('event_id', eventId)
+    .eq('product_id', movement.product_id)
+}
+
+// Produto do evento → movimento: quando há EXATAMENTE UMA entrada com aquele
+// produto no almoxarifado do evento, o custo editado no modal escreve nela
+// (e a despesa Pendente vinculada acompanha, via updateCompraMovement). Com
+// mais de uma, não se mexe — duas compras a preços diferentes são fatos, e a
+// tela avisa pra ajustar direto nas Movimentações.
+export async function propagateEventProductCostToMovements(
+  eventId: string, productId: string, newCost: number
+): Promise<'synced' | 'multiple' | 'none'> {
+  if (isDemoMode) return 'none'
+  const { data: locs } = await supabase.from('stock_locations').select('id').eq('event_id', eventId)
+  const locIds = ((locs ?? []) as { id: string }[]).map((l) => l.id)
+  if (locIds.length === 0) return 'none'
+  const { data: movs, error } = await supabase.from('stock_movements')
+    .select('id, quantity')
+    .eq('product_id', productId)
+    .in('stock_location_id', locIds)
+    .in('movement_type', ['Compra', 'Entrada', 'Ajuste (entrada)'])
+    .eq('status', 'Ativo')
+  if (error) return 'none'
+  const rows = (movs ?? []) as { id: string; quantity: number }[]
+  if (rows.length === 0) return 'none'
+  if (rows.length > 1) return 'multiple'
+  await updateCompraMovement(rows[0].id, { quantity: Number(rows[0].quantity), unit_cost: newCost })
   return 'synced'
 }
 
