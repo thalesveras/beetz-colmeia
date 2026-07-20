@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { ScanLine, Trash2, Upload } from 'lucide-react'
+import { Camera, ScanLine, Trash2, Upload } from 'lucide-react'
 
 // Campo de comprovante inteligente: recebe a imagem por arrasto, colagem
 // (Ctrl/Cmd+V) ou toque, e lê o print com OCR direto no navegador
@@ -193,6 +193,7 @@ export default function SmartReceiptField({ value, onChange, onExtracted, onExtr
   variant?: 'repasse' | 'pagamentos'
 }) {
   const fileRef = useRef<HTMLInputElement | null>(null)
+  const cameraRef = useRef<HTMLInputElement | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [reading, setReading] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -277,6 +278,12 @@ export default function SmartReceiptField({ value, onChange, onExtracted, onExtr
         ref={fileRef} type="file" accept="image/*" className="hidden"
         onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = '' }}
       />
+      {/* capture="environment" abre a CÂMERA TRASEIRA direto no celular —
+          sem passar pela galeria. No desktop cai no seletor normal. */}
+      <input
+        ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden"
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = '' }}
+      />
       {value ? (
         <div className="flex items-start gap-3 bg-white border border-beetz-dark/10 rounded-xl p-3">
           <img src={value} alt="Comprovante" className="w-16 h-16 object-cover rounded-lg border border-beetz-dark/10 shrink-0" />
@@ -342,12 +349,29 @@ export default function SmartReceiptField({ value, onChange, onExtracted, onExtr
             const f = e.dataTransfer.files?.[0]
             if (f) handleFile(f)
           }}
-          className={`flex flex-col items-center justify-center gap-1.5 border-2 border-dashed rounded-xl px-4 py-5 cursor-pointer transition-colors text-center ${
+          className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl px-4 py-5 cursor-pointer transition-colors text-center ${
             dragOver ? 'border-beetz-yellow bg-beetz-yellow/10' : 'border-beetz-dark/15 bg-white hover:border-beetz-dark/30'
           }`}
         >
-          <Upload size={18} className="text-beetz-dark/35" />
-          <p className="text-xs font-semibold text-beetz-dark/60">Arraste o comprovante aqui, cole (Ctrl+V) ou toque</p>
+          {/* Câmera em primeiro e GRANDE: no evento, a mão está segurando o
+              papel do fechamento — tirar a foto é o caminho de 1 toque. */}
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); cameraRef.current?.click() }}
+              className="flex items-center gap-1.5 text-sm font-bold honey-gradient text-beetz-dark px-4 py-2.5 rounded-xl active:scale-[0.98] transition"
+            >
+              <Camera size={16} /> Tirar foto
+            </button>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); fileRef.current?.click() }}
+              className="flex items-center gap-1.5 text-xs font-semibold text-beetz-dark/60 border border-beetz-dark/15 px-3 py-2.5 rounded-xl hover:bg-beetz-gray transition-colors"
+            >
+              <Upload size={14} /> Escolher arquivo
+            </button>
+          </div>
+          <p className="text-[11px] text-beetz-dark/40">ou arraste aqui / cole (Ctrl+V)</p>
           <p className="text-[11px] text-beetz-dark/40">
             {variant === 'pagamentos'
               ? 'Eu leio o fechamento e preencho dinheiro, débito, crédito e pix — foto de frente e com luz ajuda'
