@@ -7,17 +7,14 @@ import {
 } from '../../lib/dataService'
 import type { EventItem, EventMember, Profile } from '../../lib/types'
 import Avatar from '../../components/ui/Avatar'
-import { ArrowLeftRight, Check, Clock, X } from 'lucide-react'
+import { Check, Clock, X } from 'lucide-react'
 import ExpensesTab from './ExpensesTab'
 import CashierTab from './CashierTab'
-import StockTab from './StockTab'
 import ProductsTab from './ProductsTab'
 import ProductionConsumptionTab from './ProductionConsumptionTab'
-import TransferRequestsTab from './TransferRequestsTab'
 import RepassesTab from './RepassesTab'
 import StaffingTab from './StaffingTab'
-import StockReconciliationCard from './StockReconciliationCard'
-import SalesReportCard from './SalesReportCard'
+import EventStockSection from './EventStockSection'
 import EventSummaryCard from './EventSummaryCard'
 import FinancialSummaryCard from './FinancialSummaryCard'
 import EventResumoTab from './EventResumoTab'
@@ -311,19 +308,10 @@ export default function EventDetail() {
         </div>
       )}
 
+      {/* Uma conta só, sem informação solta: Sobra = Entrou − Consumo − Vendido.
+          PDV, movimentações e transferências viraram sub-abas dentro da seção. */}
       {activeTab === 'estoque' && canViewStockTab(accessRole) && (
-        <div className="space-y-6">
-          <SalesReportCard eventId={id} />
-          <StockReconciliationCard eventId={id} />
-          <div className="bg-white rounded-2xl p-6 shadow-soft border border-beetz-dark/5">
-            <StockTab eventId={id} />
-          </div>
-          <div className="bg-white rounded-2xl p-6 shadow-soft border border-beetz-dark/5">
-            <h2 className="font-bold text-lg flex items-center gap-2 mb-1"><ArrowLeftRight size={18} /> Transferências entre estoques</h2>
-            <p className="text-sm text-beetz-dark/50 mb-4">Pedidos de mudança de produto entre almoxarifados pra este evento.</p>
-            <TransferRequestsTab eventId={id} canApprove={canManageUsers(accessRole)} />
-          </div>
-        </div>
+        <EventStockSection eventId={id} canApprove={canManageUsers(accessRole)} />
       )}
 
       {activeTab === 'consumo' && canViewStockTab(accessRole) && (
