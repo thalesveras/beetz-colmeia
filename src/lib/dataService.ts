@@ -1912,7 +1912,7 @@ export async function listEventStockMovementsWide(eventId: string): Promise<(Sto
   const orFilter = locIds.size > 0
     ? `event_id.eq.${eventId},stock_location_id.in.(${Array.from(locIds).join(',')})`
     : `event_id.eq.${eventId}`
-  const { data, error } = await supabase.from('stock_movements').select('*').or(orFilter)
+  const { data, error } = await supabase.from('stock_movements').select('*').or(orFilter).order('created_at', { ascending: false })
   if (error) throw error
   return ((data ?? []) as StockMovement[]).map((m) => ({ ...m, in_event_location: locIds.has(m.stock_location_id) }))
 }
