@@ -501,6 +501,9 @@ export interface EventProduct {
   // médio aqui); total (gerado no banco) = quantity × unit_price = custo total.
   unit_price: number
   total: number
+  // quantity = o que ENTROU no evento (movimentações); sold_quantity = o que
+  // foi VENDIDO, informado dia a dia. A economia é calculada sobre o vendido.
+  sold_quantity?: number | null
   // Economia do item: preço de venda + % da venda que fica com o produtor.
   // Opcionais (dados antigos não têm) — a UI calcula o resultado Beetz
   // (venda − produtor − custo) quando os dois existem.

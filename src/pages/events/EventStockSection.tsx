@@ -106,7 +106,9 @@ function EventStockAccountCard({ eventId }: { eventId: string }) {
       else if (m.in_event_location && ['Perda', 'Quebra'].includes(m.movement_type)) get(m.product_id).perdas += m.quantity
     }
     for (const c of consumption) get(c.product_id).consumo += c.quantity
-    for (const ep of eventProducts) get(ep.product_id).vendido += ep.quantity
+    // Vendido = sold_quantity (o número INFORMADO na aba Produtos) — a
+    // quantity de lá é a entrada, que aqui já vem das movimentações.
+    for (const ep of eventProducts) get(ep.product_id).vendido += ep.sold_quantity ?? 0
     return Array.from(map.entries())
       .map(([productId, v]) => ({
         productId, ...v,

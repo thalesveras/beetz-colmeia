@@ -2219,7 +2219,7 @@ export type NewEventRepasseInput = Omit<EventRepasse, 'id' | 'created_at'>
 // Editar/apagar produto do evento — total é coluna GERADA no banco, então o
 // update manda só quantity/unit_price/notes e NUNCA o total.
 export async function updateEventProduct(
-  id: string, patch: Partial<Pick<EventProduct, 'quantity' | 'unit_price' | 'notes' | 'sale_price' | 'producer_percent'>>
+  id: string, patch: Partial<Pick<EventProduct, 'quantity' | 'unit_price' | 'notes' | 'sale_price' | 'producer_percent' | 'sold_quantity'>>
 ): Promise<EventProduct> {
   if (isDemoMode) {
     const idx = demoState.eventProducts.findIndex((p) => p.id === id)

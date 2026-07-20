@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Plus, Trash2, X } from 'lucide-react'
 import {
   createEventProduct, deleteEventProduct, getEventStockByProduct, getProductAvgCosts,
-  listEventProducts, listProducts, updateEventProduct
+  listEventProducts, listEventSalesLines, listProducts, updateEventProduct
 } from '../../lib/dataService'
 import type { EventStockLine } from '../../lib/dataService'
-import type { EventProduct, Product } from '../../lib/types'
+import type { EventProduct, EventSalesLine, Product } from '../../lib/types'
 
 const inputClass = 'w-full border border-beetz-dark/15 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
 
@@ -21,18 +21,18 @@ function parseNum(s: string): number {
   return Number(s.replace(',', '.')) || 0
 }
 
-// A conta que responde "estamos ganhando dinheiro nesse item?":
-//   venda total − parte do produtor − custo total = resultado Beetz.
-// Sem preço de venda não tem conta — devolve null em vez de fingir zero.
-// % do produtor ausente conta como 0% (tudo da venda fica com a Beetz).
-function lineEconomics(qty: number, cost: number, sale: number | null | undefined, pct: number | null | undefined) {
-  const custoTotal = qty * cost
-  if (sale == null) return { custoTotal, vendaTotal: null, produtor: null, resultado: null, margem: null }
-  const vendaTotal = qty * sale
+// A conta do item é calculada sobre o VENDIDO (não sobre o que entrou —
+// sobra volta pro estoque e o custo dela não é perdido):
+//   venda (vendido × preço) − parte do produtor − custo do vendido = resultado.
+// Sem vendido ou sem preço de venda não tem conta — devolve null, não zero.
+function lineEconomics(sold: number | null, cost: number, sale: number | null | undefined, pct: number | null | undefined) {
+  if (sold == null || sale == null) return { vendaTotal: null, produtor: null, custoVendido: null, resultado: null, margem: null }
+  const vendaTotal = sold * sale
   const produtor = vendaTotal * ((pct ?? 0) / 100)
-  const resultado = vendaTotal - produtor - custoTotal
+  const custoVendido = sold * cost
+  const resultado = vendaTotal - produtor - custoVendido
   const margem = vendaTotal > 0 ? (resultado / vendaTotal) * 100 : null
-  return { custoTotal, vendaTotal, produtor, resultado, margem }
+  return { vendaTotal, produtor, custoVendido, resultado, margem }
 }
 
 export default function ProductsTab({ eventId, defaultProducerPercent }: {
@@ -45,9 +45,10 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
   const [selected, setSelected] = useState<EventProduct | null>(null)
-  // Ponte com a aba Estoque: o que foi enviado pro evento (líquido) e o custo
-  // médio do catálogo — um toque lança como produto do evento sem digitação.
+  // Pontes: estoque do evento (líquido por produto) e vendas da máquina
+  // (relatório do PDV mapeado) — viram dicas com botão "Usar" no modal.
   const [stockLines, setStockLines] = useState<EventStockLine[]>([])
+  const [salesLines, setSalesLines] = useState<EventSalesLine[]>([])
   const [avgCosts, setAvgCosts] = useState<Map<string, number>>(new Map())
   const [importingId, setImportingId] = useState<string | null>(null)
 
@@ -66,22 +67,39 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
 
   async function load() {
     setLoading(true)
-    const [eventProducts, allProducts, lines, costs] = await Promise.all([
+    const [eventProducts, allProducts, lines, sales, costs] = await Promise.all([
       listEventProducts(eventId),
       listProducts(),
       getEventStockByProduct(eventId).catch(() => []),
+      listEventSalesLines(eventId).catch(() => []),
       getProductAvgCosts().catch(() => new Map<string, number>())
     ])
     setItems(eventProducts)
     setProducts(allProducts)
     setStockLines(lines)
+    setSalesLines(sales)
     setAvgCosts(costs)
     setLoading(false)
   }
 
+  // Vendido segundo a máquina, em unidades de estoque (quantidade × un/venda).
+  const posSoldByProduct = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const l of salesLines) {
+      if (!l.product_id) continue
+      map.set(l.product_id, (map.get(l.product_id) ?? 0) + l.quantity * l.units_per_sale)
+    }
+    return map
+  }, [salesLines])
+
+  const stockNetByProduct = useMemo(
+    () => new Map(stockLines.map((l) => [l.product_id, l.net])),
+    [stockLines]
+  )
+
   // Enviado pro evento e ainda sem lançamento em Produtos — é o que falta
-  // registrar. Um toque preenche quantidade (líquido do estoque) e custo
-  // (custo médio), revisável no modal depois.
+  // registrar. Um toque preenche a ENTRADA (líquido do estoque) e o custo
+  // (custo médio); as vendas são informadas depois, no modal.
   const launchedProductIds = new Set(items.map((i) => i.product_id))
   const pendingFromStock = stockLines.filter((l) => l.net > 0 && !launchedProductIds.has(l.product_id))
 
@@ -95,6 +113,7 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
         unit_price: avgCosts.get(line.product_id) ?? 0,
         sale_price: null,
         producer_percent: defaultProducerPercent ?? null,
+        sold_quantity: null,
         notes: 'Lançado do estoque do evento'
       })
       await load()
@@ -105,14 +124,14 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
 
   useEffect(() => { load() }, [eventId])
 
-  // Totais do evento: custo sempre existe; venda/produtor/resultado só somam
-  // os itens que têm preço de venda — melhor um total parcial e honesto.
-  const totalCusto = items.reduce((sum, i) => sum + i.total, 0)
-  const withSale = items.filter((i) => i.sale_price != null)
-  const totalVenda = withSale.reduce((s, i) => s + i.quantity * (i.sale_price ?? 0), 0)
-  const totalProdutor = withSale.reduce((s, i) => s + i.quantity * (i.sale_price ?? 0) * ((i.producer_percent ?? 0) / 100), 0)
-  const totalResultado = withSale.reduce((s, i) => {
-    const e = lineEconomics(i.quantity, i.unit_price, i.sale_price, i.producer_percent)
+  // Totais do evento: custo do que entrou sempre existe; vendas/produtor/
+  // resultado somam só quem tem VENDIDO informado + preço de venda.
+  const totalCustoEntrada = items.reduce((sum, i) => sum + i.total, 0)
+  const withSales = items.filter((i) => i.sold_quantity != null && i.sale_price != null)
+  const totalVendas = withSales.reduce((s, i) => s + (i.sold_quantity ?? 0) * (i.sale_price ?? 0), 0)
+  const totalProdutor = withSales.reduce((s, i) => s + (i.sold_quantity ?? 0) * (i.sale_price ?? 0) * ((i.producer_percent ?? 0) / 100), 0)
+  const totalResultado = withSales.reduce((s, i) => {
+    const e = lineEconomics(i.sold_quantity ?? null, i.unit_price, i.sale_price, i.producer_percent)
     return s + (e.resultado ?? 0)
   }, 0)
 
@@ -126,6 +145,7 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
       event_id: eventId, product_id: productId, quantity, unit_price: unitPrice,
       sale_price: salePrice.trim() ? parseNum(salePrice) : null,
       producer_percent: producerPercent.trim() ? parseNum(producerPercent) : null,
+      sold_quantity: null,
       notes: notes || null
     })
     setSaving(false)
@@ -134,8 +154,6 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
     setShowForm(false)
     load()
   }
-
-  const formEcon = lineEconomics(quantity, unitPrice, salePrice.trim() ? parseNum(salePrice) : null, producerPercent.trim() ? parseNum(producerPercent) : null)
 
   return (
     <div className="space-y-5">
@@ -151,33 +169,34 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
         </button>
       </div>
 
-      {/* A razão de existir da aba: estamos ganhando dinheiro? Custo é a soma
-          cheia; venda/produtor/resultado somam só itens com preço de venda. */}
+      {/* As VENDAS DO EVENTO calculadas pelos produtos: Σ vendido × preço de
+          venda. Entrada é outra coluna da vida — o custo do que entrou. */}
       {!loading && items.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="bg-beetz-gray/60 rounded-xl p-3">
-            <p className="text-base font-extrabold leading-none">{currency(totalCusto)}</p>
-            <p className="text-[11px] text-beetz-dark/50 mt-1">Custo total</p>
+            <p className="text-base font-extrabold leading-none">{currency(totalCustoEntrada)}</p>
+            <p className="text-[11px] text-beetz-dark/50 mt-1">Custo do que entrou</p>
+          </div>
+          <div className="bg-beetz-dark text-white rounded-xl p-3">
+            <p className="text-base font-extrabold leading-none">{withSales.length > 0 ? currency(totalVendas) : '—'}</p>
+            <p className="text-[11px] text-white/50 mt-1">Vendas do evento</p>
           </div>
           <div className="bg-beetz-gray/60 rounded-xl p-3">
-            <p className="text-base font-extrabold leading-none">{withSale.length > 0 ? currency(totalVenda) : '—'}</p>
-            <p className="text-[11px] text-beetz-dark/50 mt-1">Venda prevista</p>
-          </div>
-          <div className="bg-beetz-gray/60 rounded-xl p-3">
-            <p className="text-base font-extrabold leading-none">{withSale.length > 0 ? currency(totalProdutor) : '—'}</p>
+            <p className="text-base font-extrabold leading-none">{withSales.length > 0 ? currency(totalProdutor) : '—'}</p>
             <p className="text-[11px] text-beetz-dark/50 mt-1">Produtor leva</p>
           </div>
-          <div className={`rounded-xl p-3 ${withSale.length === 0 ? 'bg-beetz-gray/60' : totalResultado >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
-            <p className={`text-base font-extrabold leading-none ${withSale.length === 0 ? '' : totalResultado >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-              {withSale.length > 0 ? currency(totalResultado) : '—'}
+          <div className={`rounded-xl p-3 ${withSales.length === 0 ? 'bg-beetz-gray/60' : totalResultado >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
+            <p className={`text-base font-extrabold leading-none ${withSales.length === 0 ? '' : totalResultado >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+              {withSales.length > 0 ? currency(totalResultado) : '—'}
             </p>
             <p className="text-[11px] text-beetz-dark/50 mt-1">Resultado Beetz</p>
           </div>
         </div>
       )}
-      {!loading && items.length > 0 && withSale.length < items.length && (
+      {!loading && items.length > 0 && withSales.length < items.length && (
         <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-          {items.length - withSale.length} produto(s) ainda sem preço de venda — toque no card pra completar e entrar na conta.
+          {items.length - withSales.length} produto(s) sem vendas informadas — toque no card, preencha
+          "Vendido" (e o preço de venda) pra entrar na conta.
         </p>
       )}
 
@@ -192,7 +211,7 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
           </div>
           <div className="grid grid-cols-2 gap-3 sm:gap-4">
             <div>
-              <label className="text-sm font-medium block mb-1">Quantidade</label>
+              <label className="text-sm font-medium block mb-1">Entrou no evento (un)</label>
               <input type="number" min={0} step="1" className={inputClass} value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} />
             </div>
             <div>
@@ -212,19 +231,11 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
             <label className="text-sm font-medium block mb-1">Observações</label>
             <input className={inputClass} value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
-          <div className="bg-white rounded-xl px-4 py-3 space-y-1.5 text-sm">
-            <div className="flex justify-between"><span className="text-beetz-dark/60">Custo total</span><span className="font-semibold">{currency(formEcon.custoTotal)}</span></div>
-            {formEcon.vendaTotal != null && (
-              <>
-                <div className="flex justify-between"><span className="text-beetz-dark/60">Venda total</span><span className="font-semibold">{currency(formEcon.vendaTotal)}</span></div>
-                <div className="flex justify-between"><span className="text-beetz-dark/60">Produtor leva</span><span className="font-semibold">{currency(formEcon.produtor ?? 0)}</span></div>
-                <div className="flex justify-between border-t border-beetz-dark/10 pt-1.5">
-                  <span className="font-semibold">Resultado Beetz</span>
-                  <span className={`font-bold ${(formEcon.resultado ?? 0) >= 0 ? 'text-green-700' : 'text-red-600'}`}>{currency(formEcon.resultado ?? 0)}</span>
-                </div>
-              </>
-            )}
+          <div className="bg-white rounded-xl px-4 py-3 text-sm flex justify-between">
+            <span className="text-beetz-dark/60">Custo do que entrou</span>
+            <span className="font-semibold">{currency(quantity * unitPrice)}</span>
           </div>
+          <p className="text-xs text-beetz-dark/45">As vendas você informa depois, tocando no card do produto — dia a dia, conforme o relatório da máquina.</p>
           <div className="flex justify-end gap-2 pt-1">
             <button type="button" onClick={() => setShowForm(false)} className="text-sm font-semibold text-beetz-dark/50 px-4 py-2">Cancelar</button>
             <button type="submit" disabled={saving || !productId} className="honey-gradient text-beetz-dark font-bold px-5 py-2 rounded-xl text-sm disabled:opacity-60">
@@ -238,9 +249,8 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
         <div className="bg-beetz-dark text-white rounded-2xl p-4">
           <p className="text-xs font-bold uppercase tracking-wide text-beetz-yellow mb-1">Do estoque do evento</p>
           <p className="text-xs text-white/50 mb-3">
-            Itens enviados pela aba Estoque e ainda sem lançamento aqui. Um toque lança com a
-            quantidade líquida (enviado − devolvido − consumido) e o custo médio — depois toque
-            no card pra colocar o preço de venda.
+            Itens enviados pela aba Estoque e ainda sem lançamento aqui. Um toque lança a ENTRADA
+            (líquido do estoque) com o custo médio — as vendas você informa depois no card.
           </p>
           <div className="space-y-1.5">
             {pendingFromStock.map((line) => (
@@ -269,7 +279,7 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
           {/* Card inteiro é botão: no dedo, alvo grande; os detalhes e as
               ações (editar/apagar) moram no modal. */}
           {items.map((item) => {
-            const e = lineEconomics(item.quantity, item.unit_price, item.sale_price, item.producer_percent)
+            const e = lineEconomics(item.sold_quantity ?? null, item.unit_price, item.sale_price, item.producer_percent)
             return (
             <button
               key={item.id}
@@ -279,7 +289,7 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-sm truncate">{productName(item.product_id)}</p>
                 <p className="text-xs text-beetz-dark/50 truncate">
-                  {item.quantity} un. · custo {currency(item.unit_price)}
+                  entrou {item.quantity} · vendido {item.sold_quantity ?? '—'}
                   {item.sale_price != null ? ` · venda ${currency(item.sale_price)}` : ''}
                   {item.producer_percent != null ? ` · produtor ${item.producer_percent}%` : ''}
                 </p>
@@ -293,7 +303,7 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
                 </div>
               ) : (
                 <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg shrink-0">
-                  sem preço de venda
+                  informar vendas
                 </span>
               )}
             </button>
@@ -307,6 +317,8 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
           item={selected}
           name={productName(selected.product_id)}
           defaultProducerPercent={defaultProducerPercent ?? null}
+          stockNet={stockNetByProduct.get(selected.product_id) ?? null}
+          posSold={posSoldByProduct.get(selected.product_id) ?? null}
           onClose={() => setSelected(null)}
           onSaved={() => { setSelected(null); load() }}
         />
@@ -315,17 +327,20 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
   )
 }
 
-// Modal padrão da casa: detalhes completos + edição com a conta ao vivo +
-// exclusão com confirmação em dois toques, tudo num lugar só. A conta aqui é
-// A resposta da aba: venda − produtor − custo = quanto sobra pra Beetz.
-function EditEventProductModal({ item, name, defaultProducerPercent, onClose, onSaved }: {
+// Modal padrão da casa: ENTROU (das movimentações) e VENDIDO (informado) são
+// campos separados — a conta é sobre o vendido. As duas pontes viram dicas
+// com "Usar": o estoque do evento sugere a entrada, a máquina sugere a venda.
+function EditEventProductModal({ item, name, defaultProducerPercent, stockNet, posSold, onClose, onSaved }: {
   item: EventProduct
   name: string
   defaultProducerPercent: number | null
+  stockNet: number | null
+  posSold: number | null
   onClose: () => void
   onSaved: () => void
 }) {
   const [quantity, setQuantity] = useState(String(item.quantity))
+  const [soldQty, setSoldQty] = useState(item.sold_quantity != null ? String(item.sold_quantity) : '')
   const [unitPrice, setUnitPrice] = useState(String(item.unit_price))
   const [salePrice, setSalePrice] = useState(item.sale_price != null ? String(item.sale_price) : '')
   const [producerPercent, setProducerPercent] = useState(
@@ -338,17 +353,18 @@ function EditEventProductModal({ item, name, defaultProducerPercent, onClose, on
   const [error, setError] = useState<string | null>(null)
 
   const qty = parseNum(quantity)
+  const sold = soldQty.trim() ? parseNum(soldQty) : null
   const cost = parseNum(unitPrice)
   const sale = salePrice.trim() ? parseNum(salePrice) : null
   const pct = producerPercent.trim() ? parseNum(producerPercent) : null
-  const econ = lineEconomics(qty, cost, sale, pct)
+  const econ = lineEconomics(sold, cost, sale, pct)
 
   async function handleSave() {
     setSaving(true); setError(null)
     try {
       await updateEventProduct(item.id, {
         quantity: qty, unit_price: cost, sale_price: sale, producer_percent: pct,
-        notes: notes.trim() || null
+        sold_quantity: sold, notes: notes.trim() || null
       })
       onSaved()
     } catch (e: any) {
@@ -387,8 +403,22 @@ function EditEventProductModal({ item, name, defaultProducerPercent, onClose, on
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-sm font-medium block mb-1">Quantidade</label>
+              <label className="text-sm font-medium block mb-1">Entrou no evento (un)</label>
               <input type="text" inputMode="decimal" className={inputClass} value={quantity} onChange={(e) => setQuantity(e.target.value)} />
+              {stockNet != null && stockNet !== qty && (
+                <button type="button" onClick={() => setQuantity(String(stockNet))} className="text-[11px] font-semibold text-beetz-dark/50 hover:text-beetz-dark mt-1 underline">
+                  Movimentações dizem {stockNet} — usar
+                </button>
+              )}
+            </div>
+            <div>
+              <label className="text-sm font-medium block mb-1">Vendido (un)</label>
+              <input type="text" inputMode="decimal" placeholder="Informe as vendas" className={inputClass} value={soldQty} onChange={(e) => setSoldQty(e.target.value)} />
+              {posSold != null && posSold > 0 && posSold !== sold && (
+                <button type="button" onClick={() => setSoldQty(String(Number.isInteger(posSold) ? posSold : posSold.toFixed(1)))} className="text-[11px] font-semibold text-beetz-dark/50 hover:text-beetz-dark mt-1 underline">
+                  Máquina diz {Number.isInteger(posSold) ? posSold : posSold.toFixed(1)} — usar
+                </button>
+              )}
             </div>
             <div>
               <label className="text-sm font-medium block mb-1">Preço de custo (R$)</label>
@@ -402,23 +432,19 @@ function EditEventProductModal({ item, name, defaultProducerPercent, onClose, on
               <label className="text-sm font-medium block mb-1">% do produtor</label>
               <input type="text" inputMode="decimal" placeholder="Ex: 80" className={inputClass} value={producerPercent} onChange={(e) => setProducerPercent(e.target.value)} />
             </div>
-          </div>
-          <div>
-            <label className="text-sm font-medium block mb-1">Observações</label>
-            <input className={inputClass} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Opcional" />
+            <div>
+              <label className="text-sm font-medium block mb-1">Observações</label>
+              <input className={inputClass} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Opcional" />
+            </div>
           </div>
 
-          {/* A conta ao vivo. Verde/vermelho no resultado é o que responde a
-              pergunta sem precisar de calculadora do lado. */}
+          {/* A conta ao vivo, SOBRE O VENDIDO. A sobra (entrou − vendido)
+              volta pro estoque — não é custo perdido, por isso fica fora. */}
           <div className="bg-beetz-gray rounded-xl px-4 py-3 space-y-1.5 text-sm">
-            <div className="flex justify-between">
-              <span className="text-beetz-dark/60">Custo total ({qty} × {currency(cost)})</span>
-              <span className="font-semibold">{currency(econ.custoTotal)}</span>
-            </div>
             {econ.vendaTotal != null ? (
               <>
                 <div className="flex justify-between">
-                  <span className="text-beetz-dark/60">Venda total ({qty} × {currency(sale ?? 0)})</span>
+                  <span className="text-beetz-dark/60">Venda total ({sold} × {currency(sale ?? 0)})</span>
                   <span className="font-semibold">{currency(econ.vendaTotal)}</span>
                 </div>
                 <div className="flex justify-between">
@@ -426,8 +452,8 @@ function EditEventProductModal({ item, name, defaultProducerPercent, onClose, on
                   <span className="font-semibold">− {currency(econ.produtor ?? 0)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-beetz-dark/60">Custo</span>
-                  <span className="font-semibold">− {currency(econ.custoTotal)}</span>
+                  <span className="text-beetz-dark/60">Custo do vendido ({sold} × {currency(cost)})</span>
+                  <span className="font-semibold">− {currency(econ.custoVendido ?? 0)}</span>
                 </div>
                 <div className="flex justify-between border-t border-beetz-dark/10 pt-1.5">
                   <span className="font-bold">Resultado Beetz</span>
@@ -435,9 +461,17 @@ function EditEventProductModal({ item, name, defaultProducerPercent, onClose, on
                     {currency(econ.resultado ?? 0)}{econ.margem != null ? ` (${Math.round(econ.margem)}%)` : ''}
                   </span>
                 </div>
+                {sold != null && (
+                  <p className="text-[11px] text-beetz-dark/45 pt-1">
+                    Sobra estimada: {qty} − {sold} = {qty - sold} un (volta pro estoque — não entra no custo).
+                  </p>
+                )}
               </>
             ) : (
-              <p className="text-xs text-beetz-dark/45">Preencha o preço de venda pra ver a conta completa (venda − produtor − custo).</p>
+              <p className="text-xs text-beetz-dark/45">
+                Preencha <span className="font-semibold">Vendido</span> e o <span className="font-semibold">preço de venda</span> pra
+                ver a conta: venda − produtor − custo do vendido = resultado.
+              </p>
             )}
           </div>
         </div>
