@@ -3311,6 +3311,15 @@ export async function listSettlementInternalsForEvent(eventId: string): Promise<
   return (data ?? []).map(({ cashier_settlements: _drop, ...rest }: any) => rest) as CashierSettlementInternal[]
 }
 
+// Visão GLOBAL do controle interno (todos os eventos) — pra Diretoria fazer a
+// conta de quem deve a casa. RLS continua mandando: quem não revisa recebe [].
+export async function listAllSettlementInternals(): Promise<CashierSettlementInternal[]> {
+  if (isDemoMode) return []
+  const { data, error } = await supabase.from('cashier_settlement_internal').select('*')
+  if (error) throw error
+  return data as CashierSettlementInternal[]
+}
+
 export async function upsertSettlementInternal(
   input: Pick<CashierSettlementInternal, 'settlement_id' | 'status' | 'pending_amount' | 'internal_notes' | 'payment_receipt_data' | 'receivable_expense_id'> & { updated_by: string | null }
 ): Promise<void> {
