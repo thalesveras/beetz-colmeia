@@ -6,6 +6,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext'
 import FileField from '../../components/ui/FileField'
 import SmartReceiptField from '../../components/ui/SmartReceiptField'
+import ImageLightbox from '../../components/ui/ImageLightbox'
 import type { ExtractedPayments } from '../../components/ui/SmartReceiptField'
 import type { CashierRoleType, CashierSettlement, CashierSettlementInternal, Profile } from '../../lib/types'
 
@@ -44,6 +45,7 @@ export default function EditSettlementModal({ settlement, profiles, canReview, o
   const [pix, setPix] = useState(String(settlement.pix_amount))
   const [notes, setNotes] = useState(settlement.notes ?? '')
   const [receipt, setReceipt] = useState<string | null>(settlement.receipt_data ?? null)
+  const [zoomOpen, setZoomOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [removing, setRemoving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -236,13 +238,15 @@ export default function EditSettlementModal({ settlement, profiles, canReview, o
           <Field label="Comprovante do fechamento">
             <SmartReceiptField variant="pagamentos" value={receipt} onChange={setReceipt} onExtractedPayments={applyPayments} />
             {receipt && (
-              <a
-                href={receipt} target="_blank" rel="noreferrer"
+              <button
+                type="button"
+                onClick={() => setZoomOpen(true)}
                 className="inline-block text-[11px] font-semibold text-beetz-dark/50 hover:text-beetz-dark mt-1 underline"
               >
                 Abrir em tamanho cheio
-              </a>
+              </button>
             )}
+            {zoomOpen && receipt && <ImageLightbox src={receipt} onClose={() => setZoomOpen(false)} />}
           </Field>
 
           <div className="bg-beetz-gray/60 rounded-xl px-4 py-2.5 flex items-center justify-between">

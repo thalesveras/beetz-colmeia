@@ -3,6 +3,7 @@ import { HandCoins, Plus, Trash2, X } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { createEventRepasse, deleteEventRepasse, listEventRepasses, listProfiles, updateEventRepasse } from '../../lib/dataService'
 import SmartReceiptField from '../../components/ui/SmartReceiptField'
+import ImageLightbox from '../../components/ui/ImageLightbox'
 import type { ExtractedReceipt } from '../../components/ui/SmartReceiptField'
 import type { EventRepasse, Profile } from '../../lib/types'
 
@@ -168,6 +169,7 @@ function EditRepasseModal({ repasse, registeredBy, onClose, onSaved }: {
   const [paidAt, setPaidAt] = useState(repasse.paid_at)
   const [notes, setNotes] = useState(repasse.notes ?? '')
   const [receipt, setReceipt] = useState<string | null>(repasse.receipt_data ?? null)
+  const [zoomOpen, setZoomOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -239,13 +241,15 @@ function EditRepasseModal({ repasse, registeredBy, onClose, onSaved }: {
             <label className="text-sm font-medium block mb-1">Comprovante</label>
             <SmartReceiptField value={receipt} onChange={setReceipt} onExtracted={applyExtract} />
             {receipt && (
-              <a
-                href={receipt} target="_blank" rel="noreferrer"
+              <button
+                type="button"
+                onClick={() => setZoomOpen(true)}
                 className="inline-block text-[11px] font-semibold text-beetz-dark/50 hover:text-beetz-dark mt-1 underline"
               >
                 Abrir em tamanho cheio
-              </a>
+              </button>
             )}
+            {zoomOpen && receipt && <ImageLightbox src={receipt} onClose={() => setZoomOpen(false)} />}
           </div>
         </div>
 
