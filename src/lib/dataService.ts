@@ -1955,9 +1955,50 @@ export async function createEventSalesImport(
     await supabase.from('event_sales_imports').delete().eq('id', (imp as EventSalesImport).id)
     throw linesErr
   }
+  // Upload mais novo e mais completo vira o OFICIAL: os que ele cobre saem da
+  // conta. Só depois o Vendido é recalculado.
+  await supersedeCoveredImports(eventId, (imp as EventSalesImport).id).catch(() => 0)
   // Linhas que já chegaram mapeadas (alias) alimentam o Vendido na hora.
   await syncSoldQuantitiesFromPdv(eventId).catch(() => 0)
   return imp as EventSalesImport
+}
+
+// O relatório do PDV é CUMULATIVO: o export das 2h contém o das 23h. Regra do
+// oficial: se o upload novo COBRE um antigo (todo nome do antigo aparece nele
+// com contagem >= e o faturamento não caiu), o antigo é marcado como
+// substituído (superseded_by) e sai da soma do Vendido — resubir a versão
+// mais completa nunca duplica venda. Relatórios de DIAS diferentes não se
+// cobrem (nomes com contagens menores) e seguem SOMANDO normalmente.
+// Excluir o upload oficial reativa os antigos (FK on delete set null).
+async function supersedeCoveredImports(eventId: string, newImportId: string): Promise<number> {
+  if (isDemoMode) return 0
+  const [imports, allLines] = await Promise.all([listEventSalesImports(eventId), listEventSalesLines(eventId)])
+  const countsOf = (importId: string) => {
+    const byName = new Map<string, number>()
+    let total = 0
+    for (const l of allLines) {
+      if (l.import_id !== importId) continue
+      const k = normalizePosName(l.pos_name)
+      byName.set(k, (byName.get(k) ?? 0) + l.quantity)
+      total += l.total_gross ?? 0
+    }
+    return { byName, total }
+  }
+  const novo = countsOf(newImportId)
+  if (novo.byName.size === 0) return 0
+  let superseded = 0
+  for (const old of imports) {
+    if (old.id === newImportId || old.superseded_by) continue
+    const antigo = countsOf(old.id)
+    if (antigo.byName.size === 0) continue
+    const coberto = Array.from(antigo.byName.entries()).every(([k, q]) => (novo.byName.get(k) ?? 0) >= q)
+    if (coberto && novo.total >= antigo.total) {
+      const { error } = await supabase.from('event_sales_imports')
+        .update({ superseded_by: newImportId }).eq('id', old.id)
+      if (!error) superseded++
+    }
+  }
+  return superseded
 }
 
 export async function deleteEventSalesImport(id: string): Promise<void> {
@@ -1978,10 +2019,15 @@ export async function deleteEventSalesImport(id: string): Promise<void> {
 // linha no relatório não é tocado (vendas informadas na mão sobrevivem).
 export async function syncSoldQuantitiesFromPdv(eventId: string): Promise<number> {
   if (isDemoMode) return 0
-  const [lines, eventProducts] = await Promise.all([listEventSalesLines(eventId), listEventProducts(eventId)])
+  const [imports, lines, eventProducts] = await Promise.all([
+    listEventSalesImports(eventId), listEventSalesLines(eventId), listEventProducts(eventId)
+  ])
+  // Só uploads OFICIAIS entram na soma — os cobertos por um mais novo/completo
+  // (superseded_by) ficam de fora, senão a mesma noite contaria duas vezes.
+  const oficiais = new Set(imports.filter((i) => !i.superseded_by).map((i) => i.id))
   const soldByProduct = new Map<string, number>()
   for (const l of lines) {
-    if (!l.product_id) continue
+    if (!l.product_id || !oficiais.has(l.import_id)) continue
     soldByProduct.set(l.product_id, (soldByProduct.get(l.product_id) ?? 0) + l.quantity * l.units_per_sale)
   }
   let updated = 0

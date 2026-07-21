@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { BarChart3, Link2, Trash2, Upload } from 'lucide-react'
+import { BarChart3, Link2, Sparkles, Trash2, Upload } from 'lucide-react'
 import {
   createEventSalesImport, deleteEventSalesImport,
   listEventSalesImports, listEventSalesLines, listProducts, mapPosNameToProduct, normalizePosName
@@ -73,6 +73,60 @@ async function parseSalesCsv(file: File): Promise<ParsedSalesLine[]> {
   return out
 }
 
+// ---------- "IA" de vínculo: nome da máquina → produto do estoque ----------
+// Pontua cada produto contra o nome de venda: normaliza acento/caixa, compara
+// contenção sem espaços ("Redbull" ↔ "RED BULL"), sobreposição de palavras
+// (embalagem tipo garrafa/combo/lata não conta — a MARCA é o sinal) e tokens
+// quase-iguais por prefixo ("Buchanan's" ↔ "BUCHANAS'S"). Sugere só acima da
+// régua de 60%: "Mesa" casa com o produto MESA, mas "Agua de Coco" NÃO casa
+// com AGUA — melhor ficar sem sugestão que sugerir errado. Testado contra o
+// catálogo real (13/13).
+function normMatch(s: string): string {
+  return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
+}
+const MATCH_STOP = new Set(['garrafa', 'combo', 'lata', 'long', 'neck', 'dose', 'copo', 'balde', 'cerveja', 'tradicional', 'de', 'da', 'do', 'e', 'und', 'un', 'unid'])
+function matchTokens(s: string): string[] {
+  return normMatch(s).split(' ').filter((t) => !MATCH_STOP.has(t) && t.length > 1)
+}
+function tokenEq(a: string, b: string): boolean {
+  if (a === b) return true
+  if (a.length < 6 || b.length < 6) return false
+  let i = 0
+  while (i < a.length && i < b.length && a[i] === b[i]) i++
+  return i >= Math.min(a.length, b.length) - 2 && i >= 5
+}
+function scoreMatch(saleName: string, productName: string): number {
+  const a = normMatch(saleName)
+  const b = normMatch(productName)
+  if (!a || !b) return 0
+  if (a === b) return 1
+  const aFlat = a.replace(/\s/g, '')
+  const bFlat = b.replace(/\s/g, '')
+  let score = 0
+  if (bFlat.length >= 6 && (aFlat.includes(bFlat) || bFlat.includes(aFlat))) score = 0.92
+  const at = matchTokens(saleName)
+  const bt = matchTokens(productName)
+  if (at.length > 0 && bt.length > 0) {
+    const hits = at.filter((t) => bt.some((u) => tokenEq(t, u))).length
+    const ratio = hits / Math.max(at.length, bt.length)
+    score = Math.max(score, ratio >= 1 ? 0.85 : ratio * 0.7)
+    if (bFlat.length >= 6 && bt.every((t) => aFlat.includes(t))) score = Math.max(score, 0.8)
+  }
+  return score
+}
+function bestProductFor(saleName: string, products: Product[]): { product: Product; score: number } | null {
+  let best: Product | null = null
+  let bestScore = 0
+  for (const p of products) {
+    const s = scoreMatch(saleName, p.name)
+    // Empate = ganha o nome mais específico: "Coca Cola Zero" casa 92% com
+    // COCA-COLA e COCA-COLA ZERO — a Zero é a certa.
+    if (s > bestScore || (s === bestScore && best && p.name.length > best.name.length)) { bestScore = s; best = p }
+  }
+  return best && bestScore >= 0.6 ? { product: best, score: bestScore } : null
+}
+
 // Vendas da máquina DENTRO da aba Produtos: subiu o CSV do dia, o "Vendido"
 // de cada produto lançado atualiza sozinho (Σ de todos os dias, idempotente —
 // resubir não duplica). Nome novo da máquina pede vínculo UMA vez e fica
@@ -93,6 +147,11 @@ export default function SalesReportCard({ eventId, onSynced }: { eventId: string
   const [mapProduct, setMapProduct] = useState<Record<string, string>>({})
   const [mapUnits, setMapUnits] = useState<Record<string, string>>({})
   const [mappingKey, setMappingKey] = useState<string | null>(null)
+  // Sugestões da IA (score por nome) — preenchem os selects pra revisão; nada
+  // é gravado sem o toque em Vincular / Vincular todas.
+  const [suggested, setSuggested] = useState<Record<string, number>>({})
+  const [applyingAll, setApplyingAll] = useState(false)
+  const [info, setInfo] = useState<string | null>(null)
 
   async function load() {
     setLoading(true)
@@ -114,7 +173,14 @@ export default function SalesReportCard({ eventId, onSynced }: { eventId: string
     setError(null)
     try {
       const parsed = await parseSalesCsv(file)
-      await createEventSalesImport(eventId, { report_date: reportDate || null, file_name: file.name }, parsed, userId)
+      const imp = await createEventSalesImport(eventId, { report_date: reportDate || null, file_name: file.name }, parsed, userId)
+      // Se este upload cobriu anteriores (relatório cumulativo mais completo),
+      // avisa que ele virou o oficial.
+      const imps = await listEventSalesImports(eventId)
+      const cobertos = imps.filter((i) => i.superseded_by === imp.id).length
+      setInfo(cobertos > 0
+        ? `Este upload é o oficial agora: cobre e substitui ${cobertos} anterior${cobertos > 1 ? 'es' : ''} — a conta usa só o mais completo.`
+        : null)
       await load()
       onSynced?.()
     } catch (e: any) {
@@ -133,11 +199,18 @@ export default function SalesReportCard({ eventId, onSynced }: { eventId: string
     onSynced?.()
   }
 
+  // Só linhas de uploads OFICIAIS (não substituídos por um mais completo)
+  // entram nos números da tela — mesmo critério da soma do Vendido.
+  const activeLines = useMemo(() => {
+    const oficiais = new Set(imports.filter((i) => !i.superseded_by).map((i) => i.id))
+    return lines.filter((l) => oficiais.has(l.import_id))
+  }, [lines, imports])
+
   // Nomes da máquina ainda sem produto do estoque — agrupados, com o total
   // vendido pra dar noção de urgência.
   const unmapped = useMemo(() => {
     const byKey = new Map<string, { name: string; qty: number; total: number }>()
-    for (const l of lines) {
+    for (const l of activeLines) {
       if (l.product_id) continue
       const key = normalizePosName(l.pos_name)
       const entry = byKey.get(key) ?? { name: l.pos_name, qty: 0, total: 0 }
@@ -146,7 +219,51 @@ export default function SalesReportCard({ eventId, onSynced }: { eventId: string
       byKey.set(key, entry)
     }
     return Array.from(byKey.entries()).sort((a, b) => b[1].total - a[1].total)
-  }, [lines])
+  }, [activeLines])
+
+  // Sugerir vínculos: melhor produto por nome (régua 60%), un/venda inferido
+  // de "5 Und" no nome. Não pisa em escolha manual já feita.
+  function suggestLinks() {
+    const nextP = { ...mapProduct }
+    const nextU = { ...mapUnits }
+    const scores: Record<string, number> = {}
+    for (const [key, u] of unmapped) {
+      if (nextP[key]) continue
+      const hit = bestProductFor(u.name, products)
+      if (!hit) continue
+      nextP[key] = hit.product.id
+      scores[key] = hit.score
+      const um = u.name.match(/(\d+)\s*und?\b/i)
+      if (um && (nextU[key] ?? '1') === '1') nextU[key] = um[1]
+    }
+    setMapProduct(nextP)
+    setMapUnits(nextU)
+    setSuggested(scores)
+    if (Object.keys(scores).length === 0) setInfo('Nenhuma sugestão confiável — vincule na mão os que faltam.')
+  }
+
+  // Aplica todas as sugestões revisadas de uma vez (sequencial: cada vínculo
+  // grava o alias e re-sincroniza o Vendido).
+  async function applyAllSuggestions() {
+    setApplyingAll(true)
+    setError(null)
+    try {
+      for (const [key, u] of unmapped) {
+        if (suggested[key] == null) continue
+        const productId = mapProduct[key]
+        if (!productId) continue
+        const units = Number((mapUnits[key] ?? '1').replace(',', '.')) || 1
+        await mapPosNameToProduct(eventId, u.name, productId, units)
+      }
+      setSuggested({})
+      await load()
+      onSynced?.()
+    } catch (e: any) {
+      setError(e?.message ?? 'Não foi possível aplicar as sugestões.')
+    } finally {
+      setApplyingAll(false)
+    }
+  }
 
   async function handleMap(key: string, originalName: string) {
     const productId = mapProduct[key]
@@ -155,6 +272,13 @@ export default function SalesReportCard({ eventId, onSynced }: { eventId: string
     setMappingKey(key)
     try {
       await mapPosNameToProduct(eventId, originalName, productId, units)
+      // Sai da lista de sugestões pendentes — o contador do "Vincular todas"
+      // fica honesto.
+      setSuggested((prev) => {
+        const next = { ...prev }
+        delete next[key]
+        return next
+      })
       await load()
       onSynced?.()
     } catch (e: any) {
@@ -164,10 +288,10 @@ export default function SalesReportCard({ eventId, onSynced }: { eventId: string
     }
   }
 
-  const totalFaturado = useMemo(() => lines.reduce((s, l) => s + (l.total_gross ?? 0), 0), [lines])
+  const totalFaturado = useMemo(() => activeLines.reduce((s, l) => s + (l.total_gross ?? 0), 0), [activeLines])
   const unmappedFaturado = useMemo(
-    () => lines.filter((l) => !l.product_id).reduce((s, l) => s + (l.total_gross ?? 0), 0),
-    [lines]
+    () => activeLines.filter((l) => !l.product_id).reduce((s, l) => s + (l.total_gross ?? 0), 0),
+    [activeLines]
   )
 
   return (
@@ -176,8 +300,9 @@ export default function SalesReportCard({ eventId, onSynced }: { eventId: string
         <BarChart3 size={13} /> Vendas da máquina (PDV)
       </p>
       <p className="text-xs text-white/50 mb-3">
-        Suba o relatório do dia e o <span className="font-semibold text-white/80">Vendido</span> de cada produto
-        lançado atualiza sozinho — todos os dias somados, sem duplicar se resubir.
+        Suba o relatório do dia e o <span className="font-semibold text-white/80">Vendido</span> atualiza sozinho.
+        Upload mais novo que cubra um antigo (mesmo relatório, mais vendas) vira o
+        <span className="font-semibold text-white/80"> oficial</span> — o antigo sai da conta, nada duplica.
       </p>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -203,13 +328,23 @@ export default function SalesReportCard({ eventId, onSynced }: { eventId: string
       </div>
 
       {error && <p className="text-sm text-red-300 bg-red-500/20 border border-red-400/30 rounded-xl px-3 py-2 mt-3">{error}</p>}
+      {info && <p className="text-sm text-beetz-yellow bg-beetz-yellow/10 border border-beetz-yellow/30 rounded-xl px-3 py-2 mt-3">{info}</p>}
 
       {imports.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mt-3">
+          {/* Substituído fica visível mas apagado: dá pra ver o histórico e
+              excluir; se o oficial for excluído, ele volta pra conta sozinho. */}
           {imports.map((imp) => (
-            <span key={imp.id} className="flex items-center gap-1.5 text-[11px] font-medium bg-white/10 px-2.5 py-1.5 rounded-full">
+            <span
+              key={imp.id}
+              className={`flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-full ${
+                imp.superseded_by ? 'bg-white/5 text-white/35' : 'bg-white/10'
+              }`}
+              title={imp.superseded_by ? 'Substituído por um upload mais completo — fora da conta' : undefined}
+            >
               {imp.report_date ? new Date(imp.report_date + 'T12:00:00').toLocaleDateString('pt-BR') : '—'}
               {imp.total_gross != null ? ` · ${currency(imp.total_gross)}` : ''}
+              {imp.superseded_by ? ' · substituído' : ''}
               <button
                 onClick={() => handleDeleteImport(imp.id)}
                 className={`p-0.5 rounded ${confirmDeleteId === imp.id ? 'text-white bg-red-600' : 'text-white/40 hover:text-red-400'}`}
@@ -226,19 +361,44 @@ export default function SalesReportCard({ eventId, onSynced }: { eventId: string
           chega ligado. Un/venda traduz venda em unidade de estoque. */}
       {!loading && unmapped.length > 0 && (
         <div className="bg-white/10 rounded-xl p-3 mt-3">
-          <p className="text-xs font-bold text-beetz-yellow flex items-center gap-1.5 mb-1">
-            <Link2 size={12} /> {unmapped.length} nome(s) da máquina sem produto
-            {unmappedFaturado > 0 ? ` · ${currency(unmappedFaturado)} fora da conta` : ''}
-          </p>
+          <div className="flex flex-wrap items-center gap-2 mb-1">
+            <p className="text-xs font-bold text-beetz-yellow flex items-center gap-1.5 flex-1 min-w-[180px]">
+              <Link2 size={12} /> {unmapped.length} nome(s) da máquina sem produto
+              {unmappedFaturado > 0 ? ` · ${currency(unmappedFaturado)} fora da conta` : ''}
+            </p>
+            <button
+              onClick={suggestLinks}
+              className="flex items-center gap-1 text-[11px] font-bold bg-white/15 text-white px-2.5 py-1.5 rounded-lg hover:bg-white/25"
+            >
+              <Sparkles size={12} /> Sugerir vínculos
+            </button>
+            {Object.keys(suggested).length > 0 && (
+              <button
+                onClick={applyAllSuggestions}
+                disabled={applyingAll}
+                className="flex items-center gap-1 text-[11px] font-bold honey-gradient text-beetz-dark px-2.5 py-1.5 rounded-lg disabled:opacity-60"
+              >
+                {applyingAll ? 'Vinculando...' : `Vincular todas (${Object.keys(suggested).length})`}
+              </button>
+            )}
+          </div>
           <p className="text-[11px] text-white/50 mb-2">
             Vincule uma vez e fica gravado. "Un/venda" = unidades de estoque por venda (lata = 1 · dose de garrafa de 12 = 0,08).
+            A sugestão preenche, você confere — nada é gravado sem o Vincular.
           </p>
           <div className="space-y-1.5">
             {unmapped.map(([key, u]) => (
               <div key={key} className="flex flex-wrap items-center gap-2 bg-white rounded-xl px-3 py-2 text-beetz-dark">
                 <div className="flex-1 min-w-[140px]">
                   <p className="text-sm font-semibold truncate">{u.name}</p>
-                  <p className="text-[11px] text-beetz-dark/45">{u.qty} venda(s) · {currency(u.total)}</p>
+                  <p className="text-[11px] text-beetz-dark/45">
+                    {u.qty} venda(s) · {currency(u.total)}
+                    {suggested[key] != null && (
+                      <span className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full">
+                        <Sparkles size={9} /> sugestão {Math.round(suggested[key] * 100)}%
+                      </span>
+                    )}
+                  </p>
                 </div>
                 <select
                   value={mapProduct[key] ?? ''}
