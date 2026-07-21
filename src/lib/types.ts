@@ -527,6 +527,9 @@ export interface EventSalesImport {
   file_name: string | null
   total_gross: number | null
   imported_by: string | null
+  // O PDV emite dois relatórios com a mesma cara: 'vendas' (caixas) alimenta
+  // o Vendido da aba Produtos; 'producao' alimenta o Consumo da produção.
+  kind?: 'vendas' | 'producao'
   // Relatório do PDV é cumulativo: aponta pro upload mais novo que COBRE este
   // (todo nome com contagem >=). Substituído fica fora da soma do Vendido;
   // excluir o novo reativa este (FK on delete set null).
@@ -568,6 +571,9 @@ export interface ProductionConsumption {
   notes: string | null
   created_by: string | null
   stock_movement_id?: string | null
+  // true = linha gerada pelo relatório de Produção do PDV (recalculada a cada
+  // upload/vínculo). Lançamentos manuais ficam false e o sync nunca os toca.
+  pos_synced?: boolean
   created_at: string
 }
 

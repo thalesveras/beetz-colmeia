@@ -49,7 +49,9 @@ async function parseSalesCsv(file: File): Promise<ParsedSalesLine[]> {
   const iFat = header.findIndex((h) => h.includes('faturada'))
   const iBonus = header.findIndex((h) => h.startsWith('qnt') && (h.includes('bônus') || h.includes('bonus')))
   const iQty = header.findIndex((h) => h === 'quantidade')
-  const iTotal = header.findIndex((h) => h.includes('total geral'))
+  // Vendas traz "Total Geral"; o relatório de Produção chama a mesma coluna
+  // de "Receita". Mesmo número, nomes diferentes.
+  const iTotal = header.findIndex((h) => h.includes('total geral') || h.startsWith('receita'))
   if (iProd < 0) throw new Error('Não achei a coluna "Produto" no arquivo — é o relatório de vendas da máquina?')
 
   const out: ParsedSalesLine[] = []
@@ -131,7 +133,17 @@ function bestProductFor(saleName: string, products: Product[]): { product: Produ
 // de cada produto lançado atualiza sozinho (Σ de todos os dias, idempotente —
 // resubir não duplica). Nome novo da máquina pede vínculo UMA vez e fica
 // gravado pros próximos relatórios. A sobra vive na "A conta" do Estoque.
-export default function SalesReportCard({ eventId, onSynced }: { eventId: string; onSynced?: () => void }) {
+//
+// O MESMO card também serve o relatório de PRODUÇÃO (kind='producao'): igual
+// em tudo — parser, aliases, sugestões, regra do oficial — só muda o destino
+// da soma: consumo da produção em vez do Vendido.
+interface SalesReportCardProps {
+  eventId: string
+  kind?: 'vendas' | 'producao'
+  onSynced?: () => void
+}
+
+export default function SalesReportCard({ eventId, kind = 'vendas', onSynced }: SalesReportCardProps) {
   const { userId } = useAuth()
   const [imports, setImports] = useState<EventSalesImport[]>([])
   const [lines, setLines] = useState<EventSalesLine[]>([])
@@ -160,20 +172,22 @@ export default function SalesReportCard({ eventId, onSynced }: { eventId: string
       listEventSalesLines(eventId),
       listProducts()
     ])
-    setImports(imps)
+    // Cada card cuida do SEU tipo de relatório (vendas × produção) — as
+    // linhas seguem junto porque filtram por pertencer aos imports daqui.
+    setImports(imps.filter((i) => (i.kind ?? 'vendas') === kind))
     setLines(lns)
     setProducts(prods)
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [eventId])
+  useEffect(() => { load() }, [eventId, kind])
 
   async function handleFile(file: File) {
     setImporting(true)
     setError(null)
     try {
       const parsed = await parseSalesCsv(file)
-      const imp = await createEventSalesImport(eventId, { report_date: reportDate || null, file_name: file.name }, parsed, userId)
+      const imp = await createEventSalesImport(eventId, { report_date: reportDate || null, file_name: file.name }, parsed, userId, kind)
       // Se este upload cobriu anteriores (relatório cumulativo mais completo),
       // avisa que ele virou o oficial.
       const imps = await listEventSalesImports(eventId)
@@ -297,12 +311,18 @@ export default function SalesReportCard({ eventId, onSynced }: { eventId: string
   return (
     <div className="bg-beetz-dark text-white rounded-2xl p-4">
       <p className="text-xs font-bold uppercase tracking-wide text-beetz-yellow flex items-center gap-1.5 mb-1">
-        <BarChart3 size={13} /> Vendas da máquina (PDV)
+        <BarChart3 size={13} /> {kind === 'producao' ? 'Produção da máquina (PDV)' : 'Vendas da máquina (PDV)'}
       </p>
       <p className="text-xs text-white/50 mb-3">
-        Suba o relatório do dia e o <span className="font-semibold text-white/80">Vendido</span> atualiza sozinho.
-        Upload mais novo que cubra um antigo (mesmo relatório, mais vendas) vira o
-        <span className="font-semibold text-white/80"> oficial</span> — o antigo sai da conta, nada duplica.
+        {kind === 'producao' ? (
+          <>Suba o relatório de Produção e o <span className="font-semibold text-white/80">Consumo da produção</span> atualiza
+          sozinho, pelos valores da máquina — é o que desconta do produtor no fechamento. Upload mais novo que cubra um
+          antigo vira o <span className="font-semibold text-white/80">oficial</span>, nada duplica.</>
+        ) : (
+          <>Suba o relatório do dia e o <span className="font-semibold text-white/80">Vendido</span> atualiza sozinho.
+          Upload mais novo que cubra um antigo (mesmo relatório, mais vendas) vira o
+          <span className="font-semibold text-white/80"> oficial</span> — o antigo sai da conta, nada duplica.</>
+        )}
       </p>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -320,7 +340,7 @@ export default function SalesReportCard({ eventId, onSynced }: { eventId: string
           disabled={importing}
           className="flex items-center gap-1.5 text-sm font-bold honey-gradient text-beetz-dark px-3.5 py-2 rounded-xl disabled:opacity-60"
         >
-          <Upload size={15} /> {importing ? 'Importando...' : 'Subir relatório do dia'}
+          <Upload size={15} /> {importing ? 'Importando...' : (kind === 'producao' ? 'Subir relatório de Produção' : 'Subir relatório do dia')}
         </button>
         {totalFaturado > 0 && (
           <span className="text-sm font-bold ml-auto">{currency(totalFaturado)} <span className="font-medium text-white/40 text-xs">faturados</span></span>

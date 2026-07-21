@@ -8,6 +8,7 @@ import {
 import type { EventStockLine } from '../../lib/dataService'
 import type { ProductionConsumption, Product } from '../../lib/types'
 import EditConsumptionModal from './EditConsumptionModal'
+import SalesReportCard from './SalesReportCard'
 
 const inputClass = 'w-full border border-beetz-dark/15 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
 
@@ -77,6 +78,11 @@ export default function ProductionConsumptionTab({ eventId }: { eventId: string 
           <Plus size={16} /> Novo consumo
         </button>
       </div>
+
+      {/* Relatório de Produção do PDV: mesmo pipeline do relatório de vendas
+          (aliases, sugestões, regra do oficial) — a soma cai AQUI, como linhas
+          "PDV Produção: ..." recalculadas a cada upload. Manuais não são tocadas. */}
+      <SalesReportCard eventId={eventId} kind="producao" onSynced={load} />
 
       {showForm && (
         <form onSubmit={handleSubmit} className="bg-beetz-gray rounded-2xl p-5 space-y-4">

@@ -1931,7 +1931,10 @@ export async function createEventSalesImport(
   eventId: string,
   meta: { report_date: string | null; file_name: string | null },
   lines: ParsedSalesLine[],
-  importedBy: string | null
+  importedBy: string | null,
+  // 'vendas' (caixas → Vendido da aba Produtos) ou 'producao' (consumo da
+  // produtora → aba Consumo). Mesma máquina, mesmo formato, destinos diferentes.
+  kind: 'vendas' | 'producao' = 'vendas'
 ): Promise<EventSalesImport> {
   if (isDemoMode) throw new Error('Importação de vendas indisponível no modo demonstração.')
   if (lines.length === 0) throw new Error('Nenhuma linha de venda encontrada no arquivo.')
@@ -1939,7 +1942,7 @@ export async function createEventSalesImport(
   const byName = new Map(aliases.map((a) => [a.pos_name, a]))
   const total = lines.reduce((s, l) => s + (l.total_gross ?? 0), 0)
   const { data: imp, error } = await supabase.from('event_sales_imports')
-    .insert({ event_id: eventId, report_date: meta.report_date, file_name: meta.file_name, total_gross: total, imported_by: importedBy })
+    .insert({ event_id: eventId, report_date: meta.report_date, file_name: meta.file_name, total_gross: total, imported_by: importedBy, kind })
     .select().single()
   if (error) throw error
   const rows = lines.map((l) => {
@@ -1956,10 +1959,11 @@ export async function createEventSalesImport(
     throw linesErr
   }
   // Upload mais novo e mais completo vira o OFICIAL: os que ele cobre saem da
-  // conta. Só depois o Vendido é recalculado.
+  // conta. Só depois as somas são recalculadas.
   await supersedeCoveredImports(eventId, (imp as EventSalesImport).id).catch(() => 0)
-  // Linhas que já chegaram mapeadas (alias) alimentam o Vendido na hora.
+  // Linhas que já chegaram mapeadas (alias) alimentam as somas na hora.
   await syncSoldQuantitiesFromPdv(eventId).catch(() => 0)
+  await syncProductionConsumptionFromPdv(eventId).catch(() => 0)
   return imp as EventSalesImport
 }
 
@@ -1973,6 +1977,9 @@ export async function createEventSalesImport(
 async function supersedeCoveredImports(eventId: string, newImportId: string): Promise<number> {
   if (isDemoMode) return 0
   const [imports, allLines] = await Promise.all([listEventSalesImports(eventId), listEventSalesLines(eventId)])
+  // Vendas só cobre vendas; produção só cobre produção — são relatórios
+  // diferentes da mesma máquina.
+  const newKind = imports.find((i) => i.id === newImportId)?.kind ?? 'vendas'
   const countsOf = (importId: string) => {
     const byName = new Map<string, number>()
     let total = 0
@@ -1988,7 +1995,7 @@ async function supersedeCoveredImports(eventId: string, newImportId: string): Pr
   if (novo.byName.size === 0) return 0
   let superseded = 0
   for (const old of imports) {
-    if (old.id === newImportId || old.superseded_by) continue
+    if (old.id === newImportId || old.superseded_by || (old.kind ?? 'vendas') !== newKind) continue
     const antigo = countsOf(old.id)
     if (antigo.byName.size === 0) continue
     const coberto = Array.from(antigo.byName.entries()).every(([k, q]) => (novo.byName.get(k) ?? 0) >= q)
@@ -2007,9 +2014,13 @@ export async function deleteEventSalesImport(id: string): Promise<void> {
   const eventId = (data as { event_id: string } | null)?.event_id
   const { error } = await supabase.from('event_sales_imports').delete().eq('id', id)
   if (error) throw error
-  // Import excluído = vendas daquele dia saem da soma; o Vendido dos produtos
-  // acompanha na hora.
-  if (eventId) await syncSoldQuantitiesFromPdv(eventId).catch(() => 0)
+  // Import excluído = aquele relatório sai das somas na hora (Vendido e
+  // Consumo). Se ele era o oficial, os que ele cobria voltam sozinhos
+  // (FK superseded_by on delete set null).
+  if (eventId) {
+    await syncSoldQuantitiesFromPdv(eventId).catch(() => 0)
+    await syncProductionConsumptionFromPdv(eventId).catch(() => 0)
+  }
 }
 
 // O elo que dispensa digitação: soma TODAS as linhas mapeadas do PDV por
@@ -2022,9 +2033,10 @@ export async function syncSoldQuantitiesFromPdv(eventId: string): Promise<number
   const [imports, lines, eventProducts] = await Promise.all([
     listEventSalesImports(eventId), listEventSalesLines(eventId), listEventProducts(eventId)
   ])
-  // Só uploads OFICIAIS entram na soma — os cobertos por um mais novo/completo
-  // (superseded_by) ficam de fora, senão a mesma noite contaria duas vezes.
-  const oficiais = new Set(imports.filter((i) => !i.superseded_by).map((i) => i.id))
+  // Só uploads OFICIAIS de VENDAS entram na soma — os cobertos por um mais
+  // novo/completo (superseded_by) ficam de fora, senão a mesma noite contaria
+  // duas vezes; relatórios de Produção têm sync próprio (consumo).
+  const oficiais = new Set(imports.filter((i) => !i.superseded_by && (i.kind ?? 'vendas') === 'vendas').map((i) => i.id))
   const soldByProduct = new Map<string, number>()
   for (const l of lines) {
     if (!l.product_id || !oficiais.has(l.import_id)) continue
@@ -2041,6 +2053,77 @@ export async function syncSoldQuantitiesFromPdv(eventId: string): Promise<number
     }
   }
   return updated
+}
+
+// Relatório de PRODUÇÃO da máquina → aba Consumo da produção. Uma linha de
+// consumo por NOME do PDV (rastreável), agrupando os uploads oficiais:
+//   quantidade = Σ vendas × un/venda (em unidades de ESTOQUE)
+//   valor unitário = total do relatório ÷ unidades (preserva o total da
+//   máquina ao centavo — é o valor que desconta do produtor no fechamento)
+// Recalculada a cada upload/vínculo (idempotente). Linhas manuais (pos_synced
+// false) nunca são tocadas. Sem baixa automática no saldo físico: o acerto
+// físico é papel do inventário/encerramento.
+export async function syncProductionConsumptionFromPdv(eventId: string): Promise<number> {
+  if (isDemoMode) return 0
+  const [imports, lines, existing] = await Promise.all([
+    listEventSalesImports(eventId),
+    listEventSalesLines(eventId),
+    listProductionConsumption(eventId)
+  ])
+  const oficiais = new Set(imports.filter((i) => !i.superseded_by && i.kind === 'producao').map((i) => i.id))
+
+  // Agrupa por nome do PDV (só linhas mapeadas em produto).
+  interface Grupo { product_id: string; qty: number; total: number }
+  const grupos = new Map<string, Grupo>()
+  for (const l of lines) {
+    if (!oficiais.has(l.import_id) || !l.product_id) continue
+    const key = normalizePosName(l.pos_name)
+    const g = grupos.get(key) ?? { product_id: l.product_id, qty: 0, total: 0 }
+    g.product_id = l.product_id
+    g.qty += l.quantity * l.units_per_sale
+    g.total += l.total_gross ?? l.quantity * (l.unit_value ?? 0)
+    grupos.set(key, g)
+  }
+
+  const tag = (key: string) => `PDV Produção: ${key}`
+  const synced = existing.filter((c) => c.pos_synced)
+  const byTag = new Map(synced.map((c) => [c.notes ?? '', c]))
+  const uid = (await supabase.auth.getUser()).data.user?.id ?? null
+  let changed = 0
+
+  for (const [key, g] of grupos) {
+    if (!(g.qty > 0)) continue
+    const unit = Math.round((g.total / g.qty) * 10000) / 10000
+    const qty = Math.round(g.qty * 100) / 100
+    const atual = byTag.get(tag(key))
+    if (atual) {
+      byTag.delete(tag(key))
+      if (atual.quantity !== qty || atual.unit_cost !== unit || atual.product_id !== g.product_id) {
+        const { error } = await supabase.from('production_consumption')
+          .update({ quantity: qty, unit_cost: unit, product_id: g.product_id }).eq('id', atual.id)
+        if (!error) changed++
+      }
+    } else {
+      const { error } = await supabase.from('production_consumption').insert({
+        event_id: eventId, product_id: g.product_id, quantity: qty, unit_cost: unit,
+        notes: tag(key), created_by: uid, pos_synced: true
+      })
+      if (!error) changed++
+    }
+  }
+
+  // Sobrou linha sincronizada de nome que saiu do relatório (ex: upload
+  // oficial excluído): tenta excluir; se a RLS não deixar (linha de outro
+  // autor), zera — fora da conta do mesmo jeito.
+  for (const orfa of byTag.values()) {
+    const { error } = await supabase.from('production_consumption').delete().eq('id', orfa.id)
+    if (error) {
+      await supabase.from('production_consumption')
+        .update({ quantity: 0, notes: `${orfa.notes ?? ''} (fora do relatório atual)` }).eq('id', orfa.id)
+    }
+    changed++
+  }
+  return changed
 }
 
 // Vincular nome da máquina → produto: grava a memória global (alias) e
@@ -2065,8 +2148,10 @@ export async function mapPosNameToProduct(
       .update({ product_id: productId, units_per_sale: unitsPerSale }).in('id', ids)
     if (updErr) throw updErr
   }
-  // Vínculo novo = vendas que estavam órfãs entram na soma do Vendido.
+  // Vínculo novo = vendas que estavam órfãs entram nas somas (Vendido e/ou
+  // Consumo da produção, conforme o tipo dos relatórios do evento).
   await syncSoldQuantitiesFromPdv(eventId).catch(() => 0)
+  await syncProductionConsumptionFromPdv(eventId).catch(() => 0)
 }
 
 // ---------- Consumo da produção ----------
