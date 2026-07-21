@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
-  Home, Users, CalendarDays, Package, ShieldCheck, Wallet, MoreHorizontal, ClipboardList, X, LogOut
+  Home, Users, CalendarDays, Package, ShieldCheck, Wallet, MoreHorizontal, ClipboardList, X, LogOut,
+  LayoutGrid, List
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { groupHasActive, isItemActive, navGroupsFor, INFO_LINK } from '../../lib/navigation'
@@ -49,6 +50,16 @@ export default function MobileNav() {
   const location = useLocation()
   const [sheetOpen, setSheetOpen] = useState(false)
 
+  // Lista ou grade de ícones — gosto pessoal, então fica lembrado no aparelho.
+  // (Sem lazy initializer no useState de propósito: o shim de checagem não o entende.)
+  const [menuView, setMenuViewState] = useState<'lista' | 'icones'>(
+    localStorage.getItem('colmeia:menu-view') === 'icones' ? 'icones' : 'lista'
+  )
+  function setMenuView(v: 'lista' | 'icones') {
+    setMenuViewState(v)
+    try { localStorage.setItem('colmeia:menu-view', v) } catch { /* modo privado antigo: só não lembra */ }
+  }
+
   const primary = primaryLinksFor(accessRole)
 
   // Mesma lista e mesmas permissões do desktop; aqui só tira o que já está fixo
@@ -74,20 +85,51 @@ export default function MobileNav() {
         <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-3xl max-h-[75vh] overflow-y-auto pb-[env(safe-area-inset-bottom)]">
           <div className="sticky top-0 bg-white flex items-center justify-between px-5 pt-5 pb-3 border-b border-beetz-dark/5">
             <p className="font-extrabold">Menu</p>
-            <button onClick={() => setSheetOpen(false)} className="p-1.5 rounded-lg hover:bg-beetz-gray" aria-label="Fechar">
-              <X size={18} />
-            </button>
+            <div className="flex items-center gap-2">
+              <div className="flex gap-0.5 bg-beetz-gray rounded-lg p-0.5">
+                <button
+                  onClick={() => setMenuView('lista')}
+                  className={`p-1.5 rounded-md ${menuView === 'lista' ? 'bg-beetz-yellow text-beetz-dark' : 'text-beetz-dark/40'}`}
+                  aria-label="Ver como lista"
+                >
+                  <List size={15} />
+                </button>
+                <button
+                  onClick={() => setMenuView('icones')}
+                  className={`p-1.5 rounded-md ${menuView === 'icones' ? 'bg-beetz-yellow text-beetz-dark' : 'text-beetz-dark/40'}`}
+                  aria-label="Ver como ícones"
+                >
+                  <LayoutGrid size={15} />
+                </button>
+              </div>
+              <button onClick={() => setSheetOpen(false)} className="p-1.5 rounded-lg hover:bg-beetz-gray" aria-label="Fechar">
+                <X size={18} />
+              </button>
+            </div>
           </div>
 
           <div className="p-4 space-y-5">
             {groups.map((group) => (
               <div key={group.key}>
                 <p className="text-[11px] font-bold uppercase tracking-wide text-beetz-dark/35 px-2 mb-1.5">{group.label}</p>
-                <div className="space-y-0.5">
+                <div className={menuView === 'icones' ? 'grid grid-cols-3 gap-2' : 'space-y-0.5'}>
                   {group.items.map((item) => {
                     const Icon = item.icon
                     const active = isItemActive(item, location.pathname, group.items)
-                    return (
+                    // Grade: cartão quadrado com ícone grande e rótulo embaixo —
+                    // mesmo destaque de ativo (amarelo) da lista.
+                    return menuView === 'icones' ? (
+                      <NavLink
+                        key={item.to}
+                        to={item.to}
+                        className={`flex flex-col items-center justify-center text-center gap-1.5 px-2 py-3 min-h-[76px] rounded-2xl text-[11px] font-semibold leading-tight ${
+                          active ? 'bg-beetz-yellow text-beetz-dark' : 'bg-beetz-gray/70 text-beetz-dark/75 active:bg-beetz-gray'
+                        }`}
+                      >
+                        <Icon size={20} className="shrink-0" />
+                        {item.label}
+                      </NavLink>
+                    ) : (
                       <NavLink
                         key={item.to}
                         to={item.to}
