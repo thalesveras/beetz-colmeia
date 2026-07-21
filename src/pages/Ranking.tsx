@@ -14,7 +14,14 @@ export default function Ranking() {
   const [ranking, setRanking] = useState<RankingEntry[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => { getRanking().then((r) => { setRanking(r); setLoading(false) }) }, [])
+  // finally: se a consulta falhar (rede, sessão renovando), a tela mostra o
+  // vazio em vez de "carregando" eterno.
+  useEffect(() => {
+    getRanking()
+      .then((r) => setRanking(r))
+      .catch(() => setRanking([]))
+      .finally(() => setLoading(false))
+  }, [])
 
   if (!canViewRanking(accessRole)) {
     return (
