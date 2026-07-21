@@ -84,8 +84,12 @@ export default function EventResumoTab({ eventId, canExpenses, canCashier, canSt
           caixas: settlements.length,
           produtosItens: products.length,
           produtosTotal: products.reduce((s, p) => s + p.total, 0),
-          enviadoUn: ativos.filter((m) => m.movement_type === 'Envio').reduce((s, m) => s + m.quantity, 0),
-          devolvidoUn: ativos.filter((m) => m.movement_type === 'Devolução').reduce((s, m) => s + m.quantity, 0),
+          // Bug antigo: comparava com 'Envio'/'Devolução' truncados (tipos
+          // reais: 'Envio para Evento'/'Devolução do Evento') — contadores
+          // ficavam sempre em zero. Entradas diretas no almoxarifado do
+          // evento também contam como "enviado" agora.
+          enviadoUn: ativos.filter((m) => ['Envio para Evento', 'Entrada', 'Compra', 'Ajuste (entrada)'].includes(m.movement_type)).reduce((s, m) => s + m.quantity, 0),
+          devolvidoUn: ativos.filter((m) => m.movement_type === 'Devolução do Evento').reduce((s, m) => s + m.quantity, 0),
           consumoTotal: consumption.reduce((s, c) => s + c.total_cost, 0),
           repassesTotal: repasses.reduce((s, r) => s + r.amount, 0),
           repassesLancamentos: repasses.length,

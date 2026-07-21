@@ -140,18 +140,40 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
               <p className="text-sm text-white/50">Calculando fechamento...</p>
             ) : (
               <div className="pt-4 border-t border-white/10 space-y-1.5">
-                <StatementRow label={`Comissão sobre vendas (${summary.percentual}% de ${currency(summary.vendas)})`} value={summary.aReceber} />
-                <StatementRow label="Créditos e bonificações" value={summary.creditosOuBonificacoes} />
+                {/* Modelo da casa (batido ao centavo no fechamento antigo):
+                    Lucro = Vendas × %Beetz − Impostos − Despesas − Custo do
+                    VENDIDO − Perdas. Consumo e créditos são do produtor. */}
+                <p className="text-[10px] font-bold uppercase tracking-widest text-beetz-yellow/70 pt-1">Receita</p>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-white/70">
+                    Vendas do evento
+                    <span className="text-white/35"> · {summary.vendasFonte === 'produtos' ? 'aba Produtos (vendido × preço)' : 'campo manual acima'}</span>
+                  </span>
+                  <span className="font-semibold text-white/70">{currency(summary.vendas)}</span>
+                </div>
+                <StatementRow label={`Receita Beetz (${summary.percentual}% das vendas)`} value={summary.receitaBeetz} />
+
+                <p className="text-[10px] font-bold uppercase tracking-widest text-beetz-yellow/70 pt-2">Custos da casa</p>
                 <StatementRow label={`Impostos (${summary.taxaImposto}% da receita Beetz)`} value={-summary.impostos} />
-                <StatementRow label="Despesas do evento" value={-summary.despesas} />
-                <StatementRow label="Custo de produtos" value={-summary.custoProdutos} />
-                <StatementRow label="Consumo da produção" value={-summary.consumoProducao} />
+                <StatementRow label="Despesas do evento (aba Despesas)" value={-summary.despesas} />
+                <StatementRow label="Custo do vendido (aba Produtos)" value={-summary.custoProdutos} />
+                <StatementRow label="Perdas no evento (estoque: Perda/Quebra)" value={-summary.perdas} />
+
                 <div className="flex items-center justify-between pt-3 mt-2 border-t border-white/15">
                   <span className="font-bold">Lucro do evento</span>
-                  <span className={`text-xl font-extrabold ${summary.lucroOuPerda >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  <span className={`text-2xl font-extrabold ${summary.lucroOuPerda >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                     {currency(summary.lucroOuPerda)}
                   </span>
                 </div>
+
+                {(summary.consumoProducao > 0 || summary.creditosOuBonificacoes > 0) && (
+                  <p className="text-[11px] text-white/40 bg-white/5 rounded-lg px-3 py-2 mt-1">
+                    Conta do produtor (não entra no lucro Beetz):
+                    {summary.consumoProducao > 0 ? ` consumo da produção ${currency(summary.consumoProducao)} desconta do saldo dele` : ''}
+                    {summary.consumoProducao > 0 && summary.creditosOuBonificacoes > 0 ? ' · ' : ''}
+                    {summary.creditosOuBonificacoes > 0 ? ` créditos ${currency(summary.creditosOuBonificacoes)} somam pro lado dele` : ''}.
+                  </p>
+                )}
                 {/* Acerto com a produtora — modelo correto: os caixas da Beetz
                     arrecadam, a Beetz fica com a receita dela e o resto é da
                     produtora. Saldo positivo = falta repassar. */}

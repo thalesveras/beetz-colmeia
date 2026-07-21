@@ -2453,22 +2453,42 @@ export async function deleteEventRepasse(id: string): Promise<void> {
 }
 
 // ---------- Fechamento financeiro do evento (visão diretoria) ----------
+// Fechamento no MODELO DA CASA, decodificado do sistema antigo e batido ao
+// centavo no evento CLIMINHA DE VERÃO (Lucro 2.147,09):
+//   Lucro Beetz = Vendas × %Beetz − Impostos − Despesas − Custo do VENDIDO − Perdas
+// Consumo da produção e créditos são conta do PRODUTOR (descontam/somam no
+// saldo dele, nunca no lucro da casa). Perdas são a novidade: Perda/Quebra
+// registradas no estoque do evento, valoradas — dinheiro que evaporou.
 export async function getEventFinancialSummary(eventId: string): Promise<EventFinancialSummary> {
-  const [expenses, eventProducts, consumption, event, repassesLancamentos, settlements, settings] = await Promise.all([
+  const [expenses, eventProducts, consumption, event, repassesLancamentos, settlements, settings, wideMovs, avgCosts] = await Promise.all([
     listExpensesForEvent(eventId),
     listEventProducts(eventId),
     listProductionConsumption(eventId),
     getEventById(eventId),
     listEventRepasses(eventId),
     listCashierSettlementsForEvent(eventId),
-    getAppSettings()
+    getAppSettings(),
+    listEventStockMovementsWide(eventId).catch(() => [] as (StockMovement & { in_event_location: boolean })[]),
+    listProductAvgCosts().catch(() => [] as ProductAvgCost[])
   ])
 
   const despesas = expenses.filter((e) => e.status !== 'Cancelado').reduce((sum, e) => sum + e.total, 0)
-  const custoProdutos = eventProducts.reduce((sum, p) => sum + p.total, 0)
+  // Custo do VENDIDO — não do que entrou (a sobra volta pro estoque).
+  const custoProdutos = eventProducts.reduce((sum, p) => sum + (p.sold_quantity ?? 0) * p.unit_price, 0)
   const consumoProducao = consumption.reduce((sum, c) => sum + c.total_cost, 0)
 
-  const vendas = event?.sales_amount ?? 0
+  // Vendas: a aba Produtos manda quando há vendido lançado; senão o campo.
+  const vendasProdutos = eventProducts.reduce((s, p) => s + (p.sold_quantity ?? 0) * (p.sale_price ?? 0), 0)
+  const vendas = vendasProdutos > 0 ? vendasProdutos : (event?.sales_amount ?? 0)
+  const vendasFonte: 'produtos' | 'campo' = vendasProdutos > 0 ? 'produtos' : 'campo'
+
+  // Perdas: Perda/Quebra no almoxarifado do evento, pelo custo do movimento
+  // ou, sem ele, pelo custo médio do catálogo.
+  const costOf = new Map(avgCosts.map((c) => [c.product_id, c.avg_cost]))
+  const perdas = wideMovs
+    .filter((m) => m.status === 'Ativo' && m.in_event_location && (m.movement_type === 'Perda' || m.movement_type === 'Quebra'))
+    .reduce((s, m) => s + m.quantity * (m.unit_cost ?? costOf.get(m.product_id) ?? 0), 0)
+
   const percentual = event?.commission_percentage ?? 0
   const creditosOuBonificacoes = event?.credits_bonus ?? 0
   const repasses = repassesLancamentos.reduce((sum, r) => sum + r.amount, 0)
@@ -2477,21 +2497,21 @@ export async function getEventFinancialSummary(eventId: string): Promise<EventFi
   const recebimentos = settlements.filter((c) => c.status !== 'Rejeitado').reduce((sum, c) => sum + c.total, 0)
 
   const aReceber = vendas * (percentual / 100)
-  const receitaBeetz = aReceber + creditosOuBonificacoes
+  const receitaBeetz = aReceber
   // Imposto sobre a RECEITA da Beetz. Alíquota: a do evento, senão a padrão
   // de Configurações. (Decisões do dono, 18/07/26.)
   const taxaImposto = event?.tax_percentage ?? settings.default_tax_percentage ?? 0
   const impostos = receitaBeetz * (taxaImposto / 100)
 
-  // Quem segura o dinheiro do evento é a Beetz (caixas). Ela fica com a sua
-  // receita e o resto pertence à produtora — o saldo é o que AINDA falta
-  // repassar depois dos repasses já lançados.
-  const saldoAPagarProdutora = recebimentos - receitaBeetz - repasses
+  // Saldo da produtora no modelo do PDF: a parte dela das vendas + créditos
+  // − consumo da produção − o que já foi repassado.
+  const pctProdutor = Math.max(0, 100 - percentual)
+  const saldoAPagarProdutora = vendas * (pctProdutor / 100) + creditosOuBonificacoes - consumoProducao - repasses
 
-  const lucroOuPerda = receitaBeetz - impostos - despesas - custoProdutos - consumoProducao
+  const lucroOuPerda = receitaBeetz - impostos - despesas - custoProdutos - perdas
 
   return {
-    despesas, custoProdutos, consumoProducao, vendas, percentual, aReceber,
+    despesas, custoProdutos, consumoProducao, perdas, vendas, vendasFonte, percentual, aReceber,
     creditosOuBonificacoes, receitaBeetz, taxaImposto, impostos, recebimentos,
     repasses, saldoAPagarProdutora, lucroOuPerda
   }

@@ -617,13 +617,23 @@ export interface EventRepasse {
 
 export interface EventFinancialSummary {
   despesas: number
+  // Custo do VENDIDO (Σ vendido × custo, aba Produtos) — modelo do fechamento
+  // antigo, batido ao centavo no evento CLIMINHA DE VERÃO. O custo do que
+  // ENTROU não é prejuízo: a sobra volta pro estoque.
   custoProdutos: number
   consumoProducao: number
+  // Perdas/quebras registradas no estoque DO evento, valoradas — dinheiro
+  // que evaporou e é conta da casa (novidade vs o modelo antigo).
+  perdas: number
   vendas: number
+  // De onde vieram as vendas: 'produtos' (Σ vendido × preço da aba) ou
+  // 'campo' (o campo manual do fechamento, enquanto não há vendas lançadas).
+  vendasFonte: 'produtos' | 'campo'
   percentual: number
   aReceber: number
   creditosOuBonificacoes: number
-  // Receita da Beetz = comissão + créditos; imposto incide sobre ela.
+  // Receita da Beetz = vendas × % Beetz. Créditos NÃO entram: pelo modelo da
+  // casa (PDF do fechamento antigo) eles pertencem ao lado do produtor.
   receitaBeetz: number
   taxaImposto: number
   impostos: number
