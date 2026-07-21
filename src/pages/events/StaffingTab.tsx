@@ -34,12 +34,16 @@ const STATUS_STYLES: Record<StaffingApplicationStatus, string> = {
 interface Props {
   eventId: string
   canManage: boolean
+  // Financeiro da escala (custo total + comissões estimadas + gerar
+  // pagamentos) é assunto de DIRETORIA — quem não tem a flag de fechamento
+  // não vê nem o cartão.
+  canFinance?: boolean
   // Avisa o EventDetail pra recarregar a lista de membros — confirmar uma
   // candidatura cria o membro do evento por trigger no banco.
   onTeamChanged?: () => void
 }
 
-export default function StaffingTab({ eventId, canManage, onTeamChanged }: Props) {
+export default function StaffingTab({ eventId, canManage, canFinance = false, onTeamChanged }: Props) {
   const { userId } = useAuth()
   const [requirements, setRequirements] = useState<EventStaffingRequirement[]>([])
   const [applications, setApplications] = useState<EventStaffingApplication[]>([])
@@ -300,7 +304,10 @@ export default function StaffingTab({ eventId, canManage, onTeamChanged }: Props
         </div>
       )}
 
-      {confirmedApps.length > 0 && (
+      {/* Custo da escala + comissões + Gerar pagamentos: SÓ Diretoria
+          (canFinance). Antes o cartão aparecia pra quem entrasse na aba e só
+          o botão era restrito — número de folha não é assunto da equipe. */}
+      {canFinance && confirmedApps.length > 0 && (
         <div className="bg-beetz-dark text-white rounded-2xl p-5 shadow-soft flex flex-wrap items-center gap-4">
           <div className="bg-beetz-yellow/20 text-beetz-yellow rounded-xl p-2.5"><Wallet size={20} /></div>
           <div className="flex-1 min-w-[160px]">
@@ -458,7 +465,9 @@ export default function StaffingTab({ eventId, canManage, onTeamChanged }: Props
                       <Link to={`/perfil/${app.profile_id}`} className="flex-1 min-w-[120px] text-sm font-semibold hover:text-beetz-dark/60">
                         {personName(app.profile_id)}
                       </Link>
-                      {app.status === 'Confirmado' && (
+                      {/* Valor/percentual combinado: gestor vê todos; o resto
+                          vê só o PRÓPRIO — combinado de colega não circula. */}
+                      {app.status === 'Confirmado' && (canManage || app.profile_id === userId) && (
                         editingValueId === app.id ? (
                           <span className="flex items-center gap-1">
                             <input

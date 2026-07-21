@@ -187,6 +187,7 @@ export default function EventDetail() {
           <StaffingTab
             eventId={id}
             canManage={canApproveEventRequests(accessRole)}
+            canFinance={canViewFinancialSummary(accessRole)}
             onTeamChanged={load}
           />
 
