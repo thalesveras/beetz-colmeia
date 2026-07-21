@@ -1168,6 +1168,16 @@ export async function createStockLocation(name: string, description: string | nu
   return data as StockLocation
 }
 
+// Todo evento é um estoque temporário: garante o almoxarifado do evento
+// (cria se não existir, devolve o existente). Eventos novos já nascem com o
+// seu via trigger no banco — isto cobre os antigos e serve de autocura.
+export async function ensureEventStockLocation(eventId: string): Promise<string> {
+  if (isDemoMode) return uid('sl')
+  const { data, error } = await supabase.rpc('get_or_create_event_location', { p_event: eventId })
+  if (error) throw error
+  return data as string
+}
+
 export async function updateStockLocation(id: string, patch: Partial<Pick<StockLocation, 'name' | 'description'>>): Promise<StockLocation> {
   if (isDemoMode) {
     const idx = demoState.stockLocations.findIndex((l) => l.id === id)
@@ -2472,7 +2482,17 @@ export async function getEventFinancialSummary(eventId: string): Promise<EventFi
     listProductAvgCosts().catch(() => [] as ProductAvgCost[])
   ])
 
-  const despesas = expenses.filter((e) => e.status !== 'Cancelado').reduce((sum, e) => sum + e.total, 0)
+  // Regime de competência, não de caixa: compra de estoque NÃO é despesa do
+  // fechamento (é dinheiro virando ativo). O gasto entra quando o produto é
+  // vendido (custo do vendido) ou perdido (perdas). Sem este filtro, a
+  // cerveja comprada no almoxarifado do evento descontava DUAS vezes do
+  // lucro — uma como despesa da compra, outra como custo do vendido.
+  // Identificação: despesa nascida de movimentação (stock_movement_id) ou
+  // lançada na categoria 'Estoque'.
+  const vivas = expenses.filter((e) => e.status !== 'Cancelado')
+  const isCompraEstoque = (e: Expense) => !!e.stock_movement_id || e.category === 'Estoque'
+  const despesas = vivas.filter((e) => !isCompraEstoque(e)).reduce((sum, e) => sum + e.total, 0)
+  const comprasEstoque = vivas.filter(isCompraEstoque).reduce((sum, e) => sum + e.total, 0)
   // Custo do VENDIDO — não do que entrou (a sobra volta pro estoque).
   const custoProdutos = eventProducts.reduce((sum, p) => sum + (p.sold_quantity ?? 0) * p.unit_price, 0)
   const consumoProducao = consumption.reduce((sum, c) => sum + c.total_cost, 0)
@@ -2511,7 +2531,7 @@ export async function getEventFinancialSummary(eventId: string): Promise<EventFi
   const lucroOuPerda = receitaBeetz - impostos - despesas - custoProdutos - perdas
 
   return {
-    despesas, custoProdutos, consumoProducao, perdas, vendas, vendasFonte, percentual, aReceber,
+    despesas, comprasEstoque, custoProdutos, consumoProducao, perdas, vendas, vendasFonte, percentual, aReceber,
     creditosOuBonificacoes, receitaBeetz, taxaImposto, impostos, recebimentos,
     repasses, saldoAPagarProdutora, lucroOuPerda
   }

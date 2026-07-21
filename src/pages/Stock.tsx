@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import {
   approveTransferRequest, createStockLocation, createTransferRequest,
-  deleteStockLocation, getStockBalances, listProductAvgCosts, listStockAvailability, isPositiveMovementType, listEvents, listProducts, listProfiles,
+  deleteStockLocation, ensureEventStockLocation, getStockBalances, listProductAvgCosts, listStockAvailability, isPositiveMovementType, listEvents, listProducts, listProfiles,
   listStockLocations, listStockMovements, listTransferRequests, registerTransferReturn,
   transferEventLeftover, updateCompraMovement, updateStockLocation, updateStockMovement, updateTransferRequestStatus
 } from '../lib/dataService'
@@ -242,6 +242,40 @@ export default function Stock() {
     load()
   }
 
+  // Eventos vivos que (ainda) não têm o próprio almoxarifado. Com o trigger no
+  // banco, evento novo já nasce com estoque — esta lista é a autocura pros
+  // antigos: um clique e o estoque temporário existe, com o nome do evento.
+  const eventsWithoutStock = useMemo(() => {
+    const withStock = new Set(locations.filter((l) => l.event_id).map((l) => l.event_id))
+    return events.filter((e) => e.status !== 'Cancelado' && e.status !== 'Concluído' && !withStock.has(e.id))
+  }, [events, locations])
+  const [creatingStockForEvent, setCreatingStockForEvent] = useState<string | null>(null)
+
+  async function handleCreateEventStock(eventId: string) {
+    setCreatingStockForEvent(eventId)
+    setCatalogError(null)
+    try {
+      await ensureEventStockLocation(eventId)
+      await load()
+    } catch (err) {
+      setCatalogError(err instanceof Error ? err.message : 'Erro ao criar o estoque do evento.')
+    } finally {
+      setCreatingStockForEvent(null)
+    }
+  }
+
+  // KPIs do Resumo são portas, não pôsteres: cada cartão leva pra tela onde
+  // aquele número se edita (Diretoria) ou se investiga. "Movimentações hoje"
+  // já chega com o filtro do dia aplicado.
+  function openTodayMovements() {
+    const d = new Date()
+    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    setMovementFilterFrom(iso)
+    setMovementFilterTo(iso)
+    setShowMovementFilters(true)
+    setTab('movimentacoes')
+  }
+
   const balancesByLocation = locations.map((loc) => ({
     location: loc,
     items: balances.filter((b) => b.stock_location_id === loc.id && b.balance !== 0)
@@ -449,54 +483,57 @@ export default function Stock() {
           {/* Os dois primeiros KPIs são a Fase 1 da inteligência: R$ em vez de
               contagem. Só somam produtos com custo médio (Compra com preço) —
               melhor um número menor e verdadeiro que um total inventado. */}
+          {/* Cada KPI é um botão: leva pra aba onde o número nasce e (pra quem
+              pode) se edita — valor/produtos/estoques → Produtos & Estoques;
+              reservado → Reservas; hoje → Movimentações já filtradas no dia. */}
           <section className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            <div className="bg-beetz-dark text-white rounded-2xl p-4 shadow-soft flex items-center gap-3">
+            <button onClick={() => setTab('cadastros')} className="bg-beetz-dark text-white rounded-2xl p-4 shadow-soft flex items-center gap-3 text-left hover:shadow-glow active:scale-[0.98] transition">
               <div className="bg-beetz-yellow/20 text-beetz-yellow rounded-xl p-2.5"><Wallet size={20} /></div>
               <div className="min-w-0">
                 <p className="text-xl font-extrabold leading-none truncate">{brl(stockValue)}</p>
-                <p className="text-xs text-white/50 mt-1">Valor do estoque (produtos com custo)</p>
+                <p className="text-xs text-white/50 mt-1">Valor do estoque (produtos com custo) →</p>
               </div>
-            </div>
-            <div className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5 flex items-center gap-3">
+            </button>
+            <button onClick={() => setTab('reservas')} className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5 flex items-center gap-3 text-left hover:shadow-glow active:scale-[0.98] transition">
               <div className="bg-beetz-yellow/20 text-beetz-dark rounded-xl p-2.5"><CalendarDays size={20} /></div>
               <div className="min-w-0">
                 <p className="text-xl font-extrabold leading-none truncate">
                   {reservedValue > 0 ? brl(reservedValue) : `${reservedUnits} un`}
                 </p>
-                <p className="text-xs text-beetz-dark/50 mt-1">Reservado pra eventos</p>
+                <p className="text-xs text-beetz-dark/50 mt-1">Reservado pra eventos →</p>
               </div>
-            </div>
-            <div className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5 flex items-center gap-3">
+            </button>
+            <button onClick={openTodayMovements} className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5 flex items-center gap-3 text-left hover:shadow-glow active:scale-[0.98] transition">
               <div className="bg-beetz-yellow/20 text-beetz-dark rounded-xl p-2.5"><Clock3 size={20} /></div>
               <div>
                 <p className="text-xl font-extrabold leading-none">{movementsToday.length}</p>
-                <p className="text-xs text-beetz-dark/50 mt-1">Movimentações hoje</p>
+                <p className="text-xs text-beetz-dark/50 mt-1">Movimentações hoje →</p>
               </div>
-            </div>
+            </button>
           </section>
 
           <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5 flex items-center gap-3">
+            <button onClick={() => setTab('cadastros')} className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5 flex items-center gap-3 text-left hover:shadow-glow active:scale-[0.98] transition">
               <div className="bg-beetz-yellow/20 text-beetz-dark rounded-xl p-2.5"><Package size={20} /></div>
               <div>
                 <p className="text-xl font-extrabold leading-none">{products.length}</p>
-                <p className="text-xs text-beetz-dark/50 mt-1">Produtos cadastrados</p>
+                <p className="text-xs text-beetz-dark/50 mt-1">Produtos cadastrados →</p>
               </div>
-            </div>
-            <div className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5 flex items-center gap-3">
+            </button>
+            <button onClick={() => setTab('cadastros')} className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5 flex items-center gap-3 text-left hover:shadow-glow active:scale-[0.98] transition">
               <div className="bg-beetz-yellow/20 text-beetz-dark rounded-xl p-2.5"><Warehouse size={20} /></div>
               <div>
                 <p className="text-xl font-extrabold leading-none">{locations.length}</p>
-                <p className="text-xs text-beetz-dark/50 mt-1">Estoques/almoxarifados</p>
+                <p className="text-xs text-beetz-dark/50 mt-1">Estoques/almoxarifados →</p>
               </div>
-            </div>
-            <div className={`rounded-2xl p-4 shadow-soft border flex items-center gap-3 ${lowStockItems.length > 0 ? 'bg-red-50 border-red-100' : 'bg-white border-beetz-dark/5'}`}>
+            </button>
+            <button onClick={() => setTab('cadastros')} className={`rounded-2xl p-4 shadow-soft border flex items-center gap-3 text-left hover:shadow-glow active:scale-[0.98] transition ${lowStockItems.length > 0 ? 'bg-red-50 border-red-100' : 'bg-white border-beetz-dark/5'}`}>
               <div className={`rounded-xl p-2.5 ${lowStockItems.length > 0 ? 'bg-red-100 text-red-600' : 'bg-beetz-yellow/20 text-beetz-dark'}`}><AlertTriangle size={20} /></div>
               <div>
                 <p className={`text-xl font-extrabold leading-none ${lowStockItems.length > 0 ? 'text-red-600' : ''}`}>{lowStockItems.length}</p>
-                <p className="text-xs text-beetz-dark/50 mt-1">Produtos com saldo baixo</p>
+                <p className="text-xs text-beetz-dark/50 mt-1">Produtos com saldo baixo →</p>
               </div>
-            </div>
+            </button>
           </section>
 
           {lowStockItems.length > 0 && (
@@ -685,6 +722,30 @@ export default function Stock() {
                         </Link>
                       )
                     })}
+                  </div>
+                </div>
+              )}
+
+              {/* Todo evento é um estoque temporário — evento novo já nasce com
+                  o seu (trigger no banco). Se algum antigo ficou sem, um clique
+                  resolve: o almoxarifado nasce com o nome do evento e passa a
+                  receber envios, compras de porta e a virada da festa anterior. */}
+              {canManageCatalog && eventsWithoutStock.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-beetz-dark/5">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-beetz-dark/35 mb-2">Eventos sem estoque</p>
+                  <div className="space-y-1.5">
+                    {eventsWithoutStock.map((e) => (
+                      <div key={e.id} className="flex items-center gap-2 text-xs font-medium bg-beetz-gray px-3 py-1.5 rounded-full">
+                        <span className="flex-1 min-w-0 truncate">{e.name}</span>
+                        <button
+                          onClick={() => handleCreateEventStock(e.id)}
+                          disabled={creatingStockForEvent === e.id}
+                          className="bg-beetz-dark text-white font-semibold px-3 py-1 rounded-full shrink-0 hover:bg-black transition-colors disabled:opacity-60"
+                        >
+                          {creatingStockForEvent === e.id ? 'Criando...' : '+ Criar estoque'}
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}

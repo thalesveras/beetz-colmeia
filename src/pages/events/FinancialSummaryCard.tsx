@@ -156,9 +156,16 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
 
                 <p className="text-[10px] font-bold uppercase tracking-widest text-beetz-yellow/70 pt-2">Custos da casa</p>
                 <StatementRow label={`Impostos (${summary.taxaImposto}% da receita Beetz)`} value={-summary.impostos} />
-                <StatementRow label="Despesas do evento (aba Despesas)" value={-summary.despesas} />
+                <StatementRow label="Despesas do evento (sem compras de estoque)" value={-summary.despesas} />
                 <StatementRow label="Custo do vendido (aba Produtos)" value={-summary.custoProdutos} />
                 <StatementRow label="Perdas no evento (estoque: Perda/Quebra)" value={-summary.perdas} />
+                {summary.comprasEstoque > 0 && (
+                  <p className="text-[11px] text-white/40 bg-white/5 rounded-lg px-3 py-2 mt-1">
+                    Compras de estoque ({currency(summary.comprasEstoque)}) ficam fora desta conta de propósito:
+                    produto comprado é dinheiro virando estoque, e o gasto só entra quando vende (custo do vendido)
+                    ou perde. Somar as duas pontas descontaria a mesma compra duas vezes.
+                  </p>
+                )}
 
                 <div className="flex items-center justify-between pt-3 mt-2 border-t border-white/15">
                   <span className="font-bold">Lucro do evento</span>

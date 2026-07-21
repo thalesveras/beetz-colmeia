@@ -616,7 +616,15 @@ export interface EventRepasse {
 }
 
 export interface EventFinancialSummary {
+  // Despesas OPERACIONAIS do evento (aluguel, gelo, equipe...). Compras de
+  // estoque ficam FORA desta soma: comprar produto não é gasto, é trocar
+  // dinheiro por ativo — o gasto acontece quando vende (custo do vendido),
+  // perde (perdas) ou o produtor consome (conta dele). Somar as duas pontas
+  // descontava a mesma cerveja duas vezes do lucro.
   despesas: number
+  // Compras de estoque do evento (despesas categoria 'Estoque' ou nascidas de
+  // movimentação de Compra) — mostradas como informação, nunca subtraídas.
+  comprasEstoque: number
   // Custo do VENDIDO (Σ vendido × custo, aba Produtos) — modelo do fechamento
   // antigo, batido ao centavo no evento CLIMINHA DE VERÃO. O custo do que
   // ENTROU não é prejuízo: a sobra volta pro estoque.
