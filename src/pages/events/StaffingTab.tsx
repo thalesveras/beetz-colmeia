@@ -218,6 +218,40 @@ export default function StaffingTab({ eventId, canManage, onTeamChanged }: Props
     }
   }
 
+  // Aprovação em LOTE: quem pode ser confirmado numa vaga é a fila de
+  // candidatados até o limite dela (ordem de chegada). Ninguém entra além do
+  // número de vagas — quem passar do limite fica de fora e a tela avisa;
+  // aumentar a vaga resolve.
+  const [bulkBusy, setBulkBusy] = useState(false)
+
+  function confirmableFor(req: EventStaffingRequirement): EventStaffingApplication[] {
+    const forSlot = applications.filter((a) => a.requirement_id === req.id && a.status !== 'Cancelado')
+    const confirmedCount = forSlot.filter((a) => a.status === 'Confirmado').length
+    const waiting = forSlot.filter((a) => a.status === 'Candidatado')
+    return waiting.slice(0, Math.max(0, req.quantity - confirmedCount))
+  }
+  const allConfirmable = requirements.flatMap((r) => confirmableFor(r))
+  const totalWaiting = applications.filter((a) => a.status === 'Candidatado').length
+
+  async function confirmMany(apps: EventStaffingApplication[]) {
+    if (apps.length === 0) return
+    setBulkBusy(true)
+    setError(null)
+    try {
+      for (const a of apps) {
+        await updateStaffingApplicationStatus(a.id, 'Confirmado', userId ?? null)
+      }
+      await load()
+      onTeamChanged?.()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao confirmar em lote — as já confirmadas ficaram.')
+      await load()
+      onTeamChanged?.()
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
   async function applyToSlot(req: EventStaffingRequirement) {
     if (!userId) return
     setBusyId(req.id)
@@ -237,6 +271,34 @@ export default function StaffingTab({ eventId, canManage, onTeamChanged }: Props
   return (
     <div className="space-y-4">
       {error && <p className="text-sm text-red-600">{error}</p>}
+
+      {/* Fila de decisão num lugar só: confirma tudo que cabe nas vagas com
+          um toque, em vez de caçar botãozinho por candidato. */}
+      {canManage && totalWaiting > 0 && (
+        <div className="bg-beetz-yellow/15 border border-beetz-yellow/40 rounded-2xl p-4 flex flex-wrap items-center gap-3">
+          <div className="flex-1 min-w-[180px]">
+            <p className="text-sm font-bold">
+              {totalWaiting} candidatura{totalWaiting > 1 ? 's' : ''} aguardando decisão
+            </p>
+            {totalWaiting > allConfirmable.length && (
+              <p className="text-xs text-beetz-dark/55 mt-0.5">
+                {allConfirmable.length > 0
+                  ? `Cabem ${allConfirmable.length} nas vagas — ${totalWaiting - allConfirmable.length} passa${totalWaiting - allConfirmable.length > 1 ? 'm' : ''} do limite (aumente a vaga ou recuse).`
+                  : 'As vagas já estão cheias — aumente a quantidade ou recuse.'}
+              </p>
+            )}
+          </div>
+          {allConfirmable.length > 0 && (
+            <button
+              onClick={() => confirmMany(allConfirmable)}
+              disabled={bulkBusy}
+              className="flex items-center gap-1.5 bg-beetz-dark text-white font-bold px-4 py-2.5 rounded-xl text-sm hover:bg-black transition-colors disabled:opacity-60"
+            >
+              <Check size={15} /> {bulkBusy ? 'Confirmando...' : `Confirmar todas (${allConfirmable.length})`}
+            </button>
+          )}
+        </div>
+      )}
 
       {confirmedApps.length > 0 && (
         <div className="bg-beetz-dark text-white rounded-2xl p-5 shadow-soft flex flex-wrap items-center gap-4">
@@ -347,6 +409,17 @@ export default function StaffingTab({ eventId, canManage, onTeamChanged }: Props
                 }`}>
                   {confirmed.length} de {req.quantity} confirmados
                 </span>
+                {/* Lote por vaga: com 2+ esperando, um toque confirma a fila
+                    até o limite da vaga. */}
+                {canManage && confirmableFor(req).length > 1 && (
+                  <button
+                    onClick={() => confirmMany(confirmableFor(req))}
+                    disabled={bulkBusy}
+                    className="flex items-center gap-1 text-xs font-bold bg-beetz-dark text-white px-2.5 py-1.5 rounded-lg hover:bg-black transition-colors disabled:opacity-60"
+                  >
+                    <Check size={12} /> {bulkBusy ? '...' : `Confirmar todos (${confirmableFor(req).length})`}
+                  </button>
+                )}
               </div>
 
               <div className="h-1.5 bg-beetz-gray rounded-full overflow-hidden mb-4">

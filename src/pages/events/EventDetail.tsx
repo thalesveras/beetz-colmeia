@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import {
   addEventMember, getEventById, getProfileById, listEventMembers,
-  listEventStaffingRequirements, listProfiles,
+  listEventStaffingApplications, listEventStaffingRequirements, listProfiles,
   requestEventParticipation, updateEventMemberStatus
 } from '../../lib/dataService'
 import type { EventItem, EventMember, Profile } from '../../lib/types'
@@ -61,6 +61,7 @@ export default function EventDetail() {
   const [requestRole, setRequestRole] = useState('')
   const [requesting, setRequesting] = useState(false)
   const [activeTab, setActiveTab] = useState<TabKey>('resumo')
+  const [pendingStaffing, setPendingStaffing] = useState(0)
   // Se o evento tem vagas, o caminho é se candidatar a uma delas; o campo de
   // interesse em texto livre só aparece quando não há vaga nenhuma.
   const [hasRequirements, setHasRequirements] = useState(false)
@@ -76,6 +77,12 @@ export default function EventDetail() {
     setMembers(withProfiles)
     setAllProfiles(await listProfiles())
     setHasRequirements((await listEventStaffingRequirements(id)).length > 0)
+    // Bolinha vermelha na aba Equipe: candidaturas aguardando decisão. Só pra
+    // quem aprova — pro resto da equipe seria alarme sem botão.
+    if (canApproveEventRequests(accessRole)) {
+      const apps = await listEventStaffingApplications(id).catch(() => [])
+      setPendingStaffing(apps.filter((a) => a.status === 'Candidatado').length)
+    }
     setLoading(false)
   }
 
@@ -128,11 +135,17 @@ export default function EventDetail() {
             <button
               key={t.key}
               onClick={() => setActiveTab(t.key)}
-              className={`whitespace-nowrap px-3.5 py-2 rounded-xl text-sm font-semibold transition-colors ${
+              className={`relative whitespace-nowrap px-3.5 py-2 rounded-xl text-sm font-semibold transition-colors ${
                 activeTab === t.key ? 'bg-beetz-dark text-white' : 'text-beetz-dark/60 hover:bg-beetz-gray'
               }`}
             >
               {t.label}
+              {/* Bolinha vermelha: candidaturas esperando decisão da Diretoria. */}
+              {t.key === 'equipe' && pendingStaffing > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold min-w-[17px] h-[17px] px-1 rounded-full flex items-center justify-center">
+                  {pendingStaffing > 9 ? '9+' : pendingStaffing}
+                </span>
+              )}
             </button>
           ))}
         </div>
