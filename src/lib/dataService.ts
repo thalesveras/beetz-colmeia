@@ -3203,10 +3203,12 @@ export async function listMyStaffingApplications(profileId: string): Promise<Eve
 // Vagas de eventos que ainda vão acontecer, já com a contagem de confirmados e
 // a candidatura da própria pessoa (se existir) — é o que alimenta a tela /escala.
 export async function listOpenStaffingSlots(profileId: string | null): Promise<OpenStaffingSlot[]> {
-  const today = new Date().toISOString().slice(0, 10)
-
+  // Vaga NÃO fecha pela data: evento que vira a madrugada perdia as vagas à
+  // meia-noite, com garçom ainda precisando entrar (e sem entrar na escala,
+  // não lança recebimento). Fecha só por comando da Diretoria
+  // (staffing_closed, botão em Evento → Equipe) ou evento Cancelado/Concluído.
   const events = (await listEvents()).filter(
-    (e) => e.event_date >= today && e.status !== 'Cancelado' && e.status !== 'Concluído'
+    (e) => !e.staffing_closed && e.status !== 'Cancelado' && e.status !== 'Concluído'
   )
   if (!events.length) return []
   const eventIds = events.map((e) => e.id)

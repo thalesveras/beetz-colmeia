@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Check, ClipboardList, Pencil, Users, Wallet, X } from 'lucide-react'
+import { Check, Pencil, Users, Wallet, X } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import {
-  applyToStaffingSlot, generateScalePayments, listCashierSettlementsForEvent, listEventStaffingApplications,
-  listEventStaffingRequirements, listProfiles, listStaffingRoles, updateStaffingApplicationPercent,
+  applyToStaffingSlot, generateScalePayments, getEventById, listCashierSettlementsForEvent, listEventStaffingApplications,
+  listEventStaffingRequirements, listProfiles, listStaffingRoles, updateEvent, updateStaffingApplicationPercent,
   updateStaffingApplicationStatus, updateStaffingApplicationValue
 } from '../../lib/dataService'
 
@@ -58,22 +58,30 @@ export default function StaffingTab({ eventId, canManage, onTeamChanged }: Props
   const [generating, setGenerating] = useState(false)
   const [payMessage, setPayMessage] = useState<string | null>(null)
 
+  // Vagas fecham SÓ por comando da Diretoria — nunca pela data. O flag mora
+  // no evento; o botão vive aqui na Equipe.
+  const [staffingClosed, setStaffingClosed] = useState(false)
+  const [togglingVagas, setTogglingVagas] = useState(false)
+
   async function load() {
     try {
-      const [reqs, apps, profs, rls, settlements] = await Promise.all([
+      const [reqs, apps, profs, rls, settlements, ev] = await Promise.all([
         listEventStaffingRequirements(eventId),
         listEventStaffingApplications(eventId),
         listProfiles(),
         listStaffingRoles(),
-        listCashierSettlementsForEvent(eventId).catch(() => [])
+        listCashierSettlementsForEvent(eventId).catch(() => []),
+        getEventById(eventId).catch(() => null)
       ])
       setRequirements(reqs)
       setApplications(apps)
       setProfiles(profs)
       setRoles(rls)
+      setStaffingClosed(!!ev?.staffing_closed)
       const sales = new Map<string, number>()
       for (const st of settlements) {
-        if (st.status === 'Rejeitado') continue
+        // Sem pessoa vinculada não soma pra ninguém (e Rejeitado não conta).
+        if (st.status === 'Rejeitado' || !st.profile_id) continue
         sales.set(st.profile_id, (sales.get(st.profile_id) ?? 0) + st.total)
       }
       setSalesByProfile(sales)
@@ -85,6 +93,18 @@ export default function StaffingTab({ eventId, canManage, onTeamChanged }: Props
   }
 
   useEffect(() => { load() }, [eventId])
+
+  async function toggleStaffingClosed() {
+    setTogglingVagas(true)
+    try {
+      await updateEvent(eventId, { staffing_closed: !staffingClosed })
+      setStaffingClosed((v) => !v)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Não foi possível alterar as vagas.')
+    } finally {
+      setTogglingVagas(false)
+    }
+  }
 
   const confirmedByRequirement = useMemo(() => {
     const map: Record<string, number> = {}
@@ -246,6 +266,35 @@ export default function StaffingTab({ eventId, canManage, onTeamChanged }: Props
             </button>
           )}
           {payMessage && <p className="w-full text-xs text-beetz-yellow/90">{payMessage}</p>}
+        </div>
+      )}
+
+      {/* Vagas fecham SÓ por este botão — nunca pela data. Enquanto abertas,
+          aparecem na /escala mesmo com o evento rolando (garçom entrando de
+          madrugada continua conseguindo se candidatar e lançar recebimento). */}
+      {canManage && (
+        <div className={`rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 border ${
+          staffingClosed ? 'bg-beetz-dark/5 border-beetz-dark/10' : 'bg-green-50 border-green-200'
+        }`}>
+          <div>
+            <p className={`text-sm font-bold ${staffingClosed ? 'text-beetz-dark/60' : 'text-green-800'}`}>
+              {staffingClosed ? 'Vagas encerradas pela Diretoria' : 'Vagas abertas na /escala'}
+            </p>
+            <p className="text-xs text-beetz-dark/50 mt-0.5">
+              {staffingClosed
+                ? 'Ninguém mais consegue se candidatar. Reabra se ainda falta gente.'
+                : 'As vagas ficam visíveis até você encerrar aqui — a data do evento não fecha nada sozinha.'}
+            </p>
+          </div>
+          <button
+            onClick={toggleStaffingClosed}
+            disabled={togglingVagas}
+            className={`text-sm font-bold px-4 py-2 rounded-xl transition-colors disabled:opacity-60 ${
+              staffingClosed ? 'honey-gradient text-beetz-dark' : 'bg-beetz-dark text-white hover:bg-black'
+            }`}
+          >
+            {togglingVagas ? '...' : staffingClosed ? 'Reabrir vagas' : 'Encerrar vagas'}
+          </button>
         </div>
       )}
 

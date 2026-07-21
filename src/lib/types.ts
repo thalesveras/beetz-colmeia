@@ -130,6 +130,10 @@ export interface EventItem {
   location: string
   city: string
   status: EventStatus
+  // Vagas da escala fecham SÓ por comando da Diretoria (Evento → Equipe) —
+  // nunca pela data sozinha. Opcional porque eventos antigos não têm o campo
+  // nos mocks; ausente = vagas abertas.
+  staffing_closed?: boolean
   leader_id: string | null
   created_at: string
   // Resumo do evento
