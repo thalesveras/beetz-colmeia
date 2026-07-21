@@ -2058,30 +2058,43 @@ export async function syncSoldQuantitiesFromPdv(eventId: string): Promise<number
 // Relatório de PRODUÇÃO da máquina → aba Consumo da produção. Uma linha de
 // consumo por NOME do PDV (rastreável), agrupando os uploads oficiais:
 //   quantidade = Σ vendas × un/venda (em unidades de ESTOQUE)
-//   valor unitário = total do relatório ÷ unidades (preserva o total da
-//   máquina ao centavo — é o valor que desconta do produtor no fechamento)
+//   valor unitário = CUSTO do produto, não o preço de venda do relatório
+//   (decisão do dono, 21/07/26): custo do produto NO evento (aba Produtos)
+//   → senão custo médio do catálogo → senão entra ZERADO e a aba pergunta.
+//   Consumo é conta do produtor a preço de casa — vender pra ele pelo preço
+//   de balcão inflaria o desconto.
 // Recalculada a cada upload/vínculo (idempotente). Linhas manuais (pos_synced
-// false) nunca são tocadas. Sem baixa automática no saldo físico: o acerto
-// físico é papel do inventário/encerramento.
+// false) nunca são tocadas; custo digitado na mão numa linha SEM custo de
+// sistema sobrevive ao re-sync. Sem baixa automática no saldo físico: o
+// acerto físico é papel do inventário/encerramento.
 export async function syncProductionConsumptionFromPdv(eventId: string): Promise<number> {
   if (isDemoMode) return 0
-  const [imports, lines, existing] = await Promise.all([
+  const [imports, lines, existing, eventProducts, avgCosts] = await Promise.all([
     listEventSalesImports(eventId),
     listEventSalesLines(eventId),
-    listProductionConsumption(eventId)
+    listProductionConsumption(eventId),
+    listEventProducts(eventId).catch(() => [] as EventProduct[]),
+    listProductAvgCosts().catch(() => [] as ProductAvgCost[])
   ])
   const oficiais = new Set(imports.filter((i) => !i.superseded_by && i.kind === 'producao').map((i) => i.id))
 
+  // Custo resolvido por produto: evento primeiro, catálogo depois.
+  const custoEvento = new Map(eventProducts.filter((ep) => ep.unit_price > 0).map((ep) => [ep.product_id, ep.unit_price]))
+  const custoCatalogo = new Map(
+    avgCosts.filter((c) => (c.avg_cost ?? 0) > 0).map((c) => [c.product_id, c.avg_cost as number])
+  )
+  const resolveCost = (productId: string): number | null =>
+    custoEvento.get(productId) ?? custoCatalogo.get(productId) ?? null
+
   // Agrupa por nome do PDV (só linhas mapeadas em produto).
-  interface Grupo { product_id: string; qty: number; total: number }
+  interface Grupo { product_id: string; qty: number }
   const grupos = new Map<string, Grupo>()
   for (const l of lines) {
     if (!oficiais.has(l.import_id) || !l.product_id) continue
     const key = normalizePosName(l.pos_name)
-    const g = grupos.get(key) ?? { product_id: l.product_id, qty: 0, total: 0 }
+    const g = grupos.get(key) ?? { product_id: l.product_id, qty: 0 }
     g.product_id = l.product_id
     g.qty += l.quantity * l.units_per_sale
-    g.total += l.total_gross ?? l.quantity * (l.unit_value ?? 0)
     grupos.set(key, g)
   }
 
@@ -2093,11 +2106,13 @@ export async function syncProductionConsumptionFromPdv(eventId: string): Promise
 
   for (const [key, g] of grupos) {
     if (!(g.qty > 0)) continue
-    const unit = Math.round((g.total / g.qty) * 10000) / 10000
     const qty = Math.round(g.qty * 100) / 100
+    const custo = resolveCost(g.product_id)
     const atual = byTag.get(tag(key))
     if (atual) {
       byTag.delete(tag(key))
+      // Sem custo de sistema, o que a Diretoria digitou na linha fica.
+      const unit = custo ?? atual.unit_cost
       if (atual.quantity !== qty || atual.unit_cost !== unit || atual.product_id !== g.product_id) {
         const { error } = await supabase.from('production_consumption')
           .update({ quantity: qty, unit_cost: unit, product_id: g.product_id }).eq('id', atual.id)
@@ -2105,7 +2120,7 @@ export async function syncProductionConsumptionFromPdv(eventId: string): Promise
       }
     } else {
       const { error } = await supabase.from('production_consumption').insert({
-        event_id: eventId, product_id: g.product_id, quantity: qty, unit_cost: unit,
+        event_id: eventId, product_id: g.product_id, quantity: qty, unit_cost: custo ?? 0,
         notes: tag(key), created_by: uid, pos_synced: true
       })
       if (!error) changed++

@@ -81,8 +81,30 @@ export default function ProductionConsumptionTab({ eventId }: { eventId: string 
 
       {/* Relatório de Produção do PDV: mesmo pipeline do relatório de vendas
           (aliases, sugestões, regra do oficial) — a soma cai AQUI, como linhas
-          "PDV Produção: ..." recalculadas a cada upload. Manuais não são tocadas. */}
+          "PDV Produção: ..." recalculadas a cada upload, valoradas pelo CUSTO
+          do produto (evento → catálogo). Manuais não são tocadas. */}
       <SalesReportCard eventId={eventId} kind="producao" onSynced={load} />
+
+      {/* A "pergunta" prometida: veio da máquina mas o produto não tem preço
+          de custo em lugar nenhum — entrou zerado e está descontando R$ 0 do
+          produtor. Toca na linha e informa, ou lança a Compra com preço que o
+          próximo upload preenche sozinho. */}
+      {(() => {
+        const semCusto = items.filter((i) => i.pos_synced && i.unit_cost === 0 && i.quantity > 0)
+        if (semCusto.length === 0) return null
+        return (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+            <p className="text-sm font-bold text-amber-800 mb-1">
+              {semCusto.length} produto{semCusto.length > 1 ? 's' : ''} da máquina sem preço de custo
+            </p>
+            <p className="text-xs text-amber-800/80">
+              {semCusto.map((i) => productName(i.product_id)).join(', ')} — entraram com custo R$ 0 e não descontam
+              nada do produtor. Toque na linha e informe o custo, ou registre a Compra com preço no Estoque que o
+              próximo upload preenche sozinho.
+            </p>
+          </div>
+        )
+      })()}
 
       {showForm && (
         <form onSubmit={handleSubmit} className="bg-beetz-gray rounded-2xl p-5 space-y-4">
