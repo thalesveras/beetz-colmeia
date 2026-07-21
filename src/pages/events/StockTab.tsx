@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Plus, Pencil, Ban, RotateCcw, Check, ChevronDown, ChevronUp } from 'lucide-react'
 import { isPositiveMovementType, listEventStockMovementsWide, listProducts, listProfiles, listStockLocations, updateCompraMovement, updateStockMovement } from '../../lib/dataService'
 import type { Product, Profile, StockLocation, StockMovement } from '../../lib/types'
@@ -78,10 +78,47 @@ export default function StockTab({ eventId }: { eventId: string }) {
     load()
   }
 
+  // Filtro inteligente: UMA caixa que entende o que você digitar — nome do
+  // produto (sem ligar pra acento), tipo da movimentação, valor ("3,25" acha
+  // o custo; "2000" acha a quantidade) e observações. + tipo e cancelados.
+  const [search, setSearch] = useState('')
+  const [filterType, setFilterType] = useState('')
+  const [hideCancelled, setHideCancelled] = useState(false)
+  const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+
+  const typeOptions = useMemo(
+    () => Array.from(new Set(movements.map((m) => m.movement_type))).sort(),
+    [movements]
+  )
+
+  const filteredMovements = useMemo(() => {
+    const term = norm(search.trim())
+    const numTerm = search.trim().replace(',', '.')
+    return movements.filter((m) => {
+      if (filterType && m.movement_type !== filterType) return false
+      if (hideCancelled && m.status === 'Cancelado') return false
+      if (!term) return true
+      if (norm(productName(m.product_id)).includes(term)) return true
+      if (norm(m.movement_type).includes(term)) return true
+      if (m.notes && norm(m.notes).includes(term)) return true
+      if (String(m.quantity).includes(numTerm)) return true
+      if (m.unit_cost != null && (String(m.unit_cost).includes(numTerm) || m.unit_cost.toFixed(2).replace('.', ',').includes(search.trim()))) return true
+      return false
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [movements, search, filterType, hideCancelled, products])
+  const filtersActive = !!(search.trim() || filterType || hideCancelled)
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-beetz-dark/60">{loading ? 'Carregando...' : `${movements.length} movimentação(ões) neste evento`}</p>
+        <p className="text-sm text-beetz-dark/60">
+          {loading
+            ? 'Carregando...'
+            : filtersActive
+              ? `${filteredMovements.length} de ${movements.length} movimentação(ões)`
+              : `${movements.length} movimentação(ões) neste evento`}
+        </p>
         <button
           onClick={() => setShowForm((v) => !v)}
           className="flex items-center gap-1.5 text-sm font-semibold bg-beetz-dark text-white px-3 py-2 rounded-xl hover:bg-black transition-colors"
@@ -92,9 +129,44 @@ export default function StockTab({ eventId }: { eventId: string }) {
 
       {showForm && <StockMovementForm fixedEventId={eventId} onSaved={() => { setShowForm(false); load() }} />}
 
+      {!loading && movements.length > 1 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            className="flex-1 min-w-[180px] border border-beetz-dark/15 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow"
+            placeholder="Buscar produto, tipo, valor..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <select
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value)}
+            className="border border-beetz-dark/15 rounded-xl px-3 py-2 text-sm"
+          >
+            <option value="">Todos os tipos</option>
+            {typeOptions.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <button
+            onClick={() => setHideCancelled((v) => !v)}
+            className={`text-xs font-semibold px-3 py-2 rounded-xl border transition-colors ${
+              hideCancelled ? 'bg-beetz-dark text-white border-beetz-dark' : 'border-beetz-dark/15 text-beetz-dark/60 hover:bg-beetz-gray'
+            }`}
+          >
+            Ocultar cancelados
+          </button>
+          {filtersActive && (
+            <button
+              onClick={() => { setSearch(''); setFilterType(''); setHideCancelled(false) }}
+              className="text-xs font-semibold text-beetz-dark/50 hover:text-red-600 px-2 py-2"
+            >
+              Limpar
+            </button>
+          )}
+        </div>
+      )}
+
       {!loading && (
         <div className="space-y-2">
-          {movements.map((m) => (
+          {filteredMovements.map((m) => (
             <div key={m.id} className={`bg-white border border-beetz-dark/5 rounded-xl ${m.status === 'Cancelado' ? 'opacity-50' : ''}`}>
               <div
                 className="flex items-center gap-3 p-4 cursor-pointer"
@@ -167,7 +239,11 @@ export default function StockTab({ eventId }: { eventId: string }) {
               )}
             </div>
           ))}
-          {movements.length === 0 && <p className="text-sm text-beetz-dark/50">Nenhuma movimentação de estoque neste evento ainda.</p>}
+          {filteredMovements.length === 0 && (
+            <p className="text-sm text-beetz-dark/50">
+              {movements.length > 0 ? 'Nenhuma movimentação com esses filtros.' : 'Nenhuma movimentação de estoque neste evento ainda.'}
+            </p>
+          )}
         </div>
       )}
     </div>
