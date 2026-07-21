@@ -6,6 +6,7 @@ import {
 } from '../../lib/dataService'
 import type { EventStockLine } from '../../lib/dataService'
 import type { EventProduct, EventSalesLine, Product } from '../../lib/types'
+import SalesReportCard from './SalesReportCard'
 
 const inputClass = 'w-full border border-beetz-dark/15 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
 
@@ -274,10 +275,14 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
       )}
       {!loading && items.length > 0 && withSales.length < items.length && (
         <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-          {items.length - withSales.length} produto(s) sem vendas informadas — toque no card, preencha
-          "Vendido" (e o preço de venda) pra entrar na conta.
+          {items.length - withSales.length} produto(s) sem vendas informadas — suba o relatório da máquina
+          abaixo (preenche sozinho) ou toque na linha e informe o "Vendido".
         </p>
       )}
+
+      {/* O relatório da máquina mora AQUI: subiu o CSV do dia, o Vendido de
+          cada produto atualiza em lote — sem digitar produto a produto. */}
+      {!loading && <SalesReportCard eventId={eventId} onSynced={load} />}
 
       {showForm && (
         <form onSubmit={handleSubmit} className="bg-beetz-gray rounded-2xl p-5 space-y-4">

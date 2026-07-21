@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, ArrowLeftRight, BarChart3, ClipboardList, Clock3 } from 'lucide-react'
+import { AlertTriangle, ArrowLeftRight, ClipboardList, Clock3 } from 'lucide-react'
 import { listEventProducts, listEventStockMovementsWide, listProductionConsumption, listProducts } from '../../lib/dataService'
 import type { EventProduct, Product, ProductionConsumption, StockMovement } from '../../lib/types'
-import SalesReportCard from './SalesReportCard'
 import StockTab from './StockTab'
 import TransferRequestsTab from './TransferRequestsTab'
 
@@ -12,11 +11,13 @@ import TransferRequestsTab from './TransferRequestsTab'
 // O resto — relatório do PDV, movimentações e transferências — continua
 // existindo, mas cada um na sua sub-aba, um assunto por vez.
 
-type SubTab = 'conta' | 'pdv' | 'movimentacoes' | 'transferencias'
+// O relatório do PDV mudou de casa: mora na aba Produtos, onde alimenta o
+// Vendido em lote. Aqui fica o estoque puro: conta, movimentações e
+// transferências.
+type SubTab = 'conta' | 'movimentacoes' | 'transferencias'
 
 const SUB_TABS: { key: SubTab; label: string; icon: typeof ClipboardList }[] = [
   { key: 'conta', label: 'A conta', icon: ClipboardList },
-  { key: 'pdv', label: 'Vendas da máquina', icon: BarChart3 },
   { key: 'movimentacoes', label: 'Movimentações', icon: Clock3 },
   { key: 'transferencias', label: 'Transferências', icon: ArrowLeftRight }
 ]
@@ -41,7 +42,6 @@ export default function EventStockSection({ eventId, canApprove }: { eventId: st
       </div>
 
       {tab === 'conta' && <EventStockAccountCard eventId={eventId} />}
-      {tab === 'pdv' && <SalesReportCard eventId={eventId} />}
       {tab === 'movimentacoes' && (
         <div className="bg-white rounded-2xl p-6 shadow-soft border border-beetz-dark/5">
           <StockTab eventId={eventId} />

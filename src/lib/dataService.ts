@@ -1934,13 +1934,46 @@ export async function createEventSalesImport(
     await supabase.from('event_sales_imports').delete().eq('id', (imp as EventSalesImport).id)
     throw linesErr
   }
+  // Linhas que já chegaram mapeadas (alias) alimentam o Vendido na hora.
+  await syncSoldQuantitiesFromPdv(eventId).catch(() => 0)
   return imp as EventSalesImport
 }
 
 export async function deleteEventSalesImport(id: string): Promise<void> {
   if (isDemoMode) return
+  const { data } = await supabase.from('event_sales_imports').select('event_id').eq('id', id).single()
+  const eventId = (data as { event_id: string } | null)?.event_id
   const { error } = await supabase.from('event_sales_imports').delete().eq('id', id)
   if (error) throw error
+  // Import excluído = vendas daquele dia saem da soma; o Vendido dos produtos
+  // acompanha na hora.
+  if (eventId) await syncSoldQuantitiesFromPdv(eventId).catch(() => 0)
+}
+
+// O elo que dispensa digitação: soma TODAS as linhas mapeadas do PDV por
+// produto (quantidade × un/venda, todos os dias somados) e grava no Vendido
+// (sold_quantity) da aba Produtos. Idempotente — recalcula do zero a cada
+// import, vínculo ou exclusão, então subir de novo nunca duplica. Produto sem
+// linha no relatório não é tocado (vendas informadas na mão sobrevivem).
+export async function syncSoldQuantitiesFromPdv(eventId: string): Promise<number> {
+  if (isDemoMode) return 0
+  const [lines, eventProducts] = await Promise.all([listEventSalesLines(eventId), listEventProducts(eventId)])
+  const soldByProduct = new Map<string, number>()
+  for (const l of lines) {
+    if (!l.product_id) continue
+    soldByProduct.set(l.product_id, (soldByProduct.get(l.product_id) ?? 0) + l.quantity * l.units_per_sale)
+  }
+  let updated = 0
+  for (const ep of eventProducts) {
+    const s = soldByProduct.get(ep.product_id)
+    if (s == null) continue
+    const rounded = Math.round(s * 100) / 100
+    if (rounded !== (ep.sold_quantity ?? null)) {
+      await updateEventProduct(ep.id, { sold_quantity: rounded })
+      updated++
+    }
+  }
+  return updated
 }
 
 // Vincular nome da máquina → produto: grava a memória global (alias) e
@@ -1965,6 +1998,8 @@ export async function mapPosNameToProduct(
       .update({ product_id: productId, units_per_sale: unitsPerSale }).in('id', ids)
     if (updErr) throw updErr
   }
+  // Vínculo novo = vendas que estavam órfãs entram na soma do Vendido.
+  await syncSoldQuantitiesFromPdv(eventId).catch(() => 0)
 }
 
 // ---------- Consumo da produção ----------
