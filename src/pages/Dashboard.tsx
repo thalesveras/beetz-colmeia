@@ -6,7 +6,7 @@ import {
 import { useAuth } from '../contexts/AuthContext'
 import {
   listProfiles, listEvents, listOpenStaffingSlots, getRanking, listDepartments,
-  listPendingProfilesForDirectory, type RankingEntry
+  countPendingProfilesForDirectory, type RankingEntry
 } from '../lib/dataService'
 import { canViewFinancialSummary, canManageUsers } from '../lib/permissions'
 import type { Department, EventItem, OpenStaffingSlot, Profile } from '../lib/types'
@@ -40,7 +40,10 @@ export default function Dashboard() {
       listDepartments(),
       // Pré-cadastro é contexto do cartão de Colaboradores: falha aqui não pode
       // derrubar o dashboard inteiro, então cai pra 0 em silêncio.
-      listPendingProfilesForDirectory().then((r) => r.length).catch(() => 0)
+      // Só a CONTAGEM (HEAD+count): antes baixava as ~1.700 fichas (2 MB) só
+      // pra medir o length — o peso que segurava o Dashboard em conexão de
+      // latência alta. Falha aqui não derruba o painel: cai pra 0.
+      countPendingProfilesForDirectory().catch(() => 0)
     ])
       .then(([p, e, s, r, d, pend]) => {
         setProfiles(p)

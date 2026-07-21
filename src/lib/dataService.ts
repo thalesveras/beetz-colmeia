@@ -967,6 +967,17 @@ export async function listPendingProfilesForDirectory(): Promise<PendingProfileD
   })
 }
 
+// Só o NÚMERO de pré-cadastros — o Dashboard precisa do contador do card,
+// não das ~1.700 fichas (2 MB baixados por visita, sentidos na hora em
+// conexão de latência alta como satélite). HEAD + count devolve o total
+// sem corpo nenhum.
+export async function countPendingProfilesForDirectory(): Promise<number> {
+  if (isDemoMode) return 0
+  const { count, error } = await supabase.rpc('list_pending_profiles_for_directory', {}, { head: true, count: 'exact' })
+  if (error) throw error
+  return count ?? 0
+}
+
 // Busca sob demanda (um perfil por vez) os campos sensíveis do pré-cadastro
 // que listPendingProfilesForDirectory nunca traz. A function no banco só
 // devolve linha se quem chamou for Diretoria — pra qualquer outra pessoa
