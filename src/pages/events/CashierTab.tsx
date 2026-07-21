@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import {
   createCashierSettlement, listCashierSettlementsForEvent, listProfiles,
@@ -97,6 +97,39 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
   const grandTotal = visibleSettlements.reduce((sum, s) => sum + s.total, 0)
   const grandCommission = visibleSettlements.reduce((sum, s) => sum + s.commission_amount, 0)
 
+  // Quem tá devendo, somado e contado — o número que a Diretoria caça no fim
+  // do evento. Pra quem não revisa, internals chega vazio pela RLS e os chips
+  // simplesmente não aparecem.
+  const devendoResumo = useMemo(() => {
+    let total = 0
+    let pessoas = 0
+    let acertados = 0
+    for (const s of visibleSettlements) {
+      const i = internals.get(s.id)
+      if (!i) continue
+      if (i.status === 'Devendo') { pessoas++; total += i.pending_amount ?? 0 }
+      if (i.status === 'Acertado') acertados++
+    }
+    return { total, pessoas, acertados }
+  }, [visibleSettlements, internals])
+
+  // Filtro avançado da lista: busca por nome + status + tipo + "só devendo".
+  const [search, setSearch] = useState('')
+  const [filterStatus, setFilterStatus] = useState('')
+  const [filterRole, setFilterRole] = useState('')
+  const [onlyDevendo, setOnlyDevendo] = useState(false)
+  const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+
+  const filteredSettlements = useMemo(() => visibleSettlements.filter((s) => {
+    if (filterStatus && s.status !== filterStatus) return false
+    if (filterRole && s.role_type !== filterRole) return false
+    if (onlyDevendo && internals.get(s.id)?.status !== 'Devendo') return false
+    if (search.trim() && !norm(profileName(s.profile_id)).includes(norm(search))) return false
+    return true
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [visibleSettlements, internals, filterStatus, filterRole, onlyDevendo, search, profiles])
+  const filtersActive = !!(search.trim() || filterStatus || filterRole || onlyDevendo)
+
   function resetForm() {
     setProfileId(canViewAll ? '' : (userId ?? '')); setRoleType('Caixa'); setCash(0); setDebit(0); setCredit(0); setPix(0); setNotes(''); setReceipt(null)
   }
@@ -145,6 +178,56 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
           </button>
         )}
       </div>
+
+      {/* O placar do acerto interno: quem deve, quanto, e quantos já
+          acertaram. O chip vermelho é BOTÃO — toca e a lista filtra na hora. */}
+      {!loading && (devendoResumo.pessoas > 0 || devendoResumo.acertados > 0) && (
+        <div className="flex flex-wrap gap-1.5">
+          {devendoResumo.pessoas > 0 && (
+            <button
+              onClick={() => setOnlyDevendo((v) => !v)}
+              className={`text-xs font-bold px-3 py-1.5 rounded-full border transition-colors ${
+                onlyDevendo ? 'bg-red-600 text-white border-red-600' : 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100'
+              }`}
+            >
+              Devendo {currency(devendoResumo.total)} · {devendoResumo.pessoas} pessoa(s)
+            </button>
+          )}
+          {devendoResumo.acertados > 0 && (
+            <span className="text-xs font-bold bg-green-50 text-green-700 border border-green-200 px-3 py-1.5 rounded-full">
+              {devendoResumo.acertados} acertado(s) ✓
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Filtro avançado — aparece quando há o que filtrar. */}
+      {!loading && visibleSettlements.length > 1 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            className={`${inputClass} w-full sm:w-52`}
+            placeholder="Buscar por nome..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className={`${inputClass} w-auto`}>
+            <option value="">Todos os status</option>
+            {statuses.map((st) => <option key={st} value={st}>{st}</option>)}
+          </select>
+          <select value={filterRole} onChange={(e) => setFilterRole(e.target.value)} className={`${inputClass} w-auto`}>
+            <option value="">Caixa e Garçom</option>
+            {roleTypes.map((r) => <option key={r} value={r}>{r}</option>)}
+          </select>
+          {filtersActive && (
+            <button
+              onClick={() => { setSearch(''); setFilterStatus(''); setFilterRole(''); setOnlyDevendo(false) }}
+              className="text-xs font-semibold text-beetz-dark/50 hover:text-red-600 px-2 py-2"
+            >
+              Limpar filtros
+            </button>
+          )}
+        </div>
+      )}
 
       {!canAdd && (
         <p className="text-sm text-beetz-dark/50 bg-beetz-gray rounded-xl p-4">
@@ -227,7 +310,7 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
 
       {!loading && (
         <div className="space-y-2">
-          {visibleSettlements.map((s) => {
+          {filteredSettlements.map((s) => {
             const canEditThis = canReviewCashier(accessRole) || (s.profile_id === userId && s.status === 'Pendente')
             return (
             <div
@@ -276,9 +359,11 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
             </div>
             )
           })}
-          {visibleSettlements.length === 0 && (
+          {filteredSettlements.length === 0 && (
             <p className="text-sm text-beetz-dark/50">
-              {canViewAll ? 'Nenhum recebimento registrado ainda.' : 'Você ainda não registrou nenhum recebimento neste evento.'}
+              {visibleSettlements.length > 0
+                ? 'Nenhum recebimento com esses filtros.'
+                : canViewAll ? 'Nenhum recebimento registrado ainda.' : 'Você ainda não registrou nenhum recebimento neste evento.'}
             </p>
           )}
         </div>
