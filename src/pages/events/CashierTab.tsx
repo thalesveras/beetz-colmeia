@@ -194,19 +194,38 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <p className="text-sm text-beetz-dark/60">
-          {loading
-            ? 'Carregando...'
-            : `${canViewAll ? 'Apurado' : 'Seu apurado'}: ${currency(grandTotal)} · Comissões de garçom: ${currency(grandCommission)}`}
-        </p>
-        {canAdd && (
-          <button
-            onClick={() => setShowForm((v) => !v)}
-            className="flex items-center gap-1.5 text-sm font-semibold bg-beetz-dark text-white px-3 py-2 rounded-xl hover:bg-black transition-colors"
-          >
-            <Plus size={16} /> Novo recebimento
-          </button>
+      {/* Sumário aberto: total, por tipo (caixas × garçons) e por forma de
+          pagamento — o raio-x do dinheiro do evento num olhar. */}
+      <div className="bg-beetz-dark text-white rounded-2xl p-4 md:p-5">
+        <div className="flex items-start justify-between flex-wrap gap-3">
+          <div>
+            <p className="text-2xl font-extrabold leading-none">{loading ? '...' : currency(grandTotal)}</p>
+            <p className="text-xs text-white/50 mt-1">
+              {canViewAll ? 'Apurado no evento' : 'Seu apurado'} · comissões de garçom {currency(grandCommission)}
+            </p>
+          </div>
+          {canAdd && (
+            <button
+              onClick={() => setShowForm((v) => !v)}
+              className="flex items-center gap-1.5 text-sm font-bold honey-gradient text-beetz-dark px-3 py-2 rounded-xl"
+            >
+              <Plus size={16} /> Novo recebimento
+            </button>
+          )}
+        </div>
+        {!loading && (
+          <div className="flex flex-wrap gap-2 mt-3">
+            <span className="text-[11px] font-semibold bg-white/10 px-2.5 py-1.5 rounded-full">
+              Caixas {currency(resumo.caixasTotal)} <span className="text-white/40">({resumo.caixasN})</span>
+            </span>
+            <span className="text-[11px] font-semibold bg-white/10 px-2.5 py-1.5 rounded-full">
+              Garçons {currency(resumo.garconsTotal)} <span className="text-white/40">({resumo.garconsN})</span>
+            </span>
+            <span className="text-[11px] font-semibold bg-white/10 px-2.5 py-1.5 rounded-full">💵 Dinheiro {currency(resumo.dinheiro)}</span>
+            <span className="text-[11px] font-semibold bg-white/10 px-2.5 py-1.5 rounded-full">💳 Débito {currency(resumo.debito)}</span>
+            <span className="text-[11px] font-semibold bg-white/10 px-2.5 py-1.5 rounded-full">💳 Crédito {currency(resumo.credito)}</span>
+            <span className="text-[11px] font-semibold bg-white/10 px-2.5 py-1.5 rounded-full">Pix {currency(resumo.pix)}</span>
+          </div>
         )}
       </div>
 
