@@ -153,7 +153,13 @@ export default function EditSettlementModal({ settlement, profiles, canReview, o
       onSaved()
       onClose()
     } catch (e: any) {
-      setError(e?.message ?? 'Não foi possível salvar (pode ser falta de permissão).')
+      const msg: string = e?.message ?? 'Não foi possível salvar (pode ser falta de permissão).'
+      // Sessão morta é a causa nº 1 em campo (app aberto há dias no evento):
+      // a requisição sai como anônimo e o banco recusa. Dizer isso poupa o
+      // "mas eu sou da Diretoria!" — é só sair e entrar de novo.
+      setError(/jwt|expired|token|refresh|permission|denied|row-level/i.test(msg)
+        ? `Sua sessão provavelmente expirou — saia do app e entre de novo. (${msg})`
+        : msg)
     } finally {
       setSaving(false)
     }

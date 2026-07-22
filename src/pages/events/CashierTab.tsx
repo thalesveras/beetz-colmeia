@@ -169,22 +169,34 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
     e.preventDefault()
     if (!profileId || !userId) return
     setSaving(true)
-    await createCashierSettlement({
-      event_id: eventId,
-      profile_id: profileId,
-      role_type: roleType,
-      cash_amount: cash,
-      debit_amount: debit,
-      credit_amount: credit,
-      pix_amount: pix,
-      receipt_data: receipt,
-      notes: notes || null,
-      created_by: userId
-    })
-    setSaving(false)
-    resetForm()
-    setShowForm(false)
-    load()
+    // Erro NUNCA mais fica mudo: sem este try/catch, qualquer falha (sessão
+    // expirada, permissão, conexão ruim do evento) travava o botão em
+    // "Salvando..." pra sempre, sem dizer o porquê — foi exatamente o que
+    // aconteceu com a Diretoria em campo (caso Leiliane, 22/07).
+    try {
+      await createCashierSettlement({
+        event_id: eventId,
+        profile_id: profileId,
+        role_type: roleType,
+        cash_amount: cash,
+        debit_amount: debit,
+        credit_amount: credit,
+        pix_amount: pix,
+        receipt_data: receipt,
+        notes: notes || null,
+        created_by: userId
+      })
+      resetForm()
+      setShowForm(false)
+      await load()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Erro desconhecido.'
+      alert(/jwt|expired|token|refresh|permission|denied|row-level/i.test(msg)
+        ? `Não salvou: sua sessão provavelmente expirou. Saia do app e entre de novo, aí salva.\n\nDetalhe técnico: ${msg}`
+        : `Não foi possível salvar o recebimento: ${msg}`)
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function handleStatusChange(id: string, status: CashierStatus) {
