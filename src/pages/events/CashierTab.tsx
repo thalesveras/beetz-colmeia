@@ -10,7 +10,7 @@ import EditSettlementModal from './EditSettlementModal'
 import SmartReceiptField from '../../components/ui/SmartReceiptField'
 import type { ExtractedPayments } from '../../components/ui/SmartReceiptField'
 import { ChevronRight, Plus } from 'lucide-react'
-import { canReviewCashier } from '../../lib/permissions'
+import { canMoveSettlementEvent, canReviewCashier } from '../../lib/permissions'
 
 const roleTypes: CashierRoleType[] = ['Caixa', 'Garçom']
 const statuses: CashierStatus[] = ['Pendente', 'Aprovado', 'Rejeitado']
@@ -441,6 +441,7 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
           settlement={editing}
           profiles={profiles}
           canReview={canReviewCashier(accessRole)}
+          canMoveEvent={canMoveSettlementEvent(accessRole)}
           onClose={() => setEditing(null)}
           onSaved={load}
         />

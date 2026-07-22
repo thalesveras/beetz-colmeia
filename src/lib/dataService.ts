@@ -1157,7 +1157,9 @@ export async function updateCashierSettlementStatus(id: string, status: CashierS
 // tudo; o dono edita o próprio lançamento só enquanto Pendente.
 export async function updateCashierSettlement(
   id: string,
-  patch: Partial<Pick<CashierSettlement, 'profile_id' | 'role_type' | 'cash_amount' | 'debit_amount' | 'credit_amount' | 'pix_amount' | 'notes' | 'receipt_data'>>
+  // event_id no Pick: mover o recebimento pra outro evento (lançado na festa
+  // errada) — gateado pela flag can_move_settlement_event na UI.
+  patch: Partial<Pick<CashierSettlement, 'profile_id' | 'role_type' | 'cash_amount' | 'debit_amount' | 'credit_amount' | 'pix_amount' | 'notes' | 'receipt_data' | 'event_id'>>
 ): Promise<CashierSettlement> {
   if (isDemoMode) {
     const idx = demoState.cashierSettlements.findIndex((c) => c.id === id)

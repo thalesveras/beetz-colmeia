@@ -184,6 +184,14 @@ export function canReviewCashier(role: AccessRole) {
   return permsOf(role).can_review_cashier
 }
 
+// Trocar o EVENTO de um recebimento (lançado na festa errada) mexe no
+// fechamento de dois eventos ao mesmo tempo — flag própria, ligada por padrão
+// só pra Diretoria. Opcional no tipo (fallback: diretoria) pra não obrigar
+// os defaults antigos a conhecer o campo.
+export function canMoveSettlementEvent(role: AccessRole) {
+  return permsOf(role).can_move_settlement_event ?? role === 'diretoria'
+}
+
 export function canEditExpense(role: AccessRole) {
   return permsOf(role).can_edit_expense
 }

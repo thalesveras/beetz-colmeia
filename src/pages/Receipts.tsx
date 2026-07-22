@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Receipt } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
-import { listAllCashierSettlements, listAllSettlementInternals, listEvents, listProfiles } from '../lib/dataService'
+import { listAllCashierSettlements, listAllSettlementInternals, listEvents, listProfilesLite } from '../lib/dataService'
 import type { CashierRoleType, CashierSettlement, CashierSettlementInternal, CashierStatus, EventItem, Profile } from '../lib/types'
-import { canViewFinancialSummary } from '../lib/permissions'
+import { canMoveSettlementEvent, canReviewCashier, canViewFinancialSummary } from '../lib/permissions'
+import EditSettlementModal from './events/EditSettlementModal'
 
 const selectClass = 'rounded-xl border border-beetz-dark/15 text-sm px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-beetz-yellow bg-white'
 
@@ -34,6 +35,8 @@ export default function Receipts() {
   const [statusFilter, setStatusFilter] = useState('')
   const [roleFilter, setRoleFilter] = useState('')
   const [onlyDevendo, setOnlyDevendo] = useState(false)
+  // Recebimento aberto pra edição (modal padrão da casa, o mesmo do evento).
+  const [editing, setEditing] = useState<CashierSettlement | null>(null)
   const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
 
   async function load() {
@@ -42,7 +45,10 @@ export default function Receipts() {
       listAllCashierSettlements(),
       listAllSettlementInternals().catch(() => [] as CashierSettlementInternal[]),
       listEvents(),
-      listProfiles()
+      // Lite: era o listProfiles COMPLETO (7,8 MB com fotos base64) que
+      // segurava esta tela no "Carregando recebimentos..." — a página só
+      // precisa de nomes.
+      listProfilesLite()
     ])
     setSettlements(s)
     setInternals(new Map(ints.map((i) => [i.settlement_id, i])))
@@ -235,6 +241,7 @@ export default function Receipts() {
                     <th className="p-3 text-right">Comissão</th>
                     <th className="p-3">Acerto</th>
                     <th className="p-3">Data</th>
+                    {canReviewCashier(accessRole) && <th className="p-3"></th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -274,6 +281,16 @@ export default function Receipts() {
                           })()}
                         </td>
                         <td className="p-3 text-xs text-beetz-dark/60 whitespace-nowrap">{formatDateTime(s.created_at)}</td>
+                        {canReviewCashier(accessRole) && (
+                          <td className="p-3 whitespace-nowrap">
+                            <button
+                              onClick={() => setEditing(s)}
+                              className="text-xs font-semibold text-beetz-dark/50 hover:text-beetz-dark px-2 py-1 rounded-lg hover:bg-beetz-gray"
+                            >
+                              Editar
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     )
                   })}
@@ -282,6 +299,19 @@ export default function Receipts() {
             </div>
           )}
         </>
+      )}
+
+      {/* O MESMO modal do evento, aqui na visão global — com o extra de
+          trocar o evento do recebimento (flag can_move_settlement_event). */}
+      {editing && (
+        <EditSettlementModal
+          settlement={editing}
+          profiles={profiles}
+          canReview={canReviewCashier(accessRole)}
+          canMoveEvent={canMoveSettlementEvent(accessRole)}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); load() }}
+        />
       )}
     </div>
   )

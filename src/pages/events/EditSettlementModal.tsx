@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Lock, Trash2, X } from 'lucide-react'
 import {
-  createExpense, deleteCashierSettlement, listSettlementInternalsForEvent, updateCashierSettlement, upsertSettlementInternal
+  createExpense, deleteCashierSettlement, listEvents, listSettlementInternalsForEvent, updateCashierSettlement, upsertSettlementInternal
 } from '../../lib/dataService'
 import { useAuth } from '../../contexts/AuthContext'
 import FileField from '../../components/ui/FileField'
 import SmartReceiptField from '../../components/ui/SmartReceiptField'
 import ImageLightbox from '../../components/ui/ImageLightbox'
 import type { ExtractedPayments } from '../../components/ui/SmartReceiptField'
-import type { CashierRoleType, CashierSettlement, CashierSettlementInternal, Profile } from '../../lib/types'
+import type { CashierRoleType, CashierSettlement, CashierSettlementInternal, EventItem, Profile } from '../../lib/types'
 
 // Modal de edição de um recebimento (fechamento de caixa/garçom), no padrão
 // elegante da casa. Total e comissão recalculam ao vivo — no banco são colunas
@@ -32,12 +32,21 @@ interface Props {
   profiles: Profile[]
   /** Diretoria: troca a pessoa, edita qualquer status e pode excluir. */
   canReview: boolean
+  /** Flag can_move_settlement_event: mostra o seletor pra trocar o EVENTO
+   *  do recebimento (garçom/caixa lançou na festa errada). */
+  canMoveEvent?: boolean
   onClose: () => void
   onSaved: () => void
 }
 
-export default function EditSettlementModal({ settlement, profiles, canReview, onClose, onSaved }: Props) {
+export default function EditSettlementModal({ settlement, profiles, canReview, canMoveEvent = false, onClose, onSaved }: Props) {
   const [profileId, setProfileId] = useState(settlement.profile_id ?? '')
+  // Troca de evento: lista carregada só quando a flag permite.
+  const [eventId, setEventId] = useState(settlement.event_id)
+  const [eventOptions, setEventOptions] = useState<EventItem[]>([])
+  useEffect(() => {
+    if (canMoveEvent) listEvents().then(setEventOptions).catch(() => setEventOptions([]))
+  }, [canMoveEvent])
   const [roleType, setRoleType] = useState<CashierRoleType>(settlement.role_type)
   const [cash, setCash] = useState(String(settlement.cash_amount))
   const [debit, setDebit] = useState(String(settlement.debit_amount))
@@ -110,6 +119,9 @@ export default function EditSettlementModal({ settlement, profiles, canReview, o
     try {
       await updateCashierSettlement(settlement.id, {
         ...(canReview ? { profile_id: profileId || null } : {}),
+        // Mover de evento mexe no apurado dos dois fechamentos — só grava
+        // quando a flag permite E o evento de fato mudou.
+        ...(canMoveEvent && eventId !== settlement.event_id ? { event_id: eventId } : {}),
         role_type: roleType,
         cash_amount: n(cash),
         debit_amount: n(debit),
@@ -194,6 +206,24 @@ export default function EditSettlementModal({ settlement, profiles, canReview, o
         {error && <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mb-4">{error}</p>}
 
         <div className="space-y-4">
+          {/* Trocar o evento do recebimento: pro caso clássico do garçom que
+              lançou na festa errada. Mexe no apurado de DOIS fechamentos —
+              por isso é flag própria (can_move_settlement_event). */}
+          {canMoveEvent && eventOptions.length > 0 && (
+            <Field label="Evento do recebimento">
+              <select className={inputClass} value={eventId} onChange={(e) => setEventId(e.target.value)}>
+                {eventOptions.map((ev) => (
+                  <option key={ev.id} value={ev.id}>{ev.name}</option>
+                ))}
+              </select>
+              {eventId !== settlement.event_id && (
+                <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 mt-1.5">
+                  Ao salvar, o valor sai do apurado do evento atual e entra no escolhido.
+                </p>
+              )}
+            </Field>
+          )}
+
           <Field label="Colaborador(a)">
             {canReview ? (
               <select className={inputClass} value={profileId} onChange={(e) => setProfileId(e.target.value)}>

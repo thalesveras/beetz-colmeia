@@ -815,6 +815,9 @@ export interface RolePermissions {
   can_view_financial_summary: boolean
   can_approve_users: boolean
   can_review_cashier: boolean
+  // Trocar o EVENTO de um recebimento (lançado na festa errada). Opcional:
+  // defaults antigos não conhecem o campo — o fallback é "só diretoria".
+  can_move_settlement_event?: boolean
   can_edit_expense: boolean
   can_edit_stock: boolean
   can_approve_event_requests: boolean
