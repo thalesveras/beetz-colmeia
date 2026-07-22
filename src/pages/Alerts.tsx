@@ -6,18 +6,20 @@ import { ALERT_TYPES } from '../lib/alerts'
 import { canConfigureAlerts, ACCESS_ROLES, ACCESS_ROLE_LABELS } from '../lib/permissions'
 import {
   disablePushOnThisDevice, enablePushOnThisDevice, isPushEnabledHere, listAlertChannels,
-  listNotifications, listProfiles, listPushProfileIds, listRolePermissions,
+  listMyAlertPrefs, listNotifications, listProfiles, listPushProfileIds, listRolePermissions,
   markAllNotificationsRead, markNotificationRead, pushSupportedHere, sendManualPush,
-  updateAlertChannel, updateRolePermission
+  setMyAlertPref, updateAlertChannel, updateRolePermission
 } from '../lib/dataService'
 import type { AlertChannelSetting, AlertFlagKey, AppNotification, Profile, RolePermissions } from '../lib/types'
 
-type TabKey = 'pessoais' | 'globais' | 'escala' | 'enviar' | 'config'
+type TabKey = 'pessoais' | 'globais' | 'escala' | 'meus' | 'enviar' | 'config'
 
 const TABS: { key: TabKey; label: string; icon: any }[] = [
   { key: 'pessoais', label: 'Pessoais', icon: User },
   { key: 'globais', label: 'Globais', icon: Globe },
   { key: 'escala', label: 'Escala', icon: ListChecks },
+  // Preferência PESSOAL: cada um desliga o tipo de aviso que não quer.
+  { key: 'meus', label: 'Meus avisos', icon: Bell },
   { key: 'enviar', label: 'Enviar aviso', icon: Send },
   { key: 'config', label: 'Configurações', icon: SettingsIcon }
 ]
@@ -73,7 +75,80 @@ export default function Alerts() {
 
       {tab === 'config' && isDiretoria && <AlertSettingsTab />}
       {tab === 'enviar' && isDiretoria && <ManualPushTab />}
-      {tab !== 'config' && tab !== 'enviar' && <AlertFeed tab={tab} profileId={userId} />}
+      {tab === 'meus' && <MyAlertPrefsTab profileId={userId} />}
+      {tab !== 'config' && tab !== 'enviar' && tab !== 'meus' && <AlertFeed tab={tab} profileId={userId} />}
+    </div>
+  )
+}
+
+// "Meus avisos": a preferência PESSOAL por tipo. O cargo (Configurações →
+// matriz de permissões) define o TETO — o que ele não permite não chega nem
+// ligado aqui. Desligar aqui vale só pra própria pessoa e não mexe em
+// ninguém mais. Salva na hora, sem botão.
+function MyAlertPrefsTab({ profileId }: { profileId: string | null }) {
+  const [prefs, setPrefs] = useState<Map<string, boolean>>(new Map())
+  const [loading, setLoading] = useState(true)
+  const [savingKey, setSavingKey] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!profileId) { setLoading(false); return }
+    listMyAlertPrefs(profileId)
+      .then(setPrefs)
+      .catch(() => setError('Não deu pra carregar suas preferências.'))
+      .finally(() => setLoading(false))
+  }, [profileId])
+
+  async function toggle(key: string) {
+    if (!profileId) return
+    const next = !(prefs.get(key) ?? true)
+    setSavingKey(key)
+    setError(null)
+    // Otimista: troca na tela e desfaz se o banco recusar.
+    setPrefs((prev) => new Map(prev).set(key, next))
+    try {
+      await setMyAlertPref(profileId, key, next)
+    } catch {
+      setPrefs((prev) => new Map(prev).set(key, !next))
+      setError('Não foi possível salvar — tente de novo.')
+    } finally {
+      setSavingKey(null)
+    }
+  }
+
+  if (loading) return <p className="text-sm text-beetz-dark/50">Carregando preferências...</p>
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-beetz-dark/55">
+        Desligue os tipos de aviso que você não quer receber — vale só pra você, em push e e-mail.
+        O que o seu perfil de acesso não recebe (definido pela Diretoria nas Configurações) não
+        chega de qualquer forma.
+      </p>
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      <div className="bg-white rounded-2xl shadow-soft border border-beetz-dark/5 divide-y divide-beetz-dark/5">
+        {ALERT_TYPES.map((t) => {
+          const on = prefs.get(t.key) ?? true
+          return (
+            <div key={t.key} className="flex items-center gap-3 p-4">
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm">{t.label}</p>
+                <p className="text-xs text-beetz-dark/50 mt-0.5">{t.description}</p>
+              </div>
+              <button
+                onClick={() => toggle(t.key)}
+                disabled={savingKey === t.key}
+                aria-label={on ? 'Desligar este aviso' : 'Ligar este aviso'}
+                className={`relative w-11 h-6 rounded-full transition-colors shrink-0 disabled:opacity-60 ${
+                  on ? 'bg-beetz-yellow' : 'bg-beetz-dark/15'
+                }`}
+              >
+                <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${on ? 'left-[22px]' : 'left-0.5'}`} />
+              </button>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

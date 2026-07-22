@@ -584,6 +584,15 @@ export interface ProductionConsumption {
   created_at: string
 }
 
+// Preferência PESSOAL de alerta: linha só existe quando a pessoa mudou o
+// padrão. O cargo (role_permissions) é o teto; isto só desliga.
+export interface AlertPref {
+  profile_id: string
+  alert_key: string
+  enabled: boolean
+  updated_at?: string
+}
+
 export type TransferRequestStatus = 'Pendente' | 'Aprovado' | 'Negado'
 
 export interface TransferRequest {

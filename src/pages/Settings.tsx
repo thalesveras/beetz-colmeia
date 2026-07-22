@@ -7,7 +7,8 @@ import {
 import { useAuth } from '../contexts/AuthContext'
 import StaffingRolesSection from '../components/settings/StaffingRolesSection'
 import { useConfig } from '../contexts/ConfigContext'
-import { ACCESS_ROLE_LABELS, ACCESS_ROLES, canManageUsers, departmentToAccessRole, type AccessRole } from '../lib/permissions'
+import { ACCESS_ROLE_LABELS, canManageUsers, departmentToAccessRole, type AccessRole } from '../lib/permissions'
+import { ALERT_TYPES } from '../lib/alerts'
 import {
   createExpenseCategory, createPaymentMethod, createServiceModality, deleteExpenseCategory,
   deletePaymentMethod, deleteServiceModality, getZohoPendingProfilesStats, importPendingPhotosBatch,
@@ -80,6 +81,20 @@ const PERMISSION_GROUPS: { title: string; fields: { key: PermissionKey; label: s
       { key: 'can_send_birthday_email', label: 'Enviar e-mail de parabéns', description: 'Mandar o e-mail de aniversário — sai do endereço oficial da Beetz e fica registrado no log.' },
       { key: 'can_edit_hive_map', label: 'Editar o Mapa da Colmeia', description: 'Alterar nome, ícone e descrição dos departamentos no Mapa da Colmeia.' }
     ]
+  },
+  {
+    // As flags de alerta SEMPRE existiram no banco, mas não tinham onde ser
+    // ajustadas — por isso os alertas "não chegavam pros departamentos".
+    // Aqui é o TETO por perfil de acesso; cada pessoa ainda pode desligar
+    // tipos no /alertas → Meus avisos (a preferência pessoal só desliga,
+    // nunca liga). A lista nasce do catálogo canônico (lib/alerts) — tipo
+    // novo lá aparece aqui sozinho.
+    title: 'Alertas (quem recebe cada tipo de aviso)',
+    fields: ALERT_TYPES.map((a) => ({
+      key: a.key as PermissionKey,
+      label: a.label,
+      description: a.description
+    }))
   }
 ]
 

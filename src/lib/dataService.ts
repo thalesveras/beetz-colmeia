@@ -9,7 +9,7 @@ import {
 } from './mockData'
 import { badgesFromStats, getHiveLevel } from './levels'
 import type {
-  AlertChannelSetting, AppNotification, AppSettings, CashierSettlementInternal, Badge, BadgeDefConfig, CashierSettlement, Compliment, Department, DnsSubdomain, DnsRecordType,
+  AlertChannelSetting, AlertPref, AppNotification, AppSettings, CashierSettlementInternal, Badge, BadgeDefConfig, CashierSettlement, Compliment, Department, DnsSubdomain, DnsRecordType,
   EventFinancialSummary,
   EventChangeLogEntry, EventItem, EventMember, EventModality, EventProduct, EventRepasse, EventSalesImport, EventSalesLine, EventStaffingApplication, EventStaffingRequirement, Expense, PosProductAlias,
   ExpenseCategory, ExpenseStatus, HiveLevelConfig, HoneyPoint, LinkRedirect, MovementType, OpenStaffingSlot, PaymentMethodOption, Product,
@@ -792,6 +792,25 @@ export interface RankingEntry {
   complimentsReceived: number
   eventsCount: number
   score: number
+}
+
+// ---------- Alertas: preferência pessoal ----------
+// O catálogo dos tipos mora em lib/alerts.ts (ALERT_TYPES) — fonte única.
+// Aqui é só a preferência da pessoa: o cargo (Configurações) dá o teto e
+// isto desliga tipos individualmente. Sem linha = ligado.
+// Minhas preferências: Map alert_key → enabled (tipo ausente = ligado).
+export async function listMyAlertPrefs(profileId: string): Promise<Map<string, boolean>> {
+  if (isDemoMode) return new Map()
+  const { data, error } = await supabase.from('alert_prefs').select('*').eq('profile_id', profileId)
+  if (error) throw error
+  return new Map(((data ?? []) as AlertPref[]).map((p) => [p.alert_key, p.enabled]))
+}
+
+export async function setMyAlertPref(profileId: string, alertKey: string, enabled: boolean): Promise<void> {
+  if (isDemoMode) return
+  const { error } = await supabase.from('alert_prefs')
+    .upsert({ profile_id: profileId, alert_key: alertKey, enabled, updated_at: new Date().toISOString() })
+  if (error) throw error
 }
 
 export async function getRanking(): Promise<RankingEntry[]> {
