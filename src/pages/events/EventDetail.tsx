@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import {
-  addEventMember, getEventById, getProfileById, listEventMembers,
-  listEventStaffingApplications, listEventStaffingRequirements, listProfiles,
+  addEventMember, getEventById, listEventMembers,
+  listEventStaffingApplications, listEventStaffingRequirements, listProfilesLite,
   requestEventParticipation, updateEventMemberStatus
 } from '../../lib/dataService'
 import type { EventItem, EventMember, Profile } from '../../lib/types'
@@ -69,20 +69,30 @@ export default function EventDetail() {
   async function load() {
     if (!id) return
     setLoading(true)
-    const ev = await getEventById(id)
+    // TUDO em paralelo, numa leva só. A versão antiga era uma escadaria:
+    // evento → perfil do líder → membros → UM getProfileById POR MEMBRO
+    // (30+ perfis COMPLETOS, com foto base64 de até 3 MB) → listProfiles
+    // cheio (7,8 MB) → vagas → candidaturas. Abrir um evento custava ~10 MB
+    // e dezenas de idas ao banco em série. Agora: 5 chamadas paralelas, e
+    // líder + membros + seletor bebem da MESMA lista leve.
+    const [ev, rawMembers, all, reqs, apps] = await Promise.all([
+      getEventById(id),
+      listEventMembers(id),
+      listProfilesLite(),
+      listEventStaffingRequirements(id),
+      // Bolinha da aba Equipe: candidaturas aguardando decisão. Só pra quem
+      // aprova — pro resto seria alarme sem botão. Falha vira lista vazia.
+      canApproveEventRequests(accessRole)
+        ? listEventStaffingApplications(id).catch(() => [])
+        : Promise.resolve([])
+    ])
     setEvent(ev)
-    if (ev?.leader_id) setLeader(await getProfileById(ev.leader_id))
-    const rawMembers = await listEventMembers(id)
-    const withProfiles = await Promise.all(rawMembers.map(async (m) => ({ ...m, profile: await getProfileById(m.profile_id) })))
-    setMembers(withProfiles)
-    setAllProfiles(await listProfiles())
-    setHasRequirements((await listEventStaffingRequirements(id)).length > 0)
-    // Bolinha vermelha na aba Equipe: candidaturas aguardando decisão. Só pra
-    // quem aprova — pro resto da equipe seria alarme sem botão.
-    if (canApproveEventRequests(accessRole)) {
-      const apps = await listEventStaffingApplications(id).catch(() => [])
-      setPendingStaffing(apps.filter((a) => a.status === 'Candidatado').length)
-    }
+    const byId = new Map(all.map((p) => [p.id, p]))
+    setLeader(ev?.leader_id ? byId.get(ev.leader_id) ?? null : null)
+    setMembers(rawMembers.map((m) => ({ ...m, profile: byId.get(m.profile_id) ?? null })))
+    setAllProfiles(all)
+    setHasRequirements(reqs.length > 0)
+    setPendingStaffing(apps.filter((a) => a.status === 'Candidatado').length)
     setLoading(false)
   }
 

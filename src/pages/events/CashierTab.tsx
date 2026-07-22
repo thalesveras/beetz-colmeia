@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import {
-  createCashierSettlement, listCashierSettlementsForEvent, listProfiles,
+  createCashierSettlement, listCashierSettlementsForEvent, listProfilesLite,
   listSettlementInternalsForEvent, updateCashierSettlementStatus
 } from '../../lib/dataService'
 import type { CashierRoleType, CashierSettlement, CashierStatus, Profile } from '../../lib/types'
@@ -74,7 +74,7 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
     setLoading(true)
     const [s, p, ints] = await Promise.all([
       listCashierSettlementsForEvent(eventId),
-      listProfiles(),
+      listProfilesLite(),
       listSettlementInternalsForEvent(eventId).catch(() => [])
     ])
     setInternals(new Map(ints.map((i) => [i.settlement_id, { status: i.status, pending_amount: i.pending_amount }] as const)))

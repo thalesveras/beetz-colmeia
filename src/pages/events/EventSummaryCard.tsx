@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Building2, Copy, History, Link as LinkIcon, MapPin, Music, Pencil, Save, Trash2, User, X } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
-import { cloneEvent, deleteEvent, listEventStaffingRequirements, listProducers, listProfiles, updateEvent } from '../../lib/dataService'
+import { cloneEvent, deleteEvent, listEventStaffingRequirements, listProducers, listProfilesLite, updateEvent } from '../../lib/dataService'
 import { useAuth } from '../../contexts/AuthContext'
 import type { EventItem, EventStatus, Producer, Profile } from '../../lib/types'
 import FileField from '../../components/ui/FileField'
@@ -96,7 +96,7 @@ export default function EventSummaryCard({ event, canEdit, onSaved, onStaffingCh
 
   useEffect(() => {
     if (!editing) return
-    Promise.all([listProducers(), listProfiles()]).then(([prods, profs]) => {
+    Promise.all([listProducers(), listProfilesLite()]).then(([prods, profs]) => {
       setProducers(prods)
       setProfiles(profs)
     }).catch(() => { /* seletores ficam vazios; o resto do form continua utilizável */ })

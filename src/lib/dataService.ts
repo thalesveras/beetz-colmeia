@@ -834,15 +834,14 @@ export async function getRanking(): Promise<RankingEntry[]> {
   }))
 }
 
-// Perfis SEM as colunas gigantes (avatar/capa/assinatura): pro Dashboard, que
-// só precisa contar cabeças e agrupar por departamento. O listProfiles cheio
-// pesa ~7,8 MB por causa de fotos gravadas em base64 — aqui volta ~10 KB.
+// Perfis LEVES (view profiles_lite): nome, departamento e avatar já filtrado
+// contra base64. O listProfiles cheio pesa ~7,8 MB (fotos gravadas na coluna,
+// uma de 3 MB); a view volta em ~KB e o rosto continua aparecendo pra quem
+// tem foto no Storage — base64 vira inicial até ser migrado. Serve Dashboard,
+// Equipe, Recebimentos e qualquer tela que não edita o perfil.
 export async function listProfilesLite(): Promise<Profile[]> {
   if (isDemoMode) return listProfiles()
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('id, first_name, last_name, department_id, approval_status, role')
-    .order('first_name')
+  const { data, error } = await supabase.from('profiles_lite').select('*').order('first_name')
   if (error) throw error
   return (data ?? []) as unknown as Profile[]
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { HandCoins, Plus, Trash2, X } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
-import { createEventRepasse, deleteEventRepasse, listEventRepasses, listProfiles, updateEventRepasse } from '../../lib/dataService'
+import { createEventRepasse, deleteEventRepasse, listEventRepasses, listProfilesLite, updateEventRepasse } from '../../lib/dataService'
 import SmartReceiptField from '../../components/ui/SmartReceiptField'
 import ImageLightbox from '../../components/ui/ImageLightbox'
 import type { ExtractedReceipt } from '../../components/ui/SmartReceiptField'
@@ -46,7 +46,7 @@ export default function RepassesTab({ eventId, canManage }: { eventId: string; c
 
   async function load() {
     setLoading(true)
-    const [r, p] = await Promise.all([listEventRepasses(eventId), listProfiles()])
+    const [r, p] = await Promise.all([listEventRepasses(eventId), listProfilesLite()])
     setRepasses(r)
     setProfiles(p)
     setLoading(false)

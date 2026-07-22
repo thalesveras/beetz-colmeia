@@ -127,8 +127,11 @@ export interface EventItem {
   id: string
   name: string
   event_date: string
-  location: string
-  city: string
+  // Nullable como no banco: limpar o campo no editar salva null (apagar de
+  // verdade) — o tipo antigo ('string' seco) fazia o tsc recusar exatamente
+  // esse caminho legítimo.
+  location: string | null
+  city: string | null
   status: EventStatus
   // Vagas da escala fecham SÓ por comando da Diretoria (Evento → Equipe) —
   // nunca pela data sozinha. Opcional porque eventos antigos não têm o campo

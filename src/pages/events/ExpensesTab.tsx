@@ -3,7 +3,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import {
   deleteExpense,
   createExpense, createSupplier, listEventMembers, listExpenseCategories, listExpensesForEvent,
-  listPaymentMethods, listPendingProfilesForPicker, listProfiles, listSuppliers, updateExpense,
+  listPaymentMethods, listPendingProfilesForPicker, listProfilesLite, listSuppliers, updateExpense,
   updateExpenseStatus
 } from '../../lib/dataService'
 import type {
@@ -87,7 +87,7 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
 
   async function loadFormOptions() {
     const [members, allProfiles, supplierList, pending] = await Promise.all([
-      listEventMembers(eventId), listProfiles(), listSuppliers(), listPendingProfilesForPicker()
+      listEventMembers(eventId), listProfilesLite(), listSuppliers(), listPendingProfilesForPicker()
     ])
     const memberIds = new Set(members.map((m) => m.profile_id))
     setTeamMembers(allProfiles.filter((p) => memberIds.has(p.id)))

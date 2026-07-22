@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Plus, Pencil, Ban, RotateCcw, Check, ChevronDown, ChevronUp } from 'lucide-react'
-import { isPositiveMovementType, listEventStockMovementsWide, listProducts, listProfiles, listStockLocations, updateCompraMovement, updateStockMovement } from '../../lib/dataService'
+import { isPositiveMovementType, listEventStockMovementsWide, listProducts, listProfilesLite, listStockLocations, updateCompraMovement, updateStockMovement } from '../../lib/dataService'
 import type { Product, Profile, StockLocation, StockMovement } from '../../lib/types'
 import StockMovementForm from '../../components/stock/StockMovementForm'
 import { useAuth } from '../../contexts/AuthContext'
@@ -24,7 +24,7 @@ export default function StockTab({ eventId }: { eventId: string }) {
     // do evento. Compra/Ajuste não podem carregar o vínculo (regra do banco),
     // então a query estreita por event_id os deixava invisíveis — 6 mil BAGs
     // no saldo e "nada" na lista.
-    const [m, p, l, pr] = await Promise.all([listEventStockMovementsWide(eventId), listProducts(), listStockLocations(), listProfiles()])
+    const [m, p, l, pr] = await Promise.all([listEventStockMovementsWide(eventId), listProducts(), listStockLocations(), listProfilesLite()])
     setMovements(m)
     setProducts(p)
     setLocations(l)

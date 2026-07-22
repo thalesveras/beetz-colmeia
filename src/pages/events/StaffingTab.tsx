@@ -4,7 +4,7 @@ import { Check, Pencil, Users, Wallet, X } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import {
   applyToStaffingSlot, generateScalePayments, getEventById, listCashierSettlementsForEvent, listEventStaffingApplications,
-  listEventStaffingRequirements, listProfiles, listStaffingRoles, updateEvent, updateStaffingApplicationPercent,
+  listEventStaffingRequirements, listProfilesLite, listStaffingRoles, updateEvent, updateStaffingApplicationPercent,
   updateStaffingApplicationStatus, updateStaffingApplicationValue
 } from '../../lib/dataService'
 
@@ -72,7 +72,9 @@ export default function StaffingTab({ eventId, canManage, canFinance = false, on
       const [reqs, apps, profs, rls, settlements, ev] = await Promise.all([
         listEventStaffingRequirements(eventId),
         listEventStaffingApplications(eventId),
-        listProfiles(),
+        // Lite: a aba só mostra nome + rosto — o listProfiles completo (7,8 MB
+        // com fotos base64) era metade da demora de abrir a Equipe.
+        listProfilesLite(),
         listStaffingRoles(),
         listCashierSettlementsForEvent(eventId).catch(() => []),
         getEventById(eventId).catch(() => null)
