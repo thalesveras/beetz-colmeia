@@ -795,19 +795,56 @@ export interface RankingEntry {
 }
 
 export async function getRanking(): Promise<RankingEntry[]> {
-  const profiles = await listProfiles()
-  const entries: RankingEntry[] = []
-  for (const profile of profiles) {
-    const stats = await getProfileStats(profile.id)
-    entries.push({
-      profile,
-      honeyReceived: stats.honeyReceived,
-      complimentsReceived: stats.complimentsReceived,
-      eventsCount: stats.eventsCount,
-      score: stats.honeyReceived + stats.complimentsReceived * 2
-    })
+  // Demo roda local, sem rede — o loop não custa nada aqui.
+  if (isDemoMode) {
+    const profiles = await listProfiles()
+    const entries: RankingEntry[] = []
+    for (const profile of profiles) {
+      const stats = await getProfileStats(profile.id)
+      entries.push({
+        profile,
+        honeyReceived: stats.honeyReceived,
+        complimentsReceived: stats.complimentsReceived,
+        eventsCount: stats.eventsCount,
+        score: stats.honeyReceived + stats.complimentsReceived * 2
+      })
+    }
+    return entries.sort((a, b) => b.score - a.score)
   }
-  return entries.sort((a, b) => b.score - a.score)
+  // Produção: o ranking inteiro vem PRONTO do banco em UMA chamada (RPC
+  // get_hive_ranking, ~9 KB). A versão antiga fazia listProfiles (7,8 MB —
+  // tinha avatar base64 de até 3 MB no meio) + 4 buscas POR PESSOA em série:
+  // ~269 requisições. Era isso que segurava Dashboard e Ranking por minutos
+  // em conexão de evento. Avatar base64 volta null de propósito (vira inicial).
+  const { data, error } = await supabase.rpc('get_hive_ranking', { p_limit: 100 })
+  if (error) throw error
+  return ((data ?? []) as {
+    profile_id: string; first_name: string; last_name: string; role: string | null
+    avatar_url: string | null; honey_received: number; compliments_received: number
+    events_count: number; score: number
+  }[]).map((r) => ({
+    profile: {
+      id: r.profile_id, first_name: r.first_name, last_name: r.last_name,
+      role: r.role, avatar_url: r.avatar_url
+    } as unknown as Profile,
+    honeyReceived: Number(r.honey_received),
+    complimentsReceived: Number(r.compliments_received),
+    eventsCount: Number(r.events_count),
+    score: Number(r.score)
+  }))
+}
+
+// Perfis SEM as colunas gigantes (avatar/capa/assinatura): pro Dashboard, que
+// só precisa contar cabeças e agrupar por departamento. O listProfiles cheio
+// pesa ~7,8 MB por causa de fotos gravadas em base64 — aqui volta ~10 KB.
+export async function listProfilesLite(): Promise<Profile[]> {
+  if (isDemoMode) return listProfiles()
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, first_name, last_name, department_id, approval_status, role')
+    .order('first_name')
+  if (error) throw error
+  return (data ?? []) as unknown as Profile[]
 }
 
 // ---------- Despesas ----------

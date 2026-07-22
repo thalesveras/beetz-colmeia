@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import {
-  listProfiles, listEvents, listOpenStaffingSlots, getRanking, listDepartments,
+  listProfilesLite, listEvents, listOpenStaffingSlots, getRanking, listDepartments,
   countPendingProfilesForDirectory, type RankingEntry
 } from '../lib/dataService'
 import { canViewFinancialSummary, canManageUsers } from '../lib/permissions'
@@ -36,7 +36,9 @@ export default function Dashboard() {
 
   useEffect(() => {
     Promise.all([
-      listProfiles(), listEvents(), listOpenStaffingSlots(userId ?? null), getRanking(),
+      // Versão LITE dos perfis: o Dashboard só conta e agrupa — não precisa
+      // das fotos base64 que faziam o listProfiles cheio pesar 7,8 MB.
+      listProfilesLite(), listEvents(), listOpenStaffingSlots(userId ?? null), getRanking(),
       listDepartments(),
       // Pré-cadastro é contexto do cartão de Colaboradores: falha aqui não pode
       // derrubar o dashboard inteiro, então cai pra 0 em silêncio.
