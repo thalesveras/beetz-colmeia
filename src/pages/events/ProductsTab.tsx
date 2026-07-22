@@ -206,9 +206,10 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
 
   useEffect(() => { load() }, [eventId])
 
-  // Totais do evento: custo do que entrou sempre existe; vendas/produtor/
-  // resultado somam só quem tem VENDIDO informado + preço de venda.
-  const totalCustoEntrada = items.reduce((sum, i) => sum + i.total, 0)
+  // Totais do evento: custo do VENDIDO (Σ vendido × custo) — a sobra volta
+  // pro estoque e não é custo, mesmo raciocínio do fechamento. Vendas/
+  // produtor/resultado somam só quem tem VENDIDO informado + preço de venda.
+  const totalCustoVendido = items.reduce((sum, i) => sum + (i.sold_quantity ?? 0) * i.unit_price, 0)
   const withSales = items.filter((i) => i.sold_quantity != null && i.sale_price != null)
   const totalVendas = withSales.reduce((s, i) => s + (i.sold_quantity ?? 0) * (i.sale_price ?? 0), 0)
   const totalProdutor = withSales.reduce((s, i) => s + (i.sold_quantity ?? 0) * (i.sale_price ?? 0) * ((i.producer_percent ?? 0) / 100), 0)
@@ -254,8 +255,8 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
       {!loading && items.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="bg-beetz-gray/60 rounded-xl p-3">
-            <p className="text-base font-extrabold leading-none">{currency(totalCustoEntrada)}</p>
-            <p className="text-[11px] text-beetz-dark/50 mt-1">Custo do que entrou</p>
+            <p className="text-base font-extrabold leading-none">{currency(totalCustoVendido)}</p>
+            <p className="text-[11px] text-beetz-dark/50 mt-1">Custo do vendido</p>
           </div>
           <div className="bg-beetz-dark text-white rounded-xl p-3">
             <p className="text-base font-extrabold leading-none">{withSales.length > 0 ? currency(totalVendas) : '—'}</p>
