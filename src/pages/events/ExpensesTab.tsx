@@ -13,7 +13,7 @@ import type {
 import { canEditExpense, canReviewExpense } from '../../lib/permissions'
 import FileField from '../../components/ui/FileField'
 import SignaturePad from '../../components/ui/SignaturePad'
-import { Pencil, Plus, Trash2, X } from 'lucide-react'
+import { Check, Filter, Pencil, Plus, Trash2, X } from 'lucide-react'
 
 const statuses: ExpenseStatus[] = ['Pendente', 'Aprovado', 'Pago', 'Rejeitado', 'Cancelado']
 
@@ -139,6 +139,79 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
     }
   }, [expenses])
 
+  // ---------- Filtro avançado: os mesmos campos da criação viram filtros ----------
+  const [showFilters, setShowFilters] = useState(false)
+  const [fSearch, setFSearch] = useState('')
+  const [fStatus, setFStatus] = useState('')
+  const [fCategoria, setFCategoria] = useState('')
+  const [fMeio, setFMeio] = useState('')
+  const [fFornecedor, setFFornecedor] = useState('')
+  const [fEquipe, setFEquipe] = useState('')
+  const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  const filteredExpenses = useMemo(() => expenses.filter((e) => {
+    if (fStatus && e.status !== fStatus) return false
+    if (fCategoria && (e.category ?? '') !== fCategoria) return false
+    if (fMeio && (e.payment_method ?? '') !== fMeio) return false
+    if (fFornecedor && e.supplier_id !== fFornecedor) return false
+    if (fEquipe) {
+      const [k, id] = fEquipe.split(':')
+      if (k === 'p' && e.team_member_id !== id) return false
+      if (k === 'z' && e.pending_team_member_id !== id) return false
+    }
+    if (fSearch.trim()) {
+      const hay = norm(`${e.description ?? ''} ${e.category ?? ''} ${e.payment_method ?? ''}`)
+      if (!hay.includes(norm(fSearch))) return false
+    }
+    return true
+  }), [expenses, fSearch, fStatus, fCategoria, fMeio, fFornecedor, fEquipe])
+  const filtersActive = !!(fSearch.trim() || fStatus || fCategoria || fMeio || fFornecedor || fEquipe)
+  function clearFilters() {
+    setFSearch(''); setFStatus(''); setFCategoria(''); setFMeio(''); setFFornecedor(''); setFEquipe('')
+  }
+
+  // ---------- Edição em massa (quem revisa despesa) ----------
+  const canBulk = canReviewExpense(accessRole)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkStatus, setBulkStatus] = useState('')
+  const [bulkMeio, setBulkMeio] = useState('')
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const selectedTotal = useMemo(
+    () => expenses.filter((e) => selected.has(e.id)).reduce((s, e) => s + e.total, 0),
+    [expenses, selected]
+  )
+  function toggleSelected(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+  const allFilteredSelected = filteredExpenses.length > 0 && filteredExpenses.every((e) => selected.has(e.id))
+  function toggleSelectAll() {
+    setSelected(allFilteredSelected ? new Set() : new Set(filteredExpenses.map((e) => e.id)))
+  }
+  async function applyBulk() {
+    if (selected.size === 0 || (!bulkStatus && !bulkMeio)) return
+    setBulkBusy(true)
+    try {
+      // Sequencial de propósito: cada uma confirmada no banco antes da próxima.
+      for (const id of selected) {
+        if (bulkStatus) await updateExpenseStatus(id, bulkStatus as ExpenseStatus)
+        if (bulkMeio) await updateExpense(id, { payment_method: bulkMeio as PaymentMethod })
+      }
+      setSelected(new Set())
+      setBulkStatus('')
+      setBulkMeio('')
+      await load()
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Erro na edição em massa — as já aplicadas ficaram.')
+      await load()
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
   function resetForm() {
     setCategory(''); setReceiptData(null); setPaymentMethod(''); setDescription('')
     setQuantity(1); setUnitValue(0); setDexFee(0); setSignatureData(null); setRepasseData(null)
@@ -234,7 +307,76 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
         )}
       </div>
 
+      {/* Filtro avançado: os mesmos campos da criação, agora como filtros. */}
+      <div className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5 space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            className={`${inputClass} flex-1 min-w-[160px]`}
+            placeholder="Buscar por descrição, categoria, meio..."
+            value={fSearch}
+            onChange={(e) => setFSearch(e.target.value)}
+          />
+          <button
+            onClick={() => setShowFilters((v) => !v)}
+            className={`flex items-center gap-1.5 text-sm font-semibold px-3 py-2.5 rounded-xl border transition-colors ${
+              showFilters || filtersActive ? 'bg-beetz-dark text-white border-beetz-dark' : 'border-beetz-dark/15 text-beetz-dark/60'
+            }`}
+          >
+            <Filter size={14} /> Filtros
+          </button>
+          {canBulk && filteredExpenses.length > 0 && (
+            <button
+              onClick={toggleSelectAll}
+              className="flex items-center gap-1.5 text-sm font-semibold px-3 py-2.5 rounded-xl border border-beetz-dark/15 text-beetz-dark/60 hover:bg-beetz-gray"
+            >
+              <Check size={14} /> {allFilteredSelected ? 'Desmarcar todas' : 'Selecionar todas'}
+            </button>
+          )}
+        </div>
+        {showFilters && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+            <select className={inputClass} value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
+              <option value="">Todos os status</option>
+              {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <select className={inputClass} value={fCategoria} onChange={(e) => setFCategoria(e.target.value)}>
+              <option value="">Todas as categorias</option>
+              {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+            </select>
+            <select className={inputClass} value={fMeio} onChange={(e) => setFMeio(e.target.value)}>
+              <option value="">Todos os meios</option>
+              {paymentMethods.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
+            </select>
+            <select className={inputClass} value={fFornecedor} onChange={(e) => setFFornecedor(e.target.value)}>
+              <option value="">Todos os fornecedores</option>
+              {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            <select className={inputClass} value={fEquipe} onChange={(e) => setFEquipe(e.target.value)}>
+              <option value="">Toda a equipe</option>
+              {teamMembers.map((m) => <option key={m.id} value={`p:${m.id}`}>{m.first_name} {m.last_name}</option>)}
+              {pendingProfiles.map((m) => <option key={m.id} value={`z:${m.id}`}>{m.first_name} {m.last_name} (pré)</option>)}
+            </select>
+          </div>
+        )}
+        {filtersActive && (
+          <p className="text-xs text-beetz-dark/50">
+            Mostrando {filteredExpenses.length} de {expenses.length} ·{' '}
+            <button onClick={clearFilters} className="font-semibold underline">Limpar filtros</button>
+          </p>
+        )}
+      </div>
+
+      {/* Criação renderiza inline; EDIÇÃO abre o MESMO form em modal por cima
+          da lista — editar não obriga mais a viajar até o topo da tela. */}
       {showForm && (
+        <div
+          className={editingId ? 'fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-6' : ''}
+          onClick={editingId ? () => { resetForm(); setShowForm(false) } : undefined}
+        >
+        <div
+          className={editingId ? 'w-full sm:max-w-lg max-h-[90vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl' : ''}
+          onClick={editingId ? (e) => e.stopPropagation() : undefined}
+        >
         <form onSubmit={handleSubmit} className="bg-beetz-gray rounded-2xl p-5 space-y-4">
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
@@ -332,6 +474,8 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
             </button>
           </div>
         </form>
+        </div>
+        </div>
       )}
 
       {!loading && (
@@ -339,10 +483,19 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
           {/* Card em camadas: status + categoria + valor na primeira linha;
               o miolo é clicável e abre os detalhes completos (comprovante,
               assinatura, quantidade, taxa...); as ações vivem na base. */}
-          {expenses.map((exp) => (
-            <div key={exp.id} className={`bg-white border border-beetz-dark/5 rounded-xl p-4 ${exp.status === 'Cancelado' ? 'opacity-50' : ''}`}>
+          {filteredExpenses.map((exp) => (
+            <div key={exp.id} className={`bg-white border rounded-xl p-4 ${selected.has(exp.id) ? 'border-beetz-yellow ring-1 ring-beetz-yellow' : 'border-beetz-dark/5'} ${exp.status === 'Cancelado' ? 'opacity-50' : ''}`}>
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
+                  {canBulk && (
+                    <input
+                      type="checkbox"
+                      checked={selected.has(exp.id)}
+                      onChange={() => toggleSelected(exp.id)}
+                      className="w-4 h-4 accent-[#F5B301] shrink-0"
+                      aria-label="Selecionar despesa"
+                    />
+                  )}
                   {/* Trocar o status (Pendente -> Aprovado -> Pago) é aprovar
                       dinheiro: exige a flag "Revisar status da despesa". Sem
                       ela, o status vira só leitura. */}
@@ -409,6 +562,47 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
             </div>
           ))}
           {expenses.length === 0 && <p className="text-sm text-beetz-dark/50">Nenhuma despesa registrada ainda.</p>}
+          {expenses.length > 0 && filteredExpenses.length === 0 && (
+            <p className="text-sm text-beetz-dark/50">Nenhuma despesa passa nos filtros — <button onClick={clearFilters} className="font-semibold underline">limpar</button>.</p>
+          )}
+        </div>
+      )}
+
+      {/* Barra de edição em massa: cola no rodapé enquanto houver seleção.
+          Aplica status e/ou meio de pagamento em todas de uma vez. */}
+      {canBulk && selected.size > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 bg-beetz-dark text-white px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-2xl">
+          <div className="max-w-4xl mx-auto flex flex-wrap items-center gap-2">
+            <p className="text-sm font-bold flex-1 min-w-[140px]">
+              {selected.size} selecionada{selected.size > 1 ? 's' : ''} · {currency(selectedTotal)}
+            </p>
+            <select
+              value={bulkStatus}
+              onChange={(e) => setBulkStatus(e.target.value)}
+              className="rounded-xl border-0 bg-white/10 text-white text-sm px-3 py-2"
+            >
+              <option value="" className="text-beetz-dark">Status: manter</option>
+              {statuses.map((s) => <option key={s} value={s} className="text-beetz-dark">{s}</option>)}
+            </select>
+            <select
+              value={bulkMeio}
+              onChange={(e) => setBulkMeio(e.target.value)}
+              className="rounded-xl border-0 bg-white/10 text-white text-sm px-3 py-2"
+            >
+              <option value="" className="text-beetz-dark">Meio: manter</option>
+              {paymentMethods.map((p) => <option key={p.id} value={p.name} className="text-beetz-dark">{p.name}</option>)}
+            </select>
+            <button
+              onClick={applyBulk}
+              disabled={bulkBusy || (!bulkStatus && !bulkMeio)}
+              className="honey-gradient text-beetz-dark font-bold px-4 py-2 rounded-xl text-sm disabled:opacity-50"
+            >
+              {bulkBusy ? 'Aplicando...' : 'Aplicar'}
+            </button>
+            <button onClick={() => setSelected(new Set())} className="text-xs font-semibold text-white/60 px-2 py-2 hover:text-white">
+              Limpar
+            </button>
+          </div>
         </div>
       )}
 
