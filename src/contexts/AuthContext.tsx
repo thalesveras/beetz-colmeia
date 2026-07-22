@@ -111,9 +111,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     try {
       const { error } = await supabase.auth.signInWithPassword({ email: emailInput, password })
+      // "Failed to fetch" = o pedido nem CHEGOU ao servidor (internet do
+      // local oscilando — comum em conexão de evento/satélite). Sem esta
+      // tradução, a pessoa lê um erro técnico e acha que a senha está errada
+      // ou que o sistema quebrou. Diagnóstico do apagão de 22/07: servidor
+      // 100% de pé, rede local caindo em janelas.
+      if (error && /failed to fetch|network|load failed/i.test(error.message)) {
+        return { error: 'Sem conexão com o servidor da Colmeia agora — a internet do local está oscilando. Espere alguns segundos e tente de novo (a senha não é o problema).' }
+      }
       return { error: error?.message ?? null }
     } catch (err: any) {
-      return { error: err?.message ?? 'Não foi possível entrar. Tente novamente.' }
+      const msg: string = err?.message ?? ''
+      if (/failed to fetch|network|load failed/i.test(msg)) {
+        return { error: 'Sem conexão com o servidor da Colmeia agora — a internet do local está oscilando. Espere alguns segundos e tente de novo (a senha não é o problema).' }
+      }
+      return { error: msg || 'Não foi possível entrar. Tente novamente.' }
     }
   }
 
