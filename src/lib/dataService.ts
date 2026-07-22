@@ -2057,6 +2057,43 @@ export async function syncSoldQuantitiesFromPdv(eventId: string): Promise<number
       updated++
     }
   }
+
+  // Produto vendido na máquina que ainda NÃO está na aba Produtos nasce aqui
+  // — antes o sync só atualizava linha existente e, num evento recém-criado,
+  // o relatório subia e a aba continuava vazia. A linha nova já vem com:
+  //   vendido    = Σ vendas × un/venda
+  //   preço venda = média do relatório POR UNIDADE DE ESTOQUE (dose → garrafa)
+  //   custo       = custo médio do catálogo (sem custo, entra 0 e a tela avisa)
+  //   % produtor  = padrão do evento (100 − Percentual Beetz)
+  const existentes = new Set(eventProducts.map((ep) => ep.product_id))
+  const faltantes = Array.from(soldByProduct.entries()).filter(([pid, qty]) => !existentes.has(pid) && qty > 0)
+  if (faltantes.length > 0) {
+    const [avgCosts, event] = await Promise.all([
+      listProductAvgCosts().catch(() => [] as ProductAvgCost[]),
+      getEventById(eventId).catch(() => null)
+    ])
+    const custoDe = new Map(avgCosts.filter((c) => (c.avg_cost ?? 0) > 0).map((c) => [c.product_id, c.avg_cost as number]))
+    const pctProdutor = event ? Math.max(0, 100 - (event.commission_percentage ?? 0)) : null
+    // Receita por produto (linhas oficiais mapeadas) pra derivar o preço de
+    // venda médio por unidade de estoque.
+    const receitaPorProduto = new Map<string, number>()
+    for (const l of lines) {
+      if (!l.product_id || !oficiais.has(l.import_id)) continue
+      receitaPorProduto.set(l.product_id, (receitaPorProduto.get(l.product_id) ?? 0) + (l.total_net ?? l.total_gross ?? 0))
+    }
+    for (const [pid, qty] of faltantes) {
+      const qtyR = Math.round(qty * 100) / 100
+      const receita = receitaPorProduto.get(pid) ?? 0
+      const salePrice = qtyR > 0 && receita > 0 ? Math.round((receita / qtyR) * 100) / 100 : null
+      const { error } = await supabase.from('event_products').insert({
+        event_id: eventId, product_id: pid, quantity: 0,
+        unit_price: custoDe.get(pid) ?? 0, sale_price: salePrice,
+        producer_percent: pctProdutor, sold_quantity: qtyR,
+        notes: 'Criado pelo relatório da máquina (PDV)'
+      })
+      if (!error) updated++
+    }
+  }
   return updated
 }
 
