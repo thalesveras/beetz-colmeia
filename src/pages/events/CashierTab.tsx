@@ -44,6 +44,14 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
   const [editing, setEditing] = useState<CashierSettlement | null>(null)
   const canAdd = canViewAll || isApprovedMember
 
+  // Trava do Tipo pelo cargo: garçom só lança como Garçom, caixa só como
+  // Caixa — sem opção pra errar. Diretoria/gestão (canViewAll) continua
+  // escolhendo, porque lança e corrige pros outros.
+  const lockedRole: CashierRoleType | null = canViewAll
+    ? null
+    : accessRole === 'garcom' ? 'Garçom' : accessRole === 'caixa' ? 'Caixa' : null
+  const availableRoleTypes = lockedRole ? [lockedRole] : roleTypes
+
   const [profileId, setProfileId] = useState('')
   const [roleType, setRoleType] = useState<CashierRoleType>('Caixa')
   const [cash, setCash] = useState(0)
@@ -97,6 +105,25 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
   const grandTotal = visibleSettlements.reduce((sum, s) => sum + s.total, 0)
   const grandCommission = visibleSettlements.reduce((sum, s) => sum + s.commission_amount, 0)
 
+  // Sumário rico: o apurado aberto por forma de pagamento e por tipo —
+  // Rejeitado fica fora de tudo (não é dinheiro apurado).
+  const resumo = useMemo(() => {
+    const validos = visibleSettlements.filter((s) => s.status !== 'Rejeitado')
+    const soma = (f: (s: CashierSettlement) => number) => validos.reduce((sum, s) => sum + f(s), 0)
+    const caixas = validos.filter((s) => s.role_type === 'Caixa')
+    const garcons = validos.filter((s) => s.role_type === 'Garçom')
+    return {
+      dinheiro: soma((s) => s.cash_amount),
+      debito: soma((s) => s.debit_amount),
+      credito: soma((s) => s.credit_amount),
+      pix: soma((s) => s.pix_amount),
+      caixasTotal: caixas.reduce((sum, s) => sum + s.total, 0),
+      caixasN: caixas.length,
+      garconsTotal: garcons.reduce((sum, s) => sum + s.total, 0),
+      garconsN: garcons.length
+    }
+  }, [visibleSettlements])
+
   // Quem tá devendo, somado e contado — o número que a Diretoria caça no fim
   // do evento. Pra quem não revisa, internals chega vazio pela RLS e os chips
   // simplesmente não aparecem.
@@ -131,8 +158,12 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
   const filtersActive = !!(search.trim() || filterStatus || filterRole || onlyDevendo)
 
   function resetForm() {
-    setProfileId(canViewAll ? '' : (userId ?? '')); setRoleType('Caixa'); setCash(0); setDebit(0); setCredit(0); setPix(0); setNotes(''); setReceipt(null)
+    setProfileId(canViewAll ? '' : (userId ?? '')); setRoleType(lockedRole ?? 'Caixa'); setCash(0); setDebit(0); setCredit(0); setPix(0); setNotes(''); setReceipt(null)
   }
+
+  // O cargo pode hidratar depois do primeiro render — quando chegar, o tipo
+  // travado assume.
+  useEffect(() => { if (lockedRole) setRoleType(lockedRole) }, [lockedRole])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -254,8 +285,8 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
             </div>
             <div>
               <label className="text-sm font-medium block mb-1">Tipo</label>
-              <div className="grid grid-cols-2 gap-2">
-                {roleTypes.map((r) => (
+              <div className={`grid ${availableRoleTypes.length === 1 ? 'grid-cols-1' : 'grid-cols-2'} gap-2`}>
+                {availableRoleTypes.map((r) => (
                   <button
                     type="button" key={r} onClick={() => setRoleType(r)}
                     className={`text-sm font-medium px-3 py-2.5 rounded-xl border transition-colors ${
@@ -266,6 +297,11 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
                   </button>
                 ))}
               </div>
+              {lockedRole && (
+                <p className="text-[11px] text-beetz-dark/45 mt-1">
+                  Seu perfil lança como {lockedRole} — sem escolha pra não ter erro.
+                </p>
+              )}
             </div>
           </div>
 
