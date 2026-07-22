@@ -1897,7 +1897,11 @@ export interface ParsedSalesLine {
   qty_billed: number
   qty_bonus: number
   quantity: number
+  // "Total geral" do relatório: COM a taxa de serviço (10% dos garçons).
   total_gross: number | null
+  // "Total faturado": SEM a taxa — a coluna certa pra receita (o serviço não
+  // é venda, é a verba da comissão dos garçons que só passa pela casa).
+  total_net: number | null
 }
 
 export function normalizePosName(name: string): string {
@@ -1940,7 +1944,8 @@ export async function createEventSalesImport(
   if (lines.length === 0) throw new Error('Nenhuma linha de venda encontrada no arquivo.')
   const aliases = await listPosAliases()
   const byName = new Map(aliases.map((a) => [a.pos_name, a]))
-  const total = lines.reduce((s, l) => s + (l.total_gross ?? 0), 0)
+  // Total do cabeçalho SEM a taxa de serviço quando o relatório traz a coluna.
+  const total = lines.reduce((s, l) => s + (l.total_net ?? l.total_gross ?? 0), 0)
   const { data: imp, error } = await supabase.from('event_sales_imports')
     .insert({ event_id: eventId, report_date: meta.report_date, file_name: meta.file_name, total_gross: total, imported_by: importedBy, kind })
     .select().single()
@@ -1987,7 +1992,7 @@ async function supersedeCoveredImports(eventId: string, newImportId: string): Pr
       if (l.import_id !== importId) continue
       const k = normalizePosName(l.pos_name)
       byName.set(k, (byName.get(k) ?? 0) + l.quantity)
-      total += l.total_gross ?? 0
+      total += l.total_net ?? l.total_gross ?? 0
     }
     return { byName, total }
   }
@@ -2616,7 +2621,7 @@ export async function deleteEventRepasse(id: string): Promise<void> {
 // saldo dele, nunca no lucro da casa). Perdas são a novidade: Perda/Quebra
 // registradas no estoque do evento, valoradas — dinheiro que evaporou.
 export async function getEventFinancialSummary(eventId: string): Promise<EventFinancialSummary> {
-  const [expenses, eventProducts, consumption, event, repassesLancamentos, settlements, settings, wideMovs, avgCosts] = await Promise.all([
+  const [expenses, eventProducts, consumption, event, repassesLancamentos, settlements, settings, wideMovs, avgCosts, salesImports, salesLines] = await Promise.all([
     listExpensesForEvent(eventId),
     listEventProducts(eventId),
     listProductionConsumption(eventId),
@@ -2625,7 +2630,9 @@ export async function getEventFinancialSummary(eventId: string): Promise<EventFi
     listCashierSettlementsForEvent(eventId),
     getAppSettings(),
     listEventStockMovementsWide(eventId).catch(() => [] as (StockMovement & { in_event_location: boolean })[]),
-    listProductAvgCosts().catch(() => [] as ProductAvgCost[])
+    listProductAvgCosts().catch(() => [] as ProductAvgCost[]),
+    listEventSalesImports(eventId).catch(() => [] as EventSalesImport[]),
+    listEventSalesLines(eventId).catch(() => [] as EventSalesLine[])
   ])
 
   // Regime de competência, não de caixa: compra de estoque NÃO é despesa do
@@ -2637,16 +2644,29 @@ export async function getEventFinancialSummary(eventId: string): Promise<EventFi
   // lançada na categoria 'Estoque'.
   const vivas = expenses.filter((e) => e.status !== 'Cancelado')
   const isCompraEstoque = (e: Expense) => !!e.stock_movement_id || e.category === 'Estoque'
-  const despesas = vivas.filter((e) => !isCompraEstoque(e)).reduce((sum, e) => sum + e.total, 0)
+  // Comissões % dos garçons são a TAXA DE SERVIÇO (os 10%), que já fica fora
+  // das vendas (usamos o "Total faturado" do PDV, sem serviço). Descontar a
+  // comissão das despesas ALÉM disso tiraria a mesma verba duas vezes — ela é
+  // repasse do que o cliente pagou por fora, não custo da casa.
+  const isComissaoServico = (e: Expense) => e.category === 'Comissão (serviço)'
+  const despesas = vivas.filter((e) => !isCompraEstoque(e) && !isComissaoServico(e)).reduce((sum, e) => sum + e.total, 0)
   const comprasEstoque = vivas.filter(isCompraEstoque).reduce((sum, e) => sum + e.total, 0)
+  const comissoesServico = vivas.filter(isComissaoServico).reduce((sum, e) => sum + e.total, 0)
   // Custo do VENDIDO — não do que entrou (a sobra volta pro estoque).
   const custoProdutos = eventProducts.reduce((sum, p) => sum + (p.sold_quantity ?? 0) * p.unit_price, 0)
   const consumoProducao = consumption.reduce((sum, c) => sum + c.total_cost, 0)
 
-  // Vendas: a aba Produtos manda quando há vendido lançado; senão o campo.
+  // Vendas em três degraus de confiança:
+  //   1. PDV (Σ "Total faturado" das linhas oficiais, SEM a taxa de serviço,
+  //      TODAS as linhas — mapeadas ou não): é o que a máquina registrou.
+  //   2. aba Produtos (Σ vendido × preço de cardápio) quando não há relatório.
+  //   3. campo manual do fechamento como último recurso.
+  const importsVendas = new Set(salesImports.filter((i) => !i.superseded_by && (i.kind ?? 'vendas') === 'vendas').map((i) => i.id))
+  const vendasPdv = salesLines.filter((l) => importsVendas.has(l.import_id))
+    .reduce((s, l) => s + (l.total_net ?? l.total_gross ?? 0), 0)
   const vendasProdutos = eventProducts.reduce((s, p) => s + (p.sold_quantity ?? 0) * (p.sale_price ?? 0), 0)
-  const vendas = vendasProdutos > 0 ? vendasProdutos : (event?.sales_amount ?? 0)
-  const vendasFonte: 'produtos' | 'campo' = vendasProdutos > 0 ? 'produtos' : 'campo'
+  const vendas = vendasPdv > 0 ? vendasPdv : vendasProdutos > 0 ? vendasProdutos : (event?.sales_amount ?? 0)
+  const vendasFonte: 'pdv' | 'produtos' | 'campo' = vendasPdv > 0 ? 'pdv' : vendasProdutos > 0 ? 'produtos' : 'campo'
 
   // Perdas: Perda/Quebra no almoxarifado do evento, pelo custo do movimento
   // ou, sem ele, pelo custo médio do catálogo.
@@ -2677,7 +2697,7 @@ export async function getEventFinancialSummary(eventId: string): Promise<EventFi
   const lucroOuPerda = receitaBeetz - impostos - despesas - custoProdutos - perdas
 
   return {
-    despesas, comprasEstoque, custoProdutos, consumoProducao, perdas, vendas, vendasFonte, percentual, aReceber,
+    despesas, comprasEstoque, comissoesServico, custoProdutos, consumoProducao, perdas, vendas, vendasFonte, percentual, aReceber,
     creditosOuBonificacoes, receitaBeetz, taxaImposto, impostos, recebimentos,
     repasses, saldoAPagarProdutora, lucroOuPerda
   }
@@ -3084,7 +3104,11 @@ export async function generateScalePayments(eventId: string, createdBy: string |
     toInsert.push({
       event_id: eventId,
       status: 'Pendente',
-      category: 'Equipe',
+      // Comissão % é a TAXA DE SERVIÇO (os 10% que o cliente paga por fora):
+      // categoria própria pra ficar FORA do lucro no fechamento — as vendas
+      // já entram sem essa verba ("Total faturado" do PDV). Valor fixo de
+      // escala é custo da casa de verdade e segue como 'Equipe'.
+      category: role?.pay_type === 'percent' ? 'Comissão (serviço)' : 'Equipe',
       payment_method: null,
       description: `Escala — ${req?.role_label ?? 'Função'}: ${personById.get(app.profile_id) ?? 'colaborador(a)'}${detail}`,
       quantity: 1,

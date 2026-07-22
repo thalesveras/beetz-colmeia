@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Building2, Copy, Printer, Save, ShieldCheck, UserRound } from 'lucide-react'
-import { getEventFinancialSummary, listEventProducts, listEventRepasses, updateEvent } from '../../lib/dataService'
-import type { EventFinancialSummary, EventItem, EventProduct, EventRepasse } from '../../lib/types'
+import { getEventFinancialSummary, listEventRepasses, updateEvent } from '../../lib/dataService'
+import type { EventFinancialSummary, EventItem, EventRepasse } from '../../lib/types'
 
 // Fechamento como PRESTAÇÃO DE CONTAS, em duas visões (pedido do dono):
 // — Visão empresa: o resultado da Beetz no evento (receita − custos = lucro).
@@ -28,7 +28,6 @@ interface Props {
 export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
   const [summary, setSummary] = useState<EventFinancialSummary | null>(null)
   const [repasses, setRepasses] = useState<EventRepasse[]>([])
-  const [eventProducts, setEventProducts] = useState<EventProduct[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -42,14 +41,12 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
 
   async function load() {
     setLoading(true)
-    const [s, r, ep] = await Promise.all([
+    const [s, r] = await Promise.all([
       getEventFinancialSummary(event.id),
-      listEventRepasses(event.id),
-      listEventProducts(event.id).catch(() => [])
+      listEventRepasses(event.id)
     ])
     setSummary(s)
     setRepasses(r)
-    setEventProducts(ep)
     setLoading(false)
   }
 
@@ -148,7 +145,9 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-white/70">
                     Vendas do evento
-                    <span className="text-white/35"> · {summary.vendasFonte === 'produtos' ? 'aba Produtos (vendido × preço)' : 'campo manual acima'}</span>
+                    <span className="text-white/35"> · {summary.vendasFonte === 'pdv'
+                      ? 'relatório da máquina (Total faturado, sem taxa de serviço)'
+                      : summary.vendasFonte === 'produtos' ? 'aba Produtos (vendido × preço)' : 'campo manual acima'}</span>
                   </span>
                   <span className="font-semibold text-white/70">{currency(summary.vendas)}</span>
                 </div>
@@ -164,6 +163,13 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
                     Compras de estoque ({currency(summary.comprasEstoque)}) ficam fora desta conta de propósito:
                     produto comprado é dinheiro virando estoque, e o gasto só entra quando vende (custo do vendido)
                     ou perde. Somar as duas pontas descontaria a mesma compra duas vezes.
+                  </p>
+                )}
+                {summary.comissoesServico > 0 && (
+                  <p className="text-[11px] text-white/40 bg-white/5 rounded-lg px-3 py-2 mt-1">
+                    Comissões dos garçons ({currency(summary.comissoesServico)}) também ficam fora: são a taxa de
+                    serviço que o cliente paga por fora — as vendas acima já entram SEM essa verba, então ela é
+                    repasse, não custo. Descontar de novo tiraria os 10% duas vezes.
                   </p>
                 )}
 
@@ -209,17 +215,17 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
         {view === 'produtor' && (loading || !summary ? (
           <p className="text-sm text-white/50">Montando a prestação de contas...</p>
         ) : (() => {
-          // O extrato do produtor no modelo da casa, com cada linha LIGADA na
-          // aba de origem — nada digitado duas vezes:
-          //   Vendas        ← aba Produtos (Σ vendido × preço); sem vendas lá,
-          //                   cai no campo Vendas do fechamento
+          // O extrato do produtor usa a MESMA base de vendas do resumo:
+          //   Vendas        ← PDV (Total faturado, sem taxa de serviço) →
+          //                   aba Produtos → campo manual, nessa ordem
           //   % do produtor ← 100 − Percentual Beetz
           //   Consumo       ← aba Consumo da produção (desconta do produtor)
           //   Repasses      ← aba Repasses (o que já foi pago)
           //   Saldo         = vendas × % + créditos − consumo − repasses
-          const vendasProdutos = eventProducts.reduce((s, p) => s + (p.sold_quantity ?? 0) * (p.sale_price ?? 0), 0)
-          const vendasBase = vendasProdutos > 0 ? vendasProdutos : summary.vendas
-          const vendasFonte = vendasProdutos > 0 ? 'aba Produtos' : 'campo do fechamento'
+          const vendasBase = summary.vendas
+          const vendasFonte = summary.vendasFonte === 'pdv'
+            ? 'máquina, sem taxa de serviço'
+            : summary.vendasFonte === 'produtos' ? 'aba Produtos' : 'campo do fechamento'
           const pctProdutor = Math.max(0, 100 - summary.percentual)
           const valorAReceber = vendasBase * (pctProdutor / 100)
           const saldoAReceber = valorAReceber + summary.creditosOuBonificacoes - summary.consumoProducao - summary.repasses

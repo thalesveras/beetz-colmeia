@@ -547,7 +547,11 @@ export interface EventSalesLine {
   qty_billed: number
   qty_bonus: number
   quantity: number
+  // "Total geral" do relatório (COM taxa de serviço) — registro do arquivo.
   total_gross: number | null
+  // "Total faturado" (SEM taxa de serviço) — a base de receita. Null em
+  // uploads antigos, feitos antes da coluna existir.
+  total_net?: number | null
   product_id: string | null
   // Quantas unidades do estoque cada venda consome (dose de garrafa < 1).
   units_per_sale: number
@@ -635,6 +639,11 @@ export interface EventFinancialSummary {
   // Compras de estoque do evento (despesas categoria 'Estoque' ou nascidas de
   // movimentação de Compra) — mostradas como informação, nunca subtraídas.
   comprasEstoque: number
+  // Comissões % dos garçons (categoria 'Comissão (serviço)') — são os 10% de
+  // taxa de serviço que o cliente paga por fora. As vendas já entram SEM essa
+  // verba (Total faturado do PDV), então ela não desconta do lucro: é
+  // repasse, não custo. Mostrada como informação.
+  comissoesServico: number
   // Custo do VENDIDO (Σ vendido × custo, aba Produtos) — modelo do fechamento
   // antigo, batido ao centavo no evento CLIMINHA DE VERÃO. O custo do que
   // ENTROU não é prejuízo: a sobra volta pro estoque.
@@ -644,9 +653,10 @@ export interface EventFinancialSummary {
   // que evaporou e é conta da casa (novidade vs o modelo antigo).
   perdas: number
   vendas: number
-  // De onde vieram as vendas: 'produtos' (Σ vendido × preço da aba) ou
-  // 'campo' (o campo manual do fechamento, enquanto não há vendas lançadas).
-  vendasFonte: 'produtos' | 'campo'
+  // De onde vieram as vendas: 'pdv' (Σ "Total faturado" do relatório da
+  // máquina, SEM a taxa de serviço — a fonte mais fiel), 'produtos'
+  // (Σ vendido × preço da aba) ou 'campo' (manual, último recurso).
+  vendasFonte: 'pdv' | 'produtos' | 'campo'
   percentual: number
   aReceber: number
   creditosOuBonificacoes: number

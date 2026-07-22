@@ -52,6 +52,10 @@ async function parseSalesCsv(file: File): Promise<ParsedSalesLine[]> {
   // Vendas traz "Total Geral"; o relatório de Produção chama a mesma coluna
   // de "Receita". Mesmo número, nomes diferentes.
   const iTotal = header.findIndex((h) => h.includes('total geral') || h.startsWith('receita'))
+  // A COLUNA CERTA da receita: "Total faturado" = venda SEM a taxa de serviço
+  // (os 10% dos garçons, que o cliente paga por fora). "Total geral" soma a
+  // taxa — servia pro faturado aparecer maior do que a casa de fato vendeu.
+  const iNet = header.findIndex((h) => h.includes('total faturado'))
   if (iProd < 0) throw new Error('Não achei a coluna "Produto" no arquivo — é o relatório de vendas da máquina?')
 
   const out: ParsedSalesLine[] = []
@@ -69,7 +73,8 @@ async function parseSalesCsv(file: File): Promise<ParsedSalesLine[]> {
       qty_billed: qtyBilled,
       qty_bonus: qtyBonus,
       quantity,
-      total_gross: iTotal >= 0 ? money(cols[iTotal] ?? '') : null
+      total_gross: iTotal >= 0 ? money(cols[iTotal] ?? '') : null,
+      total_net: iNet >= 0 ? money(cols[iNet] ?? '') : null
     })
   }
   return out
@@ -302,9 +307,12 @@ export default function SalesReportCard({ eventId, kind = 'vendas', onSynced }: 
     }
   }
 
-  const totalFaturado = useMemo(() => activeLines.reduce((s, l) => s + (l.total_gross ?? 0), 0), [activeLines])
+  // Dinheiro sempre pela coluna SEM taxa de serviço (uploads antigos, de
+  // antes da coluna, caem no total cheio — resubir o relatório corrige).
+  const lineValue = (l: EventSalesLine) => l.total_net ?? l.total_gross ?? 0
+  const totalFaturado = useMemo(() => activeLines.reduce((s, l) => s + lineValue(l), 0), [activeLines])
   const unmappedFaturado = useMemo(
-    () => activeLines.filter((l) => !l.product_id).reduce((s, l) => s + (l.total_gross ?? 0), 0),
+    () => activeLines.filter((l) => !l.product_id).reduce((s, l) => s + lineValue(l), 0),
     [activeLines]
   )
 
