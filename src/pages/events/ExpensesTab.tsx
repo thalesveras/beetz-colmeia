@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import {
   deleteExpense,
@@ -119,6 +119,26 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
   const total = expenses.filter((e) => e.status !== 'Cancelado').reduce((sum, e) => sum + e.total, 0)
   const formTotal = quantity * unitValue + dexFee
 
+  // Sumário no padrão dos Recebimentos: pendente × pago, e o PAGO aberto por
+  // meio de pagamento — cadê o dinheiro saindo, num olhar.
+  const resumoDespesas = useMemo(() => {
+    const vivas = expenses.filter((e) => e.status !== 'Cancelado')
+    const pendentes = vivas.filter((e) => e.status === 'Pendente')
+    const pagas = vivas.filter((e) => e.status === 'Pago')
+    const porMeio = new Map<string, number>()
+    for (const e of pagas) {
+      const meio = e.payment_method?.trim() || 'Sem meio informado'
+      porMeio.set(meio, (porMeio.get(meio) ?? 0) + e.total)
+    }
+    return {
+      pendentesTotal: pendentes.reduce((s, e) => s + e.total, 0),
+      pendentesN: pendentes.length,
+      pagasTotal: pagas.reduce((s, e) => s + e.total, 0),
+      pagasN: pagas.length,
+      porMeio: Array.from(porMeio.entries()).sort((a, b) => b[1] - a[1])
+    }
+  }, [expenses])
+
   function resetForm() {
     setCategory(''); setReceiptData(null); setPaymentMethod(''); setDescription('')
     setQuantity(1); setUnitValue(0); setDexFee(0); setSignatureData(null); setRepasseData(null)
@@ -180,16 +200,38 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-beetz-dark/60">
-          {loading ? 'Carregando...' : `${expenses.length} despesa(s) · Total: ${currency(total)}`}
-        </p>
-        <button
-          onClick={() => { if (showForm) resetForm(); setShowForm((v) => !v) }}
-          className="flex items-center gap-1.5 text-sm font-semibold bg-beetz-dark text-white px-3 py-2 rounded-xl hover:bg-black transition-colors"
-        >
-          <Plus size={16} /> Nova despesa
-        </button>
+      {/* Sumário no padrão dos Recebimentos: total grande, pendente × pago,
+          e o pago aberto por meio de pagamento. */}
+      <div className="bg-beetz-dark text-white rounded-2xl p-4 md:p-5">
+        <div className="flex items-start justify-between flex-wrap gap-3">
+          <div>
+            <p className="text-2xl font-extrabold leading-none">{loading ? '...' : currency(total)}</p>
+            <p className="text-xs text-white/50 mt-1">
+              {expenses.filter((e) => e.status !== 'Cancelado').length} despesa(s) do evento
+            </p>
+          </div>
+          <button
+            onClick={() => { if (showForm) resetForm(); setShowForm((v) => !v) }}
+            className="flex items-center gap-1.5 text-sm font-bold honey-gradient text-beetz-dark px-3 py-2 rounded-xl"
+          >
+            <Plus size={16} /> Nova despesa
+          </button>
+        </div>
+        {!loading && (
+          <div className="flex flex-wrap gap-2 mt-3">
+            <span className="text-[11px] font-semibold bg-beetz-yellow/20 text-beetz-yellow px-2.5 py-1.5 rounded-full">
+              Pendentes {currency(resumoDespesas.pendentesTotal)} <span className="opacity-60">({resumoDespesas.pendentesN})</span>
+            </span>
+            <span className="text-[11px] font-semibold bg-green-500/15 text-green-300 px-2.5 py-1.5 rounded-full">
+              Pagas {currency(resumoDespesas.pagasTotal)} <span className="opacity-60">({resumoDespesas.pagasN})</span>
+            </span>
+            {resumoDespesas.porMeio.map(([meio, valor]) => (
+              <span key={meio} className="text-[11px] font-semibold bg-white/10 px-2.5 py-1.5 rounded-full">
+                {meio} {currency(valor)}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {showForm && (
