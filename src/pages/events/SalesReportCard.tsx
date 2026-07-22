@@ -156,7 +156,6 @@ export default function SalesReportCard({ eventId, kind = 'vendas', onSynced }: 
   const [loading, setLoading] = useState(true)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [reportDate, setReportDate] = useState(new Date().toISOString().slice(0, 10))
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement | null>(null)
 
@@ -192,7 +191,10 @@ export default function SalesReportCard({ eventId, kind = 'vendas', onSynced }: 
     setError(null)
     try {
       const parsed = await parseSalesCsv(file)
-      const imp = await createEventSalesImport(eventId, { report_date: reportDate || null, file_name: file.name }, parsed, userId, kind)
+      // Data do upload automática: o relatório é sempre DESTE evento e a
+      // regra do oficial resolve versões — escolher dia era um campo a mais
+      // pra errar.
+      const imp = await createEventSalesImport(eventId, { report_date: new Date().toISOString().slice(0, 10), file_name: file.name }, parsed, userId, kind)
       // Se este upload cobriu anteriores (relatório cumulativo mais completo),
       // avisa que ele virou o oficial.
       const imps = await listEventSalesImports(eventId)
@@ -334,11 +336,6 @@ export default function SalesReportCard({ eventId, kind = 'vendas', onSynced }: 
       </p>
 
       <div className="flex flex-wrap items-center gap-2">
-        <input
-          type="date" value={reportDate} onChange={(e) => setReportDate(e.target.value)}
-          className="rounded-xl border-0 bg-white text-beetz-dark text-sm px-3 py-2"
-          aria-label="Dia do relatório"
-        />
         <input
           ref={fileRef} type="file" accept=".csv,text/csv" className="hidden"
           onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
