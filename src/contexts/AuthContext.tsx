@@ -117,13 +117,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // ou que o sistema quebrou. Diagnóstico do apagão de 22/07: servidor
       // 100% de pé, rede local caindo em janelas.
       if (error && /failed to fetch|network|load failed/i.test(error.message)) {
-        return { error: 'Sem conexão com o servidor da Colmeia agora — a internet do local está oscilando. Espere alguns segundos e tente de novo (a senha não é o problema).' }
+        return { error: 'Não deu pra falar com o servidor da Colmeia — pode ser a internet do local oscilando ou o servidor indisponível. Espere um pouco e tente de novo (a senha não é o problema). Se persistir, avise a diretoria.' }
       }
       return { error: error?.message ?? null }
     } catch (err: any) {
       const msg: string = err?.message ?? ''
       if (/failed to fetch|network|load failed/i.test(msg)) {
-        return { error: 'Sem conexão com o servidor da Colmeia agora — a internet do local está oscilando. Espere alguns segundos e tente de novo (a senha não é o problema).' }
+        return { error: 'Não deu pra falar com o servidor da Colmeia — pode ser a internet do local oscilando ou o servidor indisponível. Espere um pouco e tente de novo (a senha não é o problema). Se persistir, avise a diretoria.' }
       }
       return { error: msg || 'Não foi possível entrar. Tente novamente.' }
     }
