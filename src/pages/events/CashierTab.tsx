@@ -221,40 +221,54 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
 
   return (
     <div className="space-y-5">
-      {/* Sumário aberto: total, por tipo (caixas × garçons) e por forma de
-          pagamento — o raio-x do dinheiro do evento num olhar. */}
-      <div className="bg-beetz-dark text-white rounded-2xl p-4 md:p-5">
-        <div className="flex items-start justify-between flex-wrap gap-3">
-          <div>
-            <p className="text-2xl font-extrabold leading-none">{loading ? '...' : currency(grandTotal)}</p>
-            <p className="text-xs text-white/50 mt-1">
-              {canViewAll ? 'Apurado no evento' : 'Seu apurado'} · comissões de garçom {currency(grandCommission)}
-            </p>
+      {/* Sumário aberto (raio-x do dinheiro do evento): SÓ pra quem gerencia.
+          Garçom/caixa não precisa ver placar nenhum — pedido da Diretoria de
+          23/07 — então pra eles sobra só o botão de lançar. */}
+      {canViewAll ? (
+        <div className="bg-beetz-dark text-white rounded-2xl p-4 md:p-5">
+          <div className="flex items-start justify-between flex-wrap gap-3">
+            <div>
+              <p className="text-2xl font-extrabold leading-none">{loading ? '...' : currency(grandTotal)}</p>
+              <p className="text-xs text-white/50 mt-1">
+                Apurado no evento · comissões de garçom {currency(grandCommission)}
+              </p>
+            </div>
+            {canAdd && (
+              <button
+                onClick={() => setShowForm((v) => !v)}
+                className="flex items-center gap-1.5 text-sm font-bold honey-gradient text-beetz-dark px-3 py-2 rounded-xl"
+              >
+                <Plus size={16} /> Novo recebimento
+              </button>
+            )}
           </div>
-          {canAdd && (
+          {!loading && (
+            <div className="flex flex-wrap gap-2 mt-3">
+              <span className="text-[11px] font-semibold bg-white/10 px-2.5 py-1.5 rounded-full">
+                Caixas {currency(resumo.caixasTotal)} <span className="text-white/40">({resumo.caixasN})</span>
+              </span>
+              <span className="text-[11px] font-semibold bg-white/10 px-2.5 py-1.5 rounded-full">
+                Garçons {currency(resumo.garconsTotal)} <span className="text-white/40">({resumo.garconsN})</span>
+              </span>
+              <span className="text-[11px] font-semibold bg-white/10 px-2.5 py-1.5 rounded-full">💵 Dinheiro {currency(resumo.dinheiro)}</span>
+              <span className="text-[11px] font-semibold bg-white/10 px-2.5 py-1.5 rounded-full">💳 Débito {currency(resumo.debito)}</span>
+              <span className="text-[11px] font-semibold bg-white/10 px-2.5 py-1.5 rounded-full">💳 Crédito {currency(resumo.credito)}</span>
+              <span className="text-[11px] font-semibold bg-white/10 px-2.5 py-1.5 rounded-full">Pix {currency(resumo.pix)}</span>
+            </div>
+          )}
+        </div>
+      ) : (
+        canAdd && (
+          <div className="flex justify-end">
             <button
               onClick={() => setShowForm((v) => !v)}
-              className="flex items-center gap-1.5 text-sm font-bold honey-gradient text-beetz-dark px-3 py-2 rounded-xl"
+              className="flex items-center gap-1.5 text-sm font-bold honey-gradient text-beetz-dark px-4 py-2.5 rounded-xl"
             >
               <Plus size={16} /> Novo recebimento
             </button>
-          )}
-        </div>
-        {!loading && (
-          <div className="flex flex-wrap gap-2 mt-3">
-            <span className="text-[11px] font-semibold bg-white/10 px-2.5 py-1.5 rounded-full">
-              Caixas {currency(resumo.caixasTotal)} <span className="text-white/40">({resumo.caixasN})</span>
-            </span>
-            <span className="text-[11px] font-semibold bg-white/10 px-2.5 py-1.5 rounded-full">
-              Garçons {currency(resumo.garconsTotal)} <span className="text-white/40">({resumo.garconsN})</span>
-            </span>
-            <span className="text-[11px] font-semibold bg-white/10 px-2.5 py-1.5 rounded-full">💵 Dinheiro {currency(resumo.dinheiro)}</span>
-            <span className="text-[11px] font-semibold bg-white/10 px-2.5 py-1.5 rounded-full">💳 Débito {currency(resumo.debito)}</span>
-            <span className="text-[11px] font-semibold bg-white/10 px-2.5 py-1.5 rounded-full">💳 Crédito {currency(resumo.credito)}</span>
-            <span className="text-[11px] font-semibold bg-white/10 px-2.5 py-1.5 rounded-full">Pix {currency(resumo.pix)}</span>
           </div>
-        )}
-      </div>
+        )
+      )}
 
       {/* O placar do acerto interno: quem deve, quanto, e quantos já
           acertaram. O chip vermelho é BOTÃO — toca e a lista filtra na hora. */}
@@ -329,7 +343,7 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
                 </select>
               ) : (
                 <div className={`${inputClass} bg-white text-beetz-dark/70`}>
-                  {profile ? `${profile.first_name} ${profile.last_name} (você)` : 'Você'}
+                  {profile ? `${profileName(profile.id)} (você)` : 'Você'}
                 </div>
               )}
             </div>
@@ -363,10 +377,10 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div><label className="text-sm font-medium block mb-1">Dinheiro</label><input type="number" min={0} step="0.01" className={inputClass} value={cash} onChange={(e) => setCash(Number(e.target.value))} /></div>
-            <div><label className="text-sm font-medium block mb-1">Débito</label><input type="number" min={0} step="0.01" className={inputClass} value={debit} onChange={(e) => setDebit(Number(e.target.value))} /></div>
-            <div><label className="text-sm font-medium block mb-1">Crédito</label><input type="number" min={0} step="0.01" className={inputClass} value={credit} onChange={(e) => setCredit(Number(e.target.value))} /></div>
-            <div><label className="text-sm font-medium block mb-1">Pix</label><input type="number" min={0} step="0.01" className={inputClass} value={pix} onChange={(e) => setPix(Number(e.target.value))} /></div>
+            <div><label className="text-sm font-medium block mb-1">Dinheiro</label><input type="number" inputMode="decimal" min={0} step="0.01" className={inputClass} value={cash} onChange={(e) => setCash(Number(e.target.value))} /></div>
+            <div><label className="text-sm font-medium block mb-1">Débito</label><input type="number" inputMode="decimal" min={0} step="0.01" className={inputClass} value={debit} onChange={(e) => setDebit(Number(e.target.value))} /></div>
+            <div><label className="text-sm font-medium block mb-1">Crédito</label><input type="number" inputMode="decimal" min={0} step="0.01" className={inputClass} value={credit} onChange={(e) => setCredit(Number(e.target.value))} /></div>
+            <div><label className="text-sm font-medium block mb-1">Pix</label><input type="number" inputMode="decimal" min={0} step="0.01" className={inputClass} value={pix} onChange={(e) => setPix(Number(e.target.value))} /></div>
           </div>
 
           <div>
