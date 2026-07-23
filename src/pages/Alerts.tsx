@@ -6,11 +6,12 @@ import { ALERT_TYPES } from '../lib/alerts'
 import { canConfigureAlerts, ACCESS_ROLES, ACCESS_ROLE_LABELS } from '../lib/permissions'
 import {
   disablePushOnThisDevice, enablePushOnThisDevice, isPushEnabledHere, listAlertChannels,
-  listMyAlertPrefs, listNotifications, listProfiles, listPushProfileIds, listRolePermissions,
+  listEventMembers, listEvents, listMyAlertPrefs, listNotifications, listProfilesLite,
+  listPushProfileIds, listRolePermissions,
   markAllNotificationsRead, markNotificationRead, pushSupportedHere, sendManualPush,
   setMyAlertPref, updateAlertChannel, updateRolePermission
 } from '../lib/dataService'
-import type { AlertChannelSetting, AlertFlagKey, AppNotification, Profile, RolePermissions } from '../lib/types'
+import type { AlertChannelSetting, AlertFlagKey, AppNotification, EventItem, EventMember, Profile, RolePermissions } from '../lib/types'
 
 type TabKey = 'pessoais' | 'globais' | 'escala' | 'meus' | 'enviar' | 'config'
 
@@ -229,18 +230,80 @@ function ManualPushTab() {
   const [title, setTitle] = useState('')
   const [message, setMessage] = useState('')
   const [link, setLink] = useState('')
-  const [mode, setMode] = useState<'all' | 'some'>('all')
+  const [mode, setMode] = useState<'all' | 'some' | 'evento' | 'funcao'>('all')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [search, setSearch] = useState('')
   const [sending, setSending] = useState(false)
   const [result, setResult] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // Por evento / por função no evento
+  const [events, setEvents] = useState<EventItem[]>([])
+  const [eventId, setEventId] = useState('')
+  const [members, setMembers] = useState<EventMember[]>([])
+  const [eventFns, setEventFns] = useState<Set<string>>(new Set()) // vazio = todas
+  // Por função em geral (o cadastro tem texto livre — agrupamos normalizado)
+  const [fns, setFns] = useState<Set<string>>(new Set())
+
   useEffect(() => {
-    Promise.all([listProfiles(), listPushProfileIds()])
+    Promise.all([listProfilesLite(), listPushProfileIds()])
       .then(([p, ids]) => { setProfiles(p); setPushIds(new Set(ids)) })
       .catch((e: any) => setError(e?.message ?? 'Não foi possível carregar as pessoas.'))
   }, [])
+
+  // Eventos só quando o modo pede — e uma vez.
+  useEffect(() => {
+    if (mode === 'evento' && events.length === 0) {
+      listEvents().then(setEvents).catch(() => setEvents([]))
+    }
+  }, [mode, events.length])
+
+  useEffect(() => {
+    setMembers([])
+    setEventFns(new Set())
+    if (eventId) listEventMembers(eventId).then(setMembers).catch(() => setMembers([]))
+  }, [eventId])
+
+  // "garçons ", "Garçom" e "GARÇOM" são a mesma função com cadastros diferentes.
+  const normFn = (s?: string | null) => (s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
+
+  const agrupaFuncoes = (rotulos: (string | null | undefined)[]) => {
+    const m = new Map<string, { label: string; count: number }>()
+    for (const r of rotulos) {
+      const key = normFn(r)
+      if (!key) continue
+      const atual = m.get(key)
+      if (atual) atual.count++
+      else m.set(key, { label: (r ?? '').trim(), count: 1 })
+    }
+    return [...m.entries()].map(([key, v]) => ({ key, ...v })).sort((a, b) => b.count - a.count)
+  }
+
+  const aprovados = useMemo(() => members.filter((m) => m.status === 'Aprovado'), [members])
+  const funcoesDoEvento = useMemo(() => agrupaFuncoes(aprovados.map((m) => m.role_in_event)), [aprovados])
+  const funcoesGerais = useMemo(() => agrupaFuncoes(profiles.map((p) => p.role)), [profiles])
+
+  // A resolução final: cada modo vira uma lista de pessoas ANTES do envio,
+  // com prévia — a Diretoria vê exatamente quem vai receber.
+  const resolvedIds = useMemo(() => {
+    if (mode === 'evento') {
+      return [...new Set(
+        aprovados
+          .filter((m) => eventFns.size === 0 || eventFns.has(normFn(m.role_in_event)))
+          .map((m) => m.profile_id)
+      )]
+    }
+    if (mode === 'funcao') {
+      return profiles.filter((p) => fns.has(normFn(p.role))).map((p) => p.id)
+    }
+    return []
+  }, [mode, aprovados, eventFns, profiles, fns])
+
+  const nomeDe = (id: string) => {
+    const p = profiles.find((x) => x.id === id)
+    const n = p ? [p.first_name, p.last_name].filter(Boolean).join(' ').trim() : ''
+    return n || 'Sem nome'
+  }
 
   const shown = profiles.filter((p) =>
     `${p.first_name} ${p.last_name}`.toLowerCase().includes(search.trim().toLowerCase())
@@ -260,13 +323,18 @@ function ManualPushTab() {
     setResult(null)
     if (!title.trim()) { setError('Dê um título ao aviso.'); return }
     if (mode === 'some' && selected.size === 0) { setError('Escolha ao menos uma pessoa.'); return }
+    if (mode === 'evento' && !eventId) { setError('Escolha o evento.'); return }
+    if ((mode === 'evento' || mode === 'funcao') && resolvedIds.length === 0) {
+      setError(mode === 'evento' ? 'Esse recorte não tem ninguém aprovado no evento.' : 'Escolha ao menos uma função.')
+      return
+    }
     setSending(true)
     try {
       const res = await sendManualPush({
         title: title.trim(),
         body: message.trim(),
         link: link.trim() || undefined,
-        target: mode === 'all' ? 'all' : Array.from(selected)
+        target: mode === 'all' ? 'all' : mode === 'some' ? Array.from(selected) : resolvedIds
       })
       setResult(`Aviso enviado a ${res.recipients} pessoa${res.recipients === 1 ? '' : 's'} — push chegou em ${res.push_sent} de ${res.devices} aparelho${res.devices === 1 ? '' : 's'} registrado${res.devices === 1 ? '' : 's'}. Todos veem no sininho.`)
       setTitle(''); setMessage(''); setLink(''); setSelected(new Set())
@@ -304,19 +372,89 @@ function ManualPushTab() {
       <div className="bg-white rounded-2xl border border-beetz-dark/8 p-5 space-y-3">
         <p className="text-sm font-bold">Destinatários</p>
         <div className="flex flex-wrap gap-2">
-          <button onClick={() => setMode('all')}
-            className={`text-sm font-semibold px-3.5 py-2 rounded-xl transition-colors ${
-              mode === 'all' ? 'bg-beetz-dark text-white' : 'bg-beetz-gray text-beetz-dark/70 hover:bg-beetz-dark/10'
-            }`}>
-            Toda a colmeia
-          </button>
-          <button onClick={() => setMode('some')}
-            className={`text-sm font-semibold px-3.5 py-2 rounded-xl transition-colors ${
-              mode === 'some' ? 'bg-beetz-dark text-white' : 'bg-beetz-gray text-beetz-dark/70 hover:bg-beetz-dark/10'
-            }`}>
-            Escolher pessoas{selected.size > 0 ? ` (${selected.size})` : ''}
-          </button>
+          {([
+            ['all', 'Toda a colmeia'],
+            ['some', `Escolher pessoas${selected.size > 0 ? ` (${selected.size})` : ''}`],
+            ['evento', 'Por evento'],
+            ['funcao', 'Por função']
+          ] as ['all' | 'some' | 'evento' | 'funcao', string][]).map(([m, label]) => (
+            <button key={m} onClick={() => setMode(m)}
+              className={`text-sm font-semibold px-3.5 py-2 rounded-xl transition-colors ${
+                mode === m ? 'bg-beetz-dark text-white' : 'bg-beetz-gray text-beetz-dark/70 hover:bg-beetz-dark/10'
+              }`}>
+              {label}
+            </button>
+          ))}
         </div>
+
+        {mode === 'evento' && (
+          <div className="space-y-2.5">
+            <select className={inputClass} value={eventId} onChange={(e) => setEventId(e.target.value)}>
+              <option value="">Escolher o evento...</option>
+              {events.map((ev) => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
+            </select>
+            {eventId && funcoesDoEvento.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                <button onClick={() => setEventFns(new Set())}
+                  className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
+                    eventFns.size === 0 ? 'bg-beetz-yellow border-beetz-yellow text-beetz-dark' : 'bg-white border-beetz-dark/12 text-beetz-dark/55'
+                  }`}>
+                  Todas as funções
+                </button>
+                {funcoesDoEvento.map((f) => (
+                  <button key={f.key}
+                    onClick={() => setEventFns((prev) => {
+                      const next = new Set(prev)
+                      if (next.has(f.key)) next.delete(f.key)
+                      else next.add(f.key)
+                      return next
+                    })}
+                    className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
+                      eventFns.has(f.key) ? 'bg-beetz-yellow border-beetz-yellow text-beetz-dark' : 'bg-white border-beetz-dark/12 text-beetz-dark/55'
+                    }`}>
+                    {f.label || 'Sem função'} ({f.count})
+                  </button>
+                ))}
+              </div>
+            )}
+            {eventId && (
+              <p className="text-xs text-beetz-dark/50">
+                {resolvedIds.length === 0
+                  ? 'Ninguém aprovado nesse recorte ainda.'
+                  : <>Vai para <strong>{resolvedIds.length}</strong> pessoa(s): {resolvedIds.slice(0, 12).map(nomeDe).join(', ')}{resolvedIds.length > 12 ? ` e mais ${resolvedIds.length - 12}...` : ''}</>}
+              </p>
+            )}
+          </div>
+        )}
+
+        {mode === 'funcao' && (
+          <div className="space-y-2.5">
+            <div className="flex flex-wrap gap-1.5">
+              {funcoesGerais.map((f) => (
+                <button key={f.key}
+                  onClick={() => setFns((prev) => {
+                    const next = new Set(prev)
+                    if (next.has(f.key)) next.delete(f.key)
+                    else next.add(f.key)
+                    return next
+                  })}
+                  className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
+                    fns.has(f.key) ? 'bg-beetz-yellow border-beetz-yellow text-beetz-dark' : 'bg-white border-beetz-dark/12 text-beetz-dark/55'
+                  }`}>
+                  {f.label} ({f.count})
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-beetz-dark/40">
+              As funções vêm do cadastro (texto livre) — variações como "garçom" e "garçons " já chegam agrupadas; marque as que fizerem sentido.
+            </p>
+            {fns.size > 0 && (
+              <p className="text-xs text-beetz-dark/50">
+                Vai para <strong>{resolvedIds.length}</strong> pessoa(s): {resolvedIds.slice(0, 12).map(nomeDe).join(', ')}{resolvedIds.length > 12 ? ` e mais ${resolvedIds.length - 12}...` : ''}
+              </p>
+            )}
+          </div>
+        )}
 
         {mode === 'some' && (
           <div className="space-y-2">
