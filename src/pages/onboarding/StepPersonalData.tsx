@@ -1,5 +1,6 @@
 import type { OnboardingData } from './OnboardingWizard'
 import Avatar from '../../components/ui/Avatar'
+import { cleanCpf, formatCpf, isValidCpf } from '../../lib/cpf'
 
 interface Props { data: OnboardingData; update: (patch: Partial<OnboardingData>) => void }
 
@@ -40,7 +41,21 @@ export default function StepPersonalData({ data, update }: Props) {
       </div>
       <div className="grid sm:grid-cols-2 gap-4">
         <Field label="Data de nascimento"><input type="date" className={inputClass} value={data.birth_date || ''} onChange={(e) => update({ birth_date: e.target.value })} /></Field>
-        <Field label="CPF"><input className={inputClass} placeholder="000.000.000-00" value={data.cpf || ''} onChange={(e) => update({ cpf: e.target.value })} /></Field>
+        <Field label="CPF">
+          <input
+            className={`${inputClass} ${cleanCpf(data.cpf).length > 0 && !isValidCpf(data.cpf) ? 'border-red-400 focus:ring-red-300' : ''}`}
+            placeholder="000.000.000-00"
+            inputMode="numeric"
+            maxLength={14}
+            value={data.cpf || ''}
+            onChange={(e) => update({ cpf: formatCpf(e.target.value) })}
+          />
+          {cleanCpf(data.cpf).length > 0 && !isValidCpf(data.cpf) && (
+            <p className="text-xs text-red-600 mt-1">
+              {cleanCpf(data.cpf).length < 11 ? 'CPF incompleto — são 11 números.' : 'Esse CPF não existe — confere os números.'}
+            </p>
+          )}
+        </Field>
       </div>
       <div className="grid sm:grid-cols-2 gap-4">
         <Field label="Telefone"><input className={inputClass} placeholder="(00) 00000-0000" value={data.phone || ''} onChange={(e) => update({ phone: e.target.value })} /></Field>

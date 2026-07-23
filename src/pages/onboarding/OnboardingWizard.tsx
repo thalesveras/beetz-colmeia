@@ -9,6 +9,7 @@ import StepFamilyInfo from './StepFamilyInfo'
 import StepProfessionalInfo from './StepProfessionalInfo'
 import StepHealth from './StepHealth'
 import StepSocialProfile from './StepSocialProfile'
+import { cleanCpf, isValidCpf } from '../../lib/cpf'
 
 export type OnboardingData = Partial<Profile>
 
@@ -37,6 +38,13 @@ export default function OnboardingWizard() {
   }
 
   async function handleNext() {
+    // CPF preenchido tem que ser válido pra sair da etapa 1 — CPF errado no
+    // cadastro vira dor de cabeça em pagamento e contrato lá na frente.
+    // Em branco pode passar (nem todo fluxo exige).
+    if (step === 0 && cleanCpf(data.cpf).length > 0 && !isValidCpf(data.cpf)) {
+      alert('O CPF digitado não é válido — confere os números antes de continuar (ou deixe em branco pra preencher depois).')
+      return
+    }
     if (step < steps.length - 1) {
       setStep(step + 1)
       window.scrollTo({ top: 0, behavior: 'smooth' })
