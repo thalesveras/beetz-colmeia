@@ -68,7 +68,10 @@ export default function Receipts() {
   const profileName = (id: string | null) => {
     if (!id) return 'Colaborador(a)'
     const p = profiles.find((pr) => pr.id === id)
-    return p ? `${p.first_name} ${p.last_name}` : 'Colaborador(a)'
+    if (!p) return 'Colaborador(a)'
+    // Conta sem nome preenchido (ex.: login de teste) mostrava "null null".
+    const nome = [p.first_name, p.last_name].filter(Boolean).join(' ').trim()
+    return nome || 'Sem nome (perfil incompleto)'
   }
 
   const filtered = useMemo(() => {

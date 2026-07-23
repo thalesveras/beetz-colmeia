@@ -93,7 +93,10 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
 
   const profileName = (id: string | null) => {
     const p = profiles.find((pr) => pr.id === id)
-    return p ? `${p.first_name} ${p.last_name}` : 'Colaborador(a)'
+    if (!p) return 'Colaborador(a)'
+    // Conta sem nome preenchido (ex.: login de teste) mostrava "null null".
+    const nome = [p.first_name, p.last_name].filter(Boolean).join(' ').trim()
+    return nome || 'Sem nome (perfil incompleto)'
   }
 
   const formTotal = cash + debit + credit + pix
@@ -168,6 +171,16 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!profileId || !userId) return
+    // Regra de negócio: UM recebimento por colaborador(a) por evento. O banco
+    // também trava (índice único), mas aqui o aviso sai claro e em português
+    // antes de qualquer tentativa.
+    const jaExistente = settlements.find((s) => s.profile_id === profileId && s.status !== 'Rejeitado')
+    if (jaExistente) {
+      alert(profileId === userId
+        ? 'Você já registrou um recebimento neste evento — a regra é um por pessoa. Pra corrigir valores, edite o registro existente (ou fale com a Diretoria).'
+        : `${profileName(profileId)} já tem um recebimento neste evento — a regra é um por pessoa. Edite o registro existente em vez de criar outro.`)
+      return
+    }
     setSaving(true)
     // Erro NUNCA mais fica mudo: sem este try/catch, qualquer falha (sessão
     // expirada, permissão, conexão ruim do evento) travava o botão em
@@ -191,9 +204,11 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
       await load()
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Erro desconhecido.'
-      alert(/jwt|expired|token|refresh|permission|denied|row-level/i.test(msg)
-        ? `Não salvou: sua sessão provavelmente expirou. Saia do app e entre de novo, aí salva.\n\nDetalhe técnico: ${msg}`
-        : `Não foi possível salvar o recebimento: ${msg}`)
+      alert(/duplicate key|uniq_settlement_per_event/i.test(msg)
+        ? 'Este colaborador já tem um recebimento neste evento — a regra é um por pessoa. Edite o registro existente em vez de criar outro.'
+        : /jwt|expired|token|refresh|permission|denied|row-level/i.test(msg)
+          ? `Não salvou: sua sessão provavelmente expirou. Saia do app e entre de novo, aí salva.\n\nDetalhe técnico: ${msg}`
+          : `Não foi possível salvar o recebimento: ${msg}`)
     } finally {
       setSaving(false)
     }
@@ -306,7 +321,11 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
               {canViewAll ? (
                 <select required className={inputClass} value={profileId} onChange={(e) => setProfileId(e.target.value)}>
                   <option value="">Selecionar...</option>
-                  {profiles.map((p) => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
+                  {profiles.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {profileName(p.id)}{settlements.some((s) => s.profile_id === p.id && s.status !== 'Rejeitado') ? ' · já registrou' : ''}
+                    </option>
+                  ))}
                 </select>
               ) : (
                 <div className={`${inputClass} bg-white text-beetz-dark/70`}>
