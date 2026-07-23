@@ -929,6 +929,9 @@ export interface BadgeDefConfig {
 
 export interface AppSettings {
   id: boolean
+  // Robô de aniversários (e-mail diário automático). Opcional: mocks e
+  // registros antigos não conhecem o campo — sem valor = desligado.
+  birthday_auto_email_enabled?: boolean
   company_name: string
   // O "Colmeia" embaixo do nome, no menu e no login.
   short_name: string

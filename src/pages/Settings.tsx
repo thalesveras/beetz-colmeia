@@ -159,7 +159,7 @@ export default function Settings() {
       {tab === 'funcoes' && <StaffingRolesSection />}
       {tab === 'marca' && <BrandSection />}
       {tab === 'dados' && <DataImporterSection />}
-      {tab === 'comunicacao' && <EmailDispatcherSection />}
+      {tab === 'comunicacao' && <><BirthdayAutoCard /><EmailDispatcherSection /></>}
     </div>
   )
 }
@@ -1835,6 +1835,50 @@ function DataImporterSection() {
 // send-email (SMTP). Depende dos secrets SMTP_HOST/SMTP_PORT/SMTP_USER/
 // SMTP_PASS/SMTP_FROM cadastrados na Edge Function — sem eles o envio falha
 // com uma mensagem de erro clara, mas a tela funciona normalmente.
+// O interruptor do robô de aniversários. O trabalho pesado mora na edge
+// function birthday-auto (cron diário às 8h) — aqui só liga/desliga a chave
+// que ela consulta antes de mandar qualquer coisa.
+function BirthdayAutoCard() {
+  const { appSettings, refreshConfig } = useConfig()
+  const [saving, setSaving] = useState(false)
+  const ligado = appSettings.birthday_auto_email_enabled === true
+
+  async function toggle() {
+    setSaving(true)
+    try {
+      await updateAppSettings({ birthday_auto_email_enabled: !ligado })
+      await refreshConfig()
+    } catch (e: any) {
+      alert(e?.message ?? 'Não deu pra salvar. Tente de novo.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-beetz-dark/8 p-5 mb-4 flex items-start justify-between gap-4 flex-wrap">
+      <div className="max-w-lg">
+        <p className="font-bold">🎂 Parabéns automático por e-mail</p>
+        <p className="text-sm text-beetz-dark/55 mt-1">
+          Todo dia às 8h o sistema escreve e envia, na hora, um e-mail pra cada aniversariante do dia:
+          quem é cadastrado recebe com a idade e o nº de eventos que já trabalhou com a Beetz;
+          pré-cadastros recebem uma mensagem carinhosa sem números. Não repete no mesmo dia,
+          e cada envio aparece no log abaixo.
+        </p>
+      </div>
+      <button
+        onClick={toggle}
+        disabled={saving}
+        className={`text-sm font-bold px-4 py-2.5 rounded-xl transition-colors disabled:opacity-50 ${
+          ligado ? 'bg-green-600 text-white' : 'bg-beetz-gray text-beetz-dark/70 hover:bg-beetz-dark/10'
+        }`}
+      >
+        {saving ? 'Salvando...' : ligado ? 'Ligado · desligar' : 'Desligado · ligar'}
+      </button>
+    </div>
+  )
+}
+
 function EmailDispatcherSection() {
   const [audience, setAudience] = useState<'single' | 'team'>('single')
   const [singleEmail, setSingleEmail] = useState('')
