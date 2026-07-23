@@ -29,7 +29,9 @@ export default function Login() {
         setError(error)
         return
       }
-      navigate(next)
+      // Quem ENTRA vai direto pro destino (o perfil já chegou — o signIn
+      // espera por ele); só quem está CRIANDO conta passa pelo /cadastro.
+      navigate(mode === 'criar' ? '/cadastro' : next)
     } catch (err: any) {
       setError(err?.message ?? 'Algo deu errado. Tente novamente.')
     } finally {

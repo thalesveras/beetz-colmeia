@@ -110,7 +110,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { error: null }
     }
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email: emailInput, password })
+      const { data, error } = await supabase.auth.signInWithPassword({ email: emailInput, password })
+      // Espera o perfil ANTES de devolver: sem isso, a tela navega pro
+      // /dashboard com o perfil ainda carregando, o ProtectedRoute lê
+      // "sem perfil" e manda um usuário completo pro /cadastro por engano
+      // (login por formulário caía lá; o Google escapava porque recarrega
+      // a página inteira e o perfil chega antes do porteiro olhar).
+      if (!error && data?.user) {
+        setUserId(data.user.id)
+        setEmail(data.user.email ?? null)
+        await loadProfile(data.user.id, data.user.email)
+      }
       // "Failed to fetch" = o pedido nem CHEGOU ao servidor (internet do
       // local oscilando — comum em conexão de evento/satélite). Sem esta
       // tradução, a pessoa lê um erro técnico e acha que a senha está errada
