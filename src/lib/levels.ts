@@ -68,7 +68,8 @@ export const BADGE_DEFS: BadgeDef[] = [
   { type: 'fifty_events', label: '50 eventos', icon: '💯', description: '50 eventos de história com a Beetz' },
   { type: 'leader_highlight', label: 'Líder destaque', icon: '👑', description: 'Referência de liderança na equipe' },
   { type: 'punctuality', label: 'Pontualidade', icon: '⏰', description: 'Sempre no horário, sem desculpas' },
-  { type: 'most_complimented', label: 'Mais elogiado', icon: '💛', description: 'Reconhecido pela turma com muitos elogios' }
+  { type: 'most_complimented', label: 'Mais elogiado', icon: '💛', description: 'Reconhecido pela turma com muitos elogios' },
+  { type: 'complete_profile', label: 'Perfil completo', icon: '🪪', description: 'Nome, foto, telefone, cidade, nascimento e chave Pix preenchidos' }
 ]
 
 export function setBadgeDefs(configs: BadgeDefConfig[]) {
@@ -82,11 +83,25 @@ export function setBadgeDefs(configs: BadgeDefConfig[]) {
   BADGE_DEFS.splice(0, BADGE_DEFS.length, ...mapped)
 }
 
-export function badgesFromStats(eventsCount: number, complimentsReceived: number): BadgeType[] {
+export function badgesFromStats(eventsCount: number, complimentsReceived: number, profileComplete = false): BadgeType[] {
   const badges: BadgeType[] = []
   if (eventsCount >= 1) badges.push('first_event')
   if (eventsCount >= 10) badges.push('ten_events')
   if (eventsCount >= 50) badges.push('fifty_events')
   if (complimentsReceived >= 10) badges.push('most_complimented')
+  if (profileComplete) badges.push('complete_profile')
   return badges
+}
+
+// A régua de "perfil completo" — ESPELHO da função profile_is_complete do
+// banco (que dispara o alerta). Mudou a régua, mude nos dois lugares.
+// A medalha é viva: vale enquanto o perfil estiver completo, o que mantém o
+// incentivo de não apagar dados depois de ganhar o aviso.
+export function isProfileComplete(p: {
+  first_name?: string | null; last_name?: string | null; phone?: string | null
+  city?: string | null; birth_date?: string | null; avatar_url?: string | null; pix_key?: string | null
+} | null | undefined): boolean {
+  if (!p) return false
+  const ok = (v?: string | null) => !!(v && v.trim())
+  return ok(p.first_name) && ok(p.last_name) && ok(p.phone) && ok(p.city) && !!p.birth_date && ok(p.avatar_url) && ok(p.pix_key)
 }

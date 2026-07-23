@@ -97,6 +97,14 @@ export const ALERT_TYPES: AlertTypeDef[] = [
     gatilho: 'Quando nome, foto, telefone, cidade ou outros dados do perfil são salvos.'
   },
   {
+    key: 'can_receive_alert_profile_complete',
+    label: 'Medalha: perfil completo',
+    description: 'Parabeniza quando a pessoa preenche o perfil inteiro (foto, contato, Pix) e ganha a medalha 🪪.',
+    kind: 'Geral',
+    escopo: 'pessoal',
+    gatilho: 'Uma vez na vida, quando nome, sobrenome, telefone, cidade, nascimento, foto e chave Pix ficam todos preenchidos.'
+  },
+  {
     key: 'can_receive_alert_login',
     label: 'Novo acesso à sua conta',
     description: 'Avisa a cada login — seus outros aparelhos ficam sabendo do acesso.',

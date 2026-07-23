@@ -7,7 +7,7 @@ import {
   mockProfiles, mockRolePermissions, mockServiceModalities, mockStockLocations, mockStockMovements,
   mockSuppliers, mockTransferRequests
 } from './mockData'
-import { badgesFromStats, getHiveLevel } from './levels'
+import { badgesFromStats, getHiveLevel, isProfileComplete } from './levels'
 import type {
   AlertChannelSetting, AlertPref, AppNotification, AppSettings, CashierSettlementInternal, Badge, BadgeDefConfig, CashierSettlement, Compliment, Department, DnsSubdomain, DnsRecordType,
   EventFinancialSummary,
@@ -786,11 +786,15 @@ export async function getProfileStats(profileId: string): Promise<ProfileStats> 
     : ((await supabase.from('honey_points').select('*').eq('to_profile_id', profileId)).data ?? [])
   const compliments = await listComplimentsForProfile(profileId)
   const manualBadges = await listBadgesForProfile(profileId)
+  // Medalha viva de perfil completo: recalculada aqui a cada visita — se a
+  // pessoa apagar um dado, a medalha apaga junto (o aviso do sininho é que
+  // só sai uma vez, via trigger no banco).
+  const prof = await getProfileById(profileId)
 
   const honeyReceived = honeyList.reduce((sum: number, h: HoneyPoint) => sum + (h.amount ?? 0), 0)
   const eventsCount = events.length
   const hiveLevel = getHiveLevel(eventsCount).level
-  const autoBadges = badgesFromStats(eventsCount, compliments.length)
+  const autoBadges = badgesFromStats(eventsCount, compliments.length, isProfileComplete(prof))
   const allBadgeTypes = Array.from(new Set([...autoBadges, ...manualBadges.map((b) => b.badge_type)]))
 
   return {

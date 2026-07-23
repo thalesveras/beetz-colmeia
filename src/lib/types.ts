@@ -21,6 +21,7 @@ export type BadgeType =
   | 'leader_highlight'
   | 'punctuality'
   | 'most_complimented'
+  | 'complete_profile'
 
 export type ApprovalStatus = 'Pendente' | 'Aprovado' | 'Rejeitado'
 export type MembershipStatus = 'Pendente' | 'Aprovado' | 'Recusado'
@@ -854,6 +855,9 @@ export interface RolePermissions {
   can_receive_alert_logout: boolean
   can_receive_alert_profile_updated: boolean
   can_receive_alert_application_sent: boolean
+  // Medalha de perfil completo: parabéns pessoal, uma vez na vida. Opcional
+  // porque defaults antigos não conhecem o campo (fallback: ligado).
+  can_receive_alert_profile_complete?: boolean
   label: string
   builtin: boolean
   updated_at: string
@@ -884,6 +888,7 @@ export type AlertFlagKey =
   | 'can_receive_alert_logout'
   | 'can_receive_alert_profile_updated'
   | 'can_receive_alert_application_sent'
+  | 'can_receive_alert_profile_complete'
 
 export interface AlertTypeDef {
   key: AlertFlagKey
