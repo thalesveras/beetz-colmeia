@@ -33,12 +33,20 @@ import ProducerOnboarding from './pages/producer/ProducerOnboarding'
 import ProducerDashboard from './pages/producer/ProducerDashboard'
 import ProducerNewProposal from './pages/producer/ProducerNewProposal'
 import ProducerEventDetail from './pages/producer/ProducerEventDetail'
+import { PrivacyPage, TermsPage } from './pages/Legal'
 
 export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Welcome />} />
       <Route path="/entrar" element={<Login />} />
+
+      {/* Páginas públicas exigidas pelo consentimento OAuth do Google.
+          /priv e /tems são os endereços cadastrados no Google Console. */}
+      <Route path="/priv" element={<PrivacyPage />} />
+      <Route path="/privacidade" element={<PrivacyPage />} />
+      <Route path="/tems" element={<TermsPage />} />
+      <Route path="/termos" element={<TermsPage />} />
 
       <Route path="/cadastro" element={
         <ProtectedRoute requireOnboarding={false}><OnboardingWizard /></ProtectedRoute>
