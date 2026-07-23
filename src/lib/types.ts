@@ -818,6 +818,8 @@ export interface RolePermissions {
   // Trocar o EVENTO de um recebimento (lançado na festa errada). Opcional:
   // defaults antigos não conhecem o campo — o fallback é "só diretoria".
   can_move_settlement_event?: boolean
+  // Panorama de elogios (Gestão → Elogios). Opcional pelo mesmo motivo acima.
+  can_view_praise_insights?: boolean
   can_edit_expense: boolean
   can_edit_stock: boolean
   can_approve_event_requests: boolean

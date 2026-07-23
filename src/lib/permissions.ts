@@ -192,6 +192,13 @@ export function canMoveSettlementEvent(role: AccessRole) {
   return permsOf(role).can_move_settlement_event ?? role === 'diretoria'
 }
 
+// Panorama de elogios (Gestão → Elogios): visão agregada do reconhecimento
+// da equipe. Nasce interno (Diretoria); abrir pra outros cargos é decisão
+// da matriz, não de código.
+export function canViewPraiseInsights(role: AccessRole) {
+  return permsOf(role).can_view_praise_insights ?? role === 'diretoria'
+}
+
 export function canEditExpense(role: AccessRole) {
   return permsOf(role).can_edit_expense
 }

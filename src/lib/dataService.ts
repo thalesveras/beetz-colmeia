@@ -748,6 +748,22 @@ export async function giveCompliment(fromId: string, toId: string, message: stri
   return data as Compliment
 }
 
+// Panorama da gestão (Gestão → Elogios): tudo de uma vez. Volume é pequeno
+// (dezenas/centenas de linhas) — duas listas simples batem qualquer RPC aqui.
+export async function listAllCompliments(): Promise<Compliment[]> {
+  if (isDemoMode) return [...demoState.compliments].sort((a, b) => b.created_at.localeCompare(a.created_at))
+  const { data, error } = await supabase.from('compliments').select('*').order('created_at', { ascending: false })
+  if (error) throw error
+  return data as Compliment[]
+}
+
+export async function listAllHoneyPoints(): Promise<HoneyPoint[]> {
+  if (isDemoMode) return [...demoState.honeyPoints].sort((a, b) => b.created_at.localeCompare(a.created_at))
+  const { data, error } = await supabase.from('honey_points').select('*').order('created_at', { ascending: false })
+  if (error) throw error
+  return data as HoneyPoint[]
+}
+
 export async function listComplimentsForProfile(profileId: string): Promise<Compliment[]> {
   if (isDemoMode) return demoState.compliments.filter((c) => c.to_profile_id === profileId)
   const { data, error } = await supabase.from('compliments').select('*').eq('to_profile_id', profileId).order('created_at', { ascending: false })

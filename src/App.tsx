@@ -34,6 +34,7 @@ import ProducerDashboard from './pages/producer/ProducerDashboard'
 import ProducerNewProposal from './pages/producer/ProducerNewProposal'
 import ProducerEventDetail from './pages/producer/ProducerEventDetail'
 import { PrivacyPage, TermsPage } from './pages/Legal'
+import PraiseInsights from './pages/PraiseInsights'
 
 export default function App() {
   return (
@@ -68,6 +69,7 @@ export default function App() {
       <Route path="/financeiro/despesas" element={<ProtectedRoute><FinanceExpenses /></ProtectedRoute>} />
       <Route path="/financeiro/fornecedores" element={<ProtectedRoute><Suppliers /></ProtectedRoute>} />
       <Route path="/alertas" element={<ProtectedRoute><Alerts /></ProtectedRoute>} />
+      <Route path="/gestao/elogios" element={<ProtectedRoute><PraiseInsights /></ProtectedRoute>} />
       <Route path="/produtoras" element={<ProtectedRoute><Producers /></ProtectedRoute>} />
       <Route path="/produtoras/:id" element={<ProtectedRoute><ProducerDetail /></ProtectedRoute>} />
       <Route path="/financeiro/repasses" element={<ProtectedRoute><Repasses /></ProtectedRoute>} />

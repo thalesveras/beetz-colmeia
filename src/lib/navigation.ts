@@ -1,10 +1,10 @@
 import {
-  BarChart3, Bell, Building2, Cake, CalendarDays, ClipboardList, HandCoins, Hexagon, Home, Info,
+  BarChart3, Bell, Building2, Cake, CalendarDays, ClipboardList, HandCoins, Heart, Hexagon, Home, Info,
   Package, Receipt, ShieldCheck, Settings, Trophy, Truck, UserCircle, Users, Wallet
 } from 'lucide-react'
 import {
   canApproveUsers, canManageUsers, canViewBirthdays, canViewFinancialSummary, canViewHiveMap,
-  canViewRanking, canViewStockTab, canViewTeamDirectory
+  canViewPraiseInsights, canViewRanking, canViewStockTab, canViewTeamDirectory
 } from './permissions'
 import type { AccessRole } from './permissions'
 
@@ -81,18 +81,23 @@ export function navGroupsFor(role: AccessRole): NavGroup[] {
           ]
         }]
       : []),
-    ...(canManageUsers(role) || canApproveUsers(role)
+    ...(canManageUsers(role) || canApproveUsers(role) || canViewPraiseInsights(role)
       ? [{
           key: 'gestao',
           label: 'Gestão',
           icon: ShieldCheck,
           items: [
-            { to: '/admin', label: 'Administração', icon: ShieldCheck },
+            ...(canManageUsers(role) || canApproveUsers(role)
+              ? [{ to: '/admin', label: 'Administração', icon: ShieldCheck }]
+              : []),
             // Ver os próprios alertas é de todo mundo; a aba de configuração
             // dentro da página é que some pra quem não é Diretoria. O item vive
             // em Gestão porque é lá que se configura — mas o /alertas em si não
             // tem trava de entrada.
-            { to: '/alertas', label: 'Alertas', icon: Bell },
+            ...(canManageUsers(role) || canApproveUsers(role)
+              ? [{ to: '/alertas', label: 'Alertas', icon: Bell }]
+              : []),
+            ...(canViewPraiseInsights(role) ? [{ to: '/gestao/elogios', label: 'Elogios', icon: Heart }] : []),
             ...(canManageUsers(role) ? [{ to: '/configuracoes', label: 'Configurações', icon: Settings }] : [])
           ]
         }]

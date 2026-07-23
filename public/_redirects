@@ -1,1 +1,5 @@
+# app.beetz.bar é apelido: manda todo mundo pro endereço oficial (uma origem
+# só = uma sessão, um PWA, um push). O ! força o redirect mesmo com arquivo.
+https://app.beetz.bar/* https://beta.beetz.bar/:splat 301!
+
 /*  /index.html  200

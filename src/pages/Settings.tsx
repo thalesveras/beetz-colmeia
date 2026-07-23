@@ -80,7 +80,8 @@ const PERMISSION_GROUPS: { title: string; fields: { key: PermissionKey; label: s
       { key: 'can_view_ranking', label: 'Ver o Ranking', description: 'Acessar a página de ranking/colocação dos colaboradores.' },
       { key: 'can_view_birthdays', label: 'Ver os Aniversariantes', description: 'Acessar a página com quem faz aniversário no mês.' },
       { key: 'can_send_birthday_email', label: 'Enviar e-mail de parabéns', description: 'Mandar o e-mail de aniversário — sai do endereço oficial da Beetz e fica registrado no log.' },
-      { key: 'can_edit_hive_map', label: 'Editar o Mapa da Colmeia', description: 'Alterar nome, ícone e descrição dos departamentos no Mapa da Colmeia.' }
+      { key: 'can_edit_hive_map', label: 'Editar o Mapa da Colmeia', description: 'Alterar nome, ícone e descrição dos departamentos no Mapa da Colmeia.' },
+      { key: 'can_view_praise_insights', label: 'Ver panorama de elogios (Gestão)', description: 'Acessar Gestão → Elogios: quem recebe e quem dá reconhecimento na equipe, com mensagens. Hoje é da Diretoria; marcar aqui abre pra outros cargos.' }
     ]
   },
   {
