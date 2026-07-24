@@ -22,6 +22,30 @@ body {
   }
 }
 
+/* Campos de data/hora no iOS: o WebKit impõe uma largura intrínseca própria
+   que infla células de grid e vaza cartões no celular (visto no Novo evento).
+   appearance none devolve o tamanho ao CSS; o seletor do valor realinha o
+   texto à esquerda (sem isso o iOS centraliza). Vale pro app inteiro. */
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"] {
+  -webkit-appearance: none;
+  appearance: none;
+  min-width: 0;
+  max-width: 100%;
+}
+input::-webkit-date-and-time-value {
+  text-align: left;
+}
+@media (max-width: 640px) {
+  /* sem o bezel nativo o iOS colapsa a altura do campo vazio */
+  input[type="date"],
+  input[type="time"],
+  input[type="datetime-local"] {
+    min-height: 2.875rem;
+  }
+}
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
