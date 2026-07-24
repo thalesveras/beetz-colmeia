@@ -129,7 +129,7 @@ export default function EventsList() {
   ]
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 max-w-full overflow-x-clip">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-2xl md:text-3xl font-extrabold">Eventos</h1>
@@ -237,7 +237,7 @@ export default function EventsList() {
                     <Link
                       key={e.id}
                       to={`/eventos/${e.id}`}
-                      className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5 hover:shadow-glow transition-shadow flex gap-3 items-start"
+                      className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5 hover:shadow-glow transition-shadow flex gap-3 items-start min-w-0 overflow-hidden"
                     >
                       {e.flyer_url ? (
                         <img
@@ -254,7 +254,11 @@ export default function EventsList() {
                         </div>
                       )}
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2">
+                        {/* flex-wrap: quando os dois selos não cabem lado a
+                            lado, quebram linha — nunca empurram o card pra
+                            fora da tela (nowrap + justify-between era a
+                            receita do vazamento lateral no celular). */}
+                        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 min-w-0">
                           <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${TONE_STYLES[dist.tone]}`}>
                             {dist.label}
                           </span>
