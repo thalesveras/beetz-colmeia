@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Beetz · Logs do sistema</title>
+<style>
+  /* Sala de máquinas da Colmeia: tema escuro, acento mel. Um arquivo só,
+     de propósito — este painel vive FORA do app (logs.beetz.bar). */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0b0b0b; color: #eee; font-family: ui-sans-serif, -apple-system, 'Segoe UI', Roboto, sans-serif; min-height: 100vh; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 20px 16px 60px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 18px; }
+  .brand small { display: block; font-weight: 600; color: #FED417; font-size: 11px; }
+  .who { font-size: 12px; color: #999; display: flex; align-items: center; gap: 10px; }
+  button { cursor: pointer; border: 0; font: inherit; }
+  .btn { background: linear-gradient(135deg, #FED417, #f5b700); color: #0b0b0b; font-weight: 800; padding: 12px 20px; border-radius: 12px; font-size: 14px; }
+  .btn-ghost { background: #1c1c1c; color: #bbb; font-weight: 600; padding: 8px 14px; border-radius: 10px; font-size: 12px; border: 1px solid #2a2a2a; }
+  .btn-ghost:hover { color: #fff; border-color: #444; }
+  .card { background: #141414; border: 1px solid #232323; border-radius: 16px; padding: 20px; }
+  .center { max-width: 420px; margin: 12vh auto 0; text-align: center; }
+  .center h1 { font-size: 22px; margin: 14px 0 6px; }
+  .center p { color: #888; font-size: 14px; margin-bottom: 20px; line-height: 1.5; }
+  .tabs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 14px; }
+  .tab { flex-shrink: 0; background: #1c1c1c; color: #999; font-weight: 700; font-size: 13px; padding: 9px 14px; border-radius: 10px; border: 1px solid #2a2a2a; }
+  .tab.on { background: #FED417; color: #0b0b0b; border-color: #FED417; }
+  .bar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+  input[type=search] { flex: 1; min-width: 180px; background: #1a1a1a; border: 1px solid #2a2a2a; color: #eee; padding: 10px 12px; border-radius: 10px; font-size: 13px; outline: none; }
+  input[type=search]:focus { border-color: #FED417; }
+  .muted { color: #777; font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: #777; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding: 8px 10px; border-bottom: 1px solid #232323; }
+  td { padding: 9px 10px; border-bottom: 1px solid #1d1d1d; vertical-align: top; }
+  tr:hover td { background: #181818; }
+  .tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 99px; background: #262626; color: #ccc; }
+  .tag.ok { background: #103d21; color: #6ee7a0; }
+  .tag.err { background: #3d1010; color: #f39b9b; }
+  .tag.mel { background: #3d3410; color: #FED417; }
+  .scroll { overflow-x: auto; }
+  footer { margin-top: 26px; font-size: 12px; color: #666; display: flex; gap: 16px; flex-wrap: wrap; }
+  footer a { color: #999; }
+  .count { font-size: 12px; color: #888; margin-left: auto; }
+  @media (max-width: 640px) { td, th { padding: 7px 6px; } }
+</style>
+</head>
+<body>
+<div class="wrap" id="app">
+  <div class="center card" id="tela-login" style="display:none">
+    <div style="font-size:44px">🐝</div>
+    <h1>Beetz · Logs do sistema</h1>
+    <p>Sala de máquinas da Colmeia. Acesso restrito à Diretoria — entre com a mesma conta Google do sistema.</p>
+    <button class="btn" id="btn-google">Entrar com Google</button>
+  </div>
+
+  <div class="center card" id="tela-negado" style="display:none">
+    <div style="font-size:44px">🚫</div>
+    <h1>Acesso restrito</h1>
+    <p>Esta página é da Diretoria da Beetz. Sua conta está logada, mas não tem esse acesso.</p>
+    <button class="btn-ghost" id="btn-sair-negado">Sair desta conta</button>
+  </div>
+
+  <div id="tela-painel" style="display:none">
+    <header>
+      <div class="brand">🐝 <span>Beetz<small>Logs do sistema</small></span></div>
+      <div class="who"><span id="who-email"></span><button class="btn-ghost" id="btn-sair">Sair</button></div>
+    </header>
+
+    <div class="tabs" id="tabs"></div>
+
+    <div class="card">
+      <div class="bar">
+        <input type="search" id="busca" placeholder="Filtrar nos registros carregados..." />
+        <button class="btn-ghost" id="btn-refresh">↻ Atualizar</button>
+        <span class="count" id="contagem"></span>
+      </div>
+      <div class="scroll"><div id="conteudo" class="muted">Carregando...</div></div>
+    </div>
+
+    <footer>
+      <a href="https://beta.beetz.bar" target="_blank" rel="noreferrer">← Abrir a Colmeia</a>
+      <a href="https://supabase.com/dashboard/project/ozqpiobnnuchaeasqura/logs/explorer" target="_blank" rel="noreferrer">Logs de infraestrutura (painel Supabase)</a>
+      <span>Últimos 200 registros por aba · horário local</span>
+    </footer>
+  </div>
+</div>
+
+<script type="module">
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
+
+// Chave anônima é pública por definição — RLS decide o que cada login vê.
+// Aqui, além da trava visual (is_diretoria), o banco só entrega estas
+// tabelas pra Diretoria. Sem o cargo, as consultas voltam vazias.
+const supabase = createClient('https://api.beetz.bar', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im96cXBpb2JubnVjaGFlYXNxdXJhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMyNjU4NzEsImV4cCI6MjA5ODg0MTg3MX0.8chHcsq4MftTkdzBeUQ5MBc-oDP4VSD_JKjSPw6GBks')
+
+const $ = (id) => document.getElementById(id)
+const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+const quando = (iso) => iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''
+
+let nomes = new Map()
+const nomeDe = (id) => nomes.get(id) ?? '—'
+
+const ABAS = [
+  { key: 'acessos', label: '🔑 Acessos' },
+  { key: 'avisos', label: '🔔 Avisos' },
+  { key: 'emails', label: '✉️ E-mails' },
+  { key: 'eventos', label: '📅 Alterações de eventos' },
+  { key: 'dns', label: '🌐 Subdomínios' }
+]
+let abaAtual = 'acessos'
+let linhasAtuais = []
+
+function tabela(colunas, linhas) {
+  if (!linhas.length) return '<p class="muted" style="padding:12px 4px">Nada por aqui.</p>'
+  return `<table><thead><tr>${colunas.map((c) => `<th>${c}</th>`).join('')}</tr></thead><tbody>${linhas.join('')}</tbody></table>`
+}
+
+async function carregarNomes() {
+  const { data } = await supabase.from('profiles_lite').select('id, first_name, last_name')
+  nomes = new Map((data ?? []).map((p) => [p.id, `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim() || 'Sem nome']))
+}
+
+const CARREGADORES = {
+  async acessos() {
+    const { data, error } = await supabase.from('notifications')
+      .select('profile_id, alert_key, title, created_at')
+      .in('alert_key', ['can_receive_alert_login', 'can_receive_alert_logout'])
+      .order('created_at', { ascending: false }).limit(200)
+    if (error) throw error
+    return {
+      colunas: ['Quando', 'Pessoa', 'Evento'],
+      linhas: (data ?? []).map((n) => `<tr><td>${quando(n.created_at)}</td><td>${esc(nomeDe(n.profile_id))}</td><td><span class="tag ${n.alert_key.includes('login') ? 'ok' : ''}">${n.alert_key.includes('login') ? 'Entrou' : 'Saiu'}</span></td></tr>`),
+      texto: (n) => `${nomeDe(n.profile_id)} ${n.alert_key}`,
+      brutos: data ?? []
+    }
+  },
+  async avisos() {
+    const { data, error } = await supabase.from('notifications')
+      .select('profile_id, kind, title, body, alert_key, push_sent_at, created_at')
+      .not('alert_key', 'in', '("can_receive_alert_login","can_receive_alert_logout")')
+      .order('created_at', { ascending: false }).limit(200)
+    if (error) throw error
+    return {
+      colunas: ['Quando', 'Para', 'Tipo', 'Título', 'Push'],
+      linhas: (data ?? []).map((n) => `<tr><td>${quando(n.created_at)}</td><td>${esc(nomeDe(n.profile_id))}</td><td><span class="tag mel">${esc(n.kind ?? '—')}</span></td><td>${esc(n.title)}</td><td>${n.push_sent_at ? '<span class="tag ok">enviado</span>' : '<span class="tag">sininho</span>'}</td></tr>`),
+      texto: (n) => `${nomeDe(n.profile_id)} ${n.kind} ${n.title} ${n.body ?? ''}`,
+      brutos: data ?? []
+    }
+  },
+  async emails() {
+    const { data, error } = await supabase.from('email_log')
+      .select('to_email, subject, kind, status, error, created_at')
+      .order('created_at', { ascending: false }).limit(200)
+    if (error) throw error
+    return {
+      colunas: ['Quando', 'Para', 'Assunto', 'Tipo', 'Status'],
+      linhas: (data ?? []).map((e) => `<tr><td>${quando(e.created_at)}</td><td>${esc(e.to_email)}</td><td>${esc(e.subject)}</td><td><span class="tag">${esc(e.kind ?? '—')}</span></td><td>${e.status === 'sent' ? '<span class="tag ok">enviado</span>' : `<span class="tag err" title="${esc(e.error ?? '')}">falhou</span>`}</td></tr>`),
+      texto: (e) => `${e.to_email} ${e.subject} ${e.kind} ${e.status}`,
+      brutos: data ?? []
+    }
+  },
+  async eventos() {
+    const [{ data, error }, { data: evs }] = await Promise.all([
+      supabase.from('event_change_log').select('event_id, field, old_value, new_value, changed_by, changed_at').order('changed_at', { ascending: false }).limit(200),
+      supabase.from('events').select('id, name')
+    ])
+    if (error) throw error
+    const nomeEvento = new Map((evs ?? []).map((e) => [e.id, e.name]))
+    return {
+      colunas: ['Quando', 'Evento', 'Campo', 'De → Para', 'Por'],
+      linhas: (data ?? []).map((c) => `<tr><td>${quando(c.changed_at)}</td><td>${esc(nomeEvento.get(c.event_id) ?? '—')}</td><td><span class="tag">${esc(c.field)}</span></td><td>${esc(c.old_value ?? '∅')} → <strong>${esc(c.new_value ?? '∅')}</strong></td><td>${esc(nomeDe(c.changed_by))}</td></tr>`),
+      texto: (c) => `${nomeEvento.get(c.event_id) ?? ''} ${c.field} ${c.old_value ?? ''} ${c.new_value ?? ''} ${nomeDe(c.changed_by)}`,
+      brutos: data ?? []
+    }
+  },
+  async dns() {
+    const { data, error } = await supabase.from('dns_subdomains')
+      .select('subdomain, target_type, target_value, proxied, status, created_at')
+      .order('created_at', { ascending: false }).limit(200)
+    if (error) throw error
+    return {
+      colunas: ['Quando', 'Subdomínio', 'Aponta para', 'Proxy', 'Status'],
+      linhas: (data ?? []).map((d) => `<tr><td>${quando(d.created_at)}</td><td><strong>${esc(d.subdomain)}.beetz.bar</strong></td><td>${esc(d.target_type)} → ${esc(d.target_value)}</td><td>${d.proxied ? '<span class="tag">ativo</span>' : '<span class="tag">desligado</span>'}</td><td><span class="tag ok">${esc(d.status)}</span></td></tr>`),
+      texto: (d) => `${d.subdomain} ${d.target_value} ${d.status}`,
+      brutos: data ?? []
+    }
+  }
+}
+
+let ultimoResultado = null
+async function carregarAba() {
+  $('conteudo').innerHTML = '<p class="muted" style="padding:12px 4px">Carregando...</p>'
+  $('contagem').textContent = ''
+  try {
+    ultimoResultado = await CARREGADORES[abaAtual]()
+    aplicarBusca()
+  } catch (e) {
+    $('conteudo').innerHTML = `<p class="muted" style="padding:12px 4px">Não deu pra carregar: ${esc(e.message ?? e)}</p>`
+  }
+}
+
+function aplicarBusca() {
+  if (!ultimoResultado) return
+  const q = $('busca').value.trim().toLowerCase()
+  let linhas = ultimoResultado.linhas
+  if (q) {
+    linhas = ultimoResultado.brutos
+      .map((b, i) => ({ b, i }))
+      .filter(({ b }) => ultimoResultado.texto(b).toLowerCase().includes(q))
+      .map(({ i }) => ultimoResultado.linhas[i])
+  }
+  $('contagem').textContent = `${linhas.length} registro(s)`
+  $('conteudo').innerHTML = tabela(ultimoResultado.colunas, linhas)
+}
+
+function montarTabs() {
+  $('tabs').innerHTML = ABAS.map((a) => `<button class="tab ${a.key === abaAtual ? 'on' : ''}" data-k="${a.key}">${a.label}</button>`).join('')
+  $('tabs').querySelectorAll('.tab').forEach((el) => el.addEventListener('click', () => { abaAtual = el.dataset.k; montarTabs(); carregarAba() }))
+}
+
+function mostrar(tela) {
+  for (const t of ['tela-login', 'tela-negado', 'tela-painel']) $(t).style.display = t === tela ? '' : 'none'
+}
+
+async function boot() {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) { mostrar('tela-login'); return }
+  const { data: ehDiretoria, error } = await supabase.rpc('is_diretoria', { uid: session.user.id })
+  if (error || !ehDiretoria) { mostrar('tela-negado'); return }
+  $('who-email').textContent = session.user.email ?? ''
+  mostrar('tela-painel')
+  montarTabs()
+  await carregarNomes()
+  carregarAba()
+}
+
+$('btn-google').addEventListener('click', () => {
+  supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } })
+})
+$('btn-sair').addEventListener('click', async () => { await supabase.auth.signOut(); mostrar('tela-login') })
+$('btn-sair-negado').addEventListener('click', async () => { await supabase.auth.signOut(); mostrar('tela-login') })
+$('btn-refresh').addEventListener('click', carregarAba)
+$('busca').addEventListener('input', aplicarBusca)
+supabase.auth.onAuthStateChange((_e, s) => { if (s) boot() })
+
+boot()
+</script>
+</body>
+</html>

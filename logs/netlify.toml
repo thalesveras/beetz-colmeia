@@ -1,0 +1,6 @@
+# Site logs.beetz.bar: estático puro, um index.html só — sem build.
+# (Com "Base directory = logs" no Netlify, este arquivo manda aqui e o
+# netlify.toml da raiz — que builda o app inteiro — fica de fora.)
+[build]
+  command = "echo 'logs: estático, sem build'"
+  publish = "."
