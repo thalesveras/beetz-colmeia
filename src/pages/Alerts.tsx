@@ -244,6 +244,12 @@ function ManualPushTab() {
   const [eventFns, setEventFns] = useState<Set<string>>(new Set()) // vazio = todas
   // Por função em geral (o cadastro tem texto livre — agrupamos normalizado)
   const [fns, setFns] = useState<Set<string>>(new Set())
+  // Ajuste fino dos recortes: filtro "só com push ativo" + exclusões
+  // pontuais (o recorte traz todo mundo marcado; a Diretoria desmarca
+  // quem não deve receber). Trocou o recorte, as exclusões zeram.
+  const [onlyPush, setOnlyPush] = useState(false)
+  const [excluded, setExcluded] = useState<Set<string>>(new Set())
+  useEffect(() => { setExcluded(new Set()) }, [mode, eventId, eventFns, fns])
 
   useEffect(() => {
     Promise.all([listProfilesLite(), listPushProfileIds()])
@@ -305,9 +311,67 @@ function ManualPushTab() {
     return n || 'Sem nome'
   }
 
+  // Quem REALMENTE recebe nos modos de recorte: resolvidos − desmarcados,
+  // e (se o filtro estiver ligado) só quem tem push ativo.
+  const finalIds = useMemo(
+    () => resolvedIds.filter((id) => !excluded.has(id) && (!onlyPush || pushIds.has(id))),
+    [resolvedIds, excluded, onlyPush, pushIds]
+  )
+
   const shown = profiles.filter((p) =>
+    (!onlyPush || pushIds.has(p.id)) &&
     `${p.first_name} ${p.last_name}`.toLowerCase().includes(search.trim().toLowerCase())
   )
+
+  // Grade das pessoas do recorte (Por evento / Por função): chips com a
+  // bolinha de push, todas marcadas — toque tira/volta.
+  function gridResolvidas() {
+    const listadas = resolvedIds
+      .filter((id) => !onlyPush || pushIds.has(id))
+      .sort((a, b) => nomeDe(a).localeCompare(nomeDe(b), 'pt-BR'))
+    const comPush = resolvedIds.filter((id) => pushIds.has(id)).length
+    return (
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setOnlyPush((v) => !v)}
+            className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
+              onlyPush ? 'bg-green-600 border-green-600 text-white' : 'bg-white border-beetz-dark/12 text-beetz-dark/55'
+            }`}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${onlyPush ? 'bg-white' : 'bg-green-500'}`} />
+            Só com push ativo ({comPush})
+          </button>
+          <span className="text-xs text-beetz-dark/45">
+            Vai para <strong>{finalIds.length}</strong> de {resolvedIds.length} pessoa(s) · toque num nome pra tirar ou voltar
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-1.5 max-h-56 overflow-y-auto pr-1">
+          {listadas.map((id) => {
+            const fora = excluded.has(id)
+            return (
+              <button
+                key={id}
+                onClick={() => setExcluded((prev) => {
+                  const n = new Set(prev)
+                  if (n.has(id)) n.delete(id)
+                  else n.add(id)
+                  return n
+                })}
+                title={pushIds.has(id) ? 'Push ativo em algum aparelho' : 'Sem push — recebe só no sininho'}
+                className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
+                  fora ? 'bg-white border-beetz-dark/10 text-beetz-dark/30 line-through' : 'bg-beetz-yellow border-beetz-yellow text-beetz-dark'
+                }`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${pushIds.has(id) ? 'bg-green-500' : 'bg-beetz-dark/20'}`} />
+                {nomeDe(id)}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
 
   function toggleSelected(id: string) {
     setSelected((prev) => {
@@ -328,13 +392,17 @@ function ManualPushTab() {
       setError(mode === 'evento' ? 'Esse recorte não tem ninguém aprovado no evento.' : 'Escolha ao menos uma função.')
       return
     }
+    if ((mode === 'evento' || mode === 'funcao') && finalIds.length === 0) {
+      setError('Todo mundo do recorte foi desmarcado ou filtrado — sobrou ninguém pra receber.')
+      return
+    }
     setSending(true)
     try {
       const res = await sendManualPush({
         title: title.trim(),
         body: message.trim(),
         link: link.trim() || undefined,
-        target: mode === 'all' ? 'all' : mode === 'some' ? Array.from(selected) : resolvedIds
+        target: mode === 'all' ? 'all' : mode === 'some' ? Array.from(selected) : finalIds
       })
       setResult(`Aviso enviado a ${res.recipients} pessoa${res.recipients === 1 ? '' : 's'} — push chegou em ${res.push_sent} de ${res.devices} aparelho${res.devices === 1 ? '' : 's'} registrado${res.devices === 1 ? '' : 's'}. Todos veem no sininho.`)
       setTitle(''); setMessage(''); setLink(''); setSelected(new Set())
@@ -418,11 +486,9 @@ function ManualPushTab() {
               </div>
             )}
             {eventId && (
-              <p className="text-xs text-beetz-dark/50">
-                {resolvedIds.length === 0
-                  ? 'Ninguém aprovado nesse recorte ainda.'
-                  : <>Vai para <strong>{resolvedIds.length}</strong> pessoa(s): {resolvedIds.slice(0, 12).map(nomeDe).join(', ')}{resolvedIds.length > 12 ? ` e mais ${resolvedIds.length - 12}...` : ''}</>}
-              </p>
+              resolvedIds.length === 0
+                ? <p className="text-xs text-beetz-dark/50">Ninguém aprovado nesse recorte ainda.</p>
+                : gridResolvidas()
             )}
           </div>
         )}
@@ -449,17 +515,28 @@ function ManualPushTab() {
               As funções vêm do cadastro (texto livre) — variações como "garçom" e "garçons " já chegam agrupadas; marque as que fizerem sentido.
             </p>
             {fns.size > 0 && (
-              <p className="text-xs text-beetz-dark/50">
-                Vai para <strong>{resolvedIds.length}</strong> pessoa(s): {resolvedIds.slice(0, 12).map(nomeDe).join(', ')}{resolvedIds.length > 12 ? ` e mais ${resolvedIds.length - 12}...` : ''}
-              </p>
+              resolvedIds.length === 0
+                ? <p className="text-xs text-beetz-dark/50">Ninguém com essas funções.</p>
+                : gridResolvidas()
             )}
           </div>
         )}
 
         {mode === 'some' && (
           <div className="space-y-2">
-            <input className={inputClass} value={search} onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar pelo nome..." />
+            <div className="flex flex-wrap gap-2">
+              <input className={`${inputClass} flex-1 min-w-[180px]`} value={search} onChange={(e) => setSearch(e.target.value)}
+                placeholder="Buscar pelo nome..." />
+              <button
+                onClick={() => setOnlyPush((v) => !v)}
+                className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl border transition-colors ${
+                  onlyPush ? 'bg-green-600 border-green-600 text-white' : 'bg-white border-beetz-dark/12 text-beetz-dark/55'
+                }`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${onlyPush ? 'bg-white' : 'bg-green-500'}`} />
+                Só com push ativo ({profiles.filter((p) => pushIds.has(p.id)).length})
+              </button>
+            </div>
             <div className="flex flex-wrap gap-1.5 max-h-52 overflow-y-auto pr-1">
               {shown.map((p) => {
                 const on = selected.has(p.id)
