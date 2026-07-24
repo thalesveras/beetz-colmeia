@@ -23,6 +23,24 @@ function formatDateTime(iso: string) {
   return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
+// Colunas da tabela — cada uma pode ser ocultada/exibida; a escolha fica
+// salva no aparelho (localStorage). A coluna de Editar não entra: é ação.
+const ALL_COLS: { key: string; label: string }[] = [
+  { key: 'status', label: 'Status' },
+  { key: 'evento', label: 'Evento' },
+  { key: 'colaborador', label: 'Colaborador(a)' },
+  { key: 'tipo', label: 'Tipo' },
+  { key: 'dinheiro', label: 'Dinheiro' },
+  { key: 'debito', label: 'Débito' },
+  { key: 'credito', label: 'Crédito' },
+  { key: 'pix', label: 'Pix' },
+  { key: 'total', label: 'Total' },
+  { key: 'comissao', label: 'Comissão' },
+  { key: 'acerto', label: 'Acerto' },
+  { key: 'data', label: 'Data' }
+]
+const COLS_STORAGE_KEY = 'colmeia:recebimentos-colunas'
+
 export default function Receipts() {
   const { accessRole } = useAuth()
   const [loading, setLoading] = useState(true)
@@ -38,6 +56,38 @@ export default function Receipts() {
   // Recebimento aberto pra edição (modal padrão da casa, o mesmo do evento).
   const [editing, setEditing] = useState<CashierSettlement | null>(null)
   const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+
+  // Visibilidade das colunas — padrão: todas; lembrada por aparelho.
+  const [cols, setCols] = useState<Set<string>>(new Set(ALL_COLS.map((c) => c.key)))
+  const [colsOpen, setColsOpen] = useState(false)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(COLS_STORAGE_KEY)
+      if (saved) {
+        const arr = JSON.parse(saved) as string[]
+        if (Array.isArray(arr) && arr.length > 0) setCols(new Set(arr))
+      }
+    } catch { /* padrão: todas */ }
+  }, [])
+  function toggleCol(k: string) {
+    setCols((prev) => {
+      const next = new Set(prev)
+      if (next.has(k)) {
+        // Sempre sobra ao menos uma coluna — tabela vazia não ajuda ninguém.
+        if (next.size > 1) next.delete(k)
+      } else {
+        next.add(k)
+      }
+      try { localStorage.setItem(COLS_STORAGE_KEY, JSON.stringify([...next])) } catch { /* sem memória, segue */ }
+      return next
+    })
+  }
+  function showAllCols() {
+    const all = new Set(ALL_COLS.map((c) => c.key))
+    setCols(all)
+    try { localStorage.setItem(COLS_STORAGE_KEY, JSON.stringify([...all])) } catch { /* idem */ }
+  }
+  const col = (k: string) => cols.has(k)
 
   async function load() {
     setLoading(true)
@@ -173,6 +223,38 @@ export default function Receipts() {
         </div>
       </div>
 
+      {/* Controle de colunas: oculte/exiba qualquer uma; a escolha fica salva. */}
+      {!loading && (
+        <div className="mb-4">
+          <button
+            onClick={() => setColsOpen((v) => !v)}
+            className="text-xs font-semibold px-3.5 py-2 rounded-xl border border-beetz-dark/12 bg-white text-beetz-dark/60 hover:border-beetz-dark/25 transition-colors"
+          >
+            ☰ Colunas ({cols.size}/{ALL_COLS.length})
+          </button>
+          {colsOpen && (
+            <div className="flex flex-wrap items-center gap-1.5 mt-2 bg-white border border-beetz-dark/8 rounded-2xl p-3">
+              {ALL_COLS.map((c) => (
+                <button
+                  key={c.key}
+                  onClick={() => toggleCol(c.key)}
+                  className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
+                    col(c.key) ? 'bg-beetz-yellow border-beetz-yellow text-beetz-dark' : 'bg-white border-beetz-dark/12 text-beetz-dark/40'
+                  }`}
+                >
+                  {c.label}
+                </button>
+              ))}
+              {cols.size < ALL_COLS.length && (
+                <button onClick={showAllCols} className="text-xs font-semibold text-beetz-dark/40 underline px-2">
+                  Mostrar todas
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {loading ? (
         <p className="text-beetz-dark/50 text-sm">Carregando recebimentos...</p>
       ) : (
@@ -232,18 +314,18 @@ export default function Receipts() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-beetz-dark/10 text-left">
-                    <th className="p-3">Status</th>
-                    <th className="p-3">Evento</th>
-                    <th className="p-3">Colaborador(a)</th>
-                    <th className="p-3">Tipo</th>
-                    <th className="p-3 text-right">Dinheiro</th>
-                    <th className="p-3 text-right">Débito</th>
-                    <th className="p-3 text-right">Crédito</th>
-                    <th className="p-3 text-right">Pix</th>
-                    <th className="p-3 text-right">Total</th>
-                    <th className="p-3 text-right">Comissão</th>
-                    <th className="p-3">Acerto</th>
-                    <th className="p-3">Data</th>
+                    {col('status') && <th className="p-3">Status</th>}
+                    {col('evento') && <th className="p-3">Evento</th>}
+                    {col('colaborador') && <th className="p-3">Colaborador(a)</th>}
+                    {col('tipo') && <th className="p-3">Tipo</th>}
+                    {col('dinheiro') && <th className="p-3 text-right">Dinheiro</th>}
+                    {col('debito') && <th className="p-3 text-right">Débito</th>}
+                    {col('credito') && <th className="p-3 text-right">Crédito</th>}
+                    {col('pix') && <th className="p-3 text-right">Pix</th>}
+                    {col('total') && <th className="p-3 text-right">Total</th>}
+                    {col('comissao') && <th className="p-3 text-right">Comissão</th>}
+                    {col('acerto') && <th className="p-3">Acerto</th>}
+                    {col('data') && <th className="p-3">Data</th>}
                     {canReviewCashier(accessRole) && <th className="p-3"></th>}
                   </tr>
                 </thead>
@@ -252,38 +334,46 @@ export default function Receipts() {
                     const event = eventsById.get(s.event_id)
                     return (
                       <tr key={s.id} className="border-b border-beetz-dark/5 last:border-0">
-                        <td className="p-3">
-                          <span className={`text-xs font-semibold px-2 py-1 rounded-full ${statusColors[s.status]}`}>{s.status}</span>
-                        </td>
-                        <td className="p-3">
-                          {event ? (
-                            <Link to={`/eventos/${event.id}`} className="font-semibold hover:text-beetz-yellow transition-colors">{event.name}</Link>
-                          ) : (
-                            <span className="text-beetz-dark/40">Evento removido</span>
-                          )}
-                        </td>
-                        <td className="p-3 text-xs text-beetz-dark/60">{profileName(s.profile_id)}</td>
-                        <td className="p-3 text-xs text-beetz-dark/60">{s.role_type}</td>
-                        <td className="p-3 text-right whitespace-nowrap">{currency(s.cash_amount)}</td>
-                        <td className="p-3 text-right whitespace-nowrap">{currency(s.debit_amount)}</td>
-                        <td className="p-3 text-right whitespace-nowrap">{currency(s.credit_amount)}</td>
-                        <td className="p-3 text-right whitespace-nowrap">{currency(s.pix_amount)}</td>
-                        <td className="p-3 text-right font-bold whitespace-nowrap">{currency(s.total)}</td>
-                        <td className="p-3 text-right whitespace-nowrap">{s.role_type === 'Garçom' ? currency(s.commission_amount) : '—'}</td>
-                        <td className="p-3 whitespace-nowrap">
-                          {(() => {
-                            const i = internals.get(s.id)
-                            if (!i || i.status === 'Em aberto') return <span className="text-beetz-dark/30 text-xs">—</span>
-                            return i.status === 'Acertado' ? (
-                              <span className="text-[11px] font-bold bg-green-100 text-green-700 px-2 py-1 rounded-full">Acertado ✓</span>
+                        {col('status') && (
+                          <td className="p-3">
+                            <span className={`text-xs font-semibold px-2 py-1 rounded-full ${statusColors[s.status]}`}>{s.status}</span>
+                          </td>
+                        )}
+                        {col('evento') && (
+                          <td className="p-3">
+                            {event ? (
+                              <Link to={`/eventos/${event.id}`} className="font-semibold hover:text-beetz-yellow transition-colors">{event.name}</Link>
                             ) : (
-                              <span className="text-[11px] font-bold bg-red-100 text-red-700 px-2 py-1 rounded-full">
-                                Devendo{i.pending_amount ? ` ${currency(i.pending_amount)}` : ''}
-                              </span>
-                            )
-                          })()}
-                        </td>
-                        <td className="p-3 text-xs text-beetz-dark/60 whitespace-nowrap">{formatDateTime(s.created_at)}</td>
+                              <span className="text-beetz-dark/40">Evento removido</span>
+                            )}
+                          </td>
+                        )}
+                        {col('colaborador') && <td className="p-3 text-xs text-beetz-dark/60">{profileName(s.profile_id)}</td>}
+                        {col('tipo') && <td className="p-3 text-xs text-beetz-dark/60">{s.role_type}</td>}
+                        {col('dinheiro') && <td className="p-3 text-right whitespace-nowrap">{currency(s.cash_amount)}</td>}
+                        {col('debito') && <td className="p-3 text-right whitespace-nowrap">{currency(s.debit_amount)}</td>}
+                        {col('credito') && <td className="p-3 text-right whitespace-nowrap">{currency(s.credit_amount)}</td>}
+                        {col('pix') && <td className="p-3 text-right whitespace-nowrap">{currency(s.pix_amount)}</td>}
+                        {col('total') && <td className="p-3 text-right font-bold whitespace-nowrap">{currency(s.total)}</td>}
+                        {col('comissao') && (
+                          <td className="p-3 text-right whitespace-nowrap">{s.role_type === 'Garçom' ? currency(s.commission_amount) : '—'}</td>
+                        )}
+                        {col('acerto') && (
+                          <td className="p-3 whitespace-nowrap">
+                            {(() => {
+                              const i = internals.get(s.id)
+                              if (!i || i.status === 'Em aberto') return <span className="text-beetz-dark/30 text-xs">—</span>
+                              return i.status === 'Acertado' ? (
+                                <span className="text-[11px] font-bold bg-green-100 text-green-700 px-2 py-1 rounded-full">Acertado ✓</span>
+                              ) : (
+                                <span className="text-[11px] font-bold bg-red-100 text-red-700 px-2 py-1 rounded-full">
+                                  Devendo{i.pending_amount ? ` ${currency(i.pending_amount)}` : ''}
+                                </span>
+                              )
+                            })()}
+                          </td>
+                        )}
+                        {col('data') && <td className="p-3 text-xs text-beetz-dark/60 whitespace-nowrap">{formatDateTime(s.created_at)}</td>}
                         {canReviewCashier(accessRole) && (
                           <td className="p-3 whitespace-nowrap">
                             <button
