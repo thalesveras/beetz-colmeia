@@ -35,6 +35,9 @@ export default function Escala() {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useState<'abertas' | 'minhas'>('abertas')
+  // Filtro por evento: nasce da própria lista (só eventos que têm vaga),
+  // com contagem — e some sozinho quando só existe um evento em jogo.
+  const [filterEvent, setFilterEvent] = useState('')
 
   async function load() {
     setLoading(true)
@@ -88,6 +91,26 @@ export default function Escala() {
 
   const list = tab === 'abertas' ? openSlots : mySlots
 
+  const eventosDaLista = useMemo(() => {
+    const m = new Map<string, { id: string; name: string; date: string; count: number }>()
+    for (const s of list) {
+      const atual = m.get(s.event.id)
+      if (atual) atual.count++
+      else m.set(s.event.id, { id: s.event.id, name: s.event.name, date: s.event.event_date, count: 1 })
+    }
+    return [...m.values()].sort((a, b) => a.date.localeCompare(b.date))
+  }, [list])
+
+  const shown = useMemo(
+    () => (filterEvent ? list.filter((s) => s.event.id === filterEvent) : list),
+    [list, filterEvent]
+  )
+
+  const diaMes = (iso: string) => {
+    const [, m, d] = iso.split('-')
+    return `${d}/${m}`
+  }
+
   return (
     <div className="p-5 md:p-8 max-w-4xl mx-auto pb-24 md:pb-8">
       <h1 className="text-2xl font-extrabold mb-1 flex items-center gap-2">
@@ -116,27 +139,74 @@ export default function Escala() {
         </button>
       </div>
 
+      {/* Filtro inteligente por evento — pills com data e contagem de vagas. */}
+      {!loading && eventosDaLista.length > 1 && (
+        <div className="flex flex-wrap gap-1.5 mb-4">
+          <button
+            onClick={() => setFilterEvent('')}
+            className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
+              filterEvent === '' ? 'bg-beetz-dark border-beetz-dark text-white' : 'bg-white border-beetz-dark/12 text-beetz-dark/55'
+            }`}
+          >
+            Todos ({list.length})
+          </button>
+          {eventosDaLista.map((ev) => (
+            <button
+              key={ev.id}
+              onClick={() => setFilterEvent(filterEvent === ev.id ? '' : ev.id)}
+              title={ev.name}
+              className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors max-w-[240px] truncate ${
+                filterEvent === ev.id ? 'bg-beetz-yellow border-beetz-yellow text-beetz-dark' : 'bg-white border-beetz-dark/12 text-beetz-dark/55'
+              }`}
+            >
+              {diaMes(ev.date)} · {ev.name} ({ev.count})
+            </button>
+          ))}
+        </div>
+      )}
+
       {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
 
       {loading ? (
         <p className="text-beetz-dark/50 text-sm">Carregando...</p>
-      ) : list.length === 0 ? (
+      ) : shown.length === 0 ? (
         <div className="bg-white rounded-2xl p-8 text-center border border-beetz-dark/5">
           <p className="text-sm text-beetz-dark/50">
-            {tab === 'abertas'
-              ? 'Nenhuma vaga aberta nos próximos eventos por enquanto. Volte depois! 🐝'
-              : 'Você ainda não se candidatou pra nenhuma vaga.'}
+            {filterEvent
+              ? 'Nenhuma vaga nesse evento com esse recorte.'
+              : tab === 'abertas'
+                ? 'Nenhuma vaga aberta nos próximos eventos por enquanto. Volte depois! 🐝'
+                : 'Você ainda não se candidatou pra nenhuma vaga.'}
           </p>
         </div>
       ) : (
         <div className="space-y-3">
-          {list.map((slot) => {
+          {shown.map((slot) => {
             const app = slot.myApplication
             const remaining = slot.requirement.quantity - slot.confirmedCount
             const busy = busyId === slot.requirement.id
             return (
               <div key={slot.requirement.id} className="bg-white rounded-2xl shadow-soft border border-beetz-dark/5 p-5">
-                <div className="flex flex-wrap items-start gap-3">
+                <div className="flex flex-wrap items-start gap-4">
+                  {/* Flyer do evento à esquerda — e quando não tem, um
+                      "bilhete" com a data segura a identidade do card. */}
+                  <Link to={`/eventos/${slot.event.id}`} className="shrink-0" title={slot.event.name}>
+                    {slot.event.flyer_url ? (
+                      <img
+                        src={slot.event.flyer_url}
+                        alt=""
+                        className="w-20 h-24 rounded-xl object-cover border border-beetz-dark/8 shadow-sm"
+                      />
+                    ) : (
+                      <div className="w-20 h-24 rounded-xl dark-gradient flex flex-col items-center justify-center text-white border border-beetz-dark/8">
+                        <span className="text-2xl font-extrabold leading-none">{slot.event.event_date.split('-')[2]}</span>
+                        <span className="text-[10px] uppercase tracking-widest text-white/60 mt-0.5">
+                          {new Date(slot.event.event_date + 'T12:00:00').toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')}
+                        </span>
+                        <span className="mt-1.5 text-sm">🐝</span>
+                      </div>
+                    )}
+                  </Link>
                   <div className="flex-1 min-w-[200px]">
                     <p className="font-bold">
                       {slot.requirement.role_label}
