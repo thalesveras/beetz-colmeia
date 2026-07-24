@@ -99,7 +99,7 @@ export default function EditSettlementModal({ settlement, profiles, canReview, c
 
   const n = (v: string) => Number(v.replace(',', '.')) || 0
   const total = n(cash) + n(debit) + n(credit) + n(pix)
-  const commission = roleType === 'Garçom' ? total * 0.1 : 0
+  const commission = roleType === 'Garçom' ? Math.round((total / 11) * 100) / 100 : 0
 
   // A conta do Devendo: o que falta acertar entra CONTRA a comissão da pessoa.
   // Comissão cobre → paga-se só a diferença na hora do pagamento. Não cobre →
@@ -293,7 +293,7 @@ export default function EditSettlementModal({ settlement, profiles, canReview, c
           </div>
           {roleType === 'Garçom' && (
             <div className="bg-beetz-yellow/20 rounded-xl px-4 py-2.5 flex items-center justify-between">
-              <span className="text-sm text-beetz-dark/70">Comissão do garçom (10%)</span>
+              <span className="text-sm text-beetz-dark/70">Comissão do garçom (10% embutidos ÷ 11)</span>
               <span className="font-bold">{currency(commission)}</span>
             </div>
           )}

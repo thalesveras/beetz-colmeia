@@ -168,7 +168,8 @@ export default function StaffingTab({ eventId, canManage, canFinance = false, on
     () => confirmedApps.reduce((sum, a) => {
       if (!isPercentApp(a)) return sum
       const sales = salesByProfile.get(a.profile_id) ?? 0
-      return sum + Math.round(sales * resolvedPercent(a)) / 100
+      // Base sem a taxa embutida (÷1,1) — mesma régua da geração de pagamentos.
+      return sum + Math.round((sales / 1.1) * resolvedPercent(a)) / 100
     }, 0),
     [confirmedApps, requirements, roles, salesByProfile]
   )

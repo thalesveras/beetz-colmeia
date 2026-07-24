@@ -100,7 +100,8 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
   }
 
   const formTotal = cash + debit + credit + pix
-  const formCommission = roleType === 'Garçom' ? formTotal * 0.1 : 0
+  // Comissão = taxa embutida no arrecadado: ÷ 11 (10% de 110 = 10), não ×0,1.
+  const formCommission = roleType === 'Garçom' ? Math.round((formTotal / 11) * 100) / 100 : 0
 
   // Quem não é Diretoria só enxerga os próprios fechamentos, não os da equipe toda.
   const visibleSettlements = canViewAll ? settlements : settlements.filter((s) => s.profile_id === userId)
@@ -394,7 +395,7 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
           </div>
           {roleType === 'Garçom' && (
             <div className="bg-beetz-yellow/20 rounded-xl px-4 py-3 flex justify-between items-center">
-              <span className="text-sm font-medium text-beetz-dark/70">Comissão do garçom (10%)</span>
+              <span className="text-sm font-medium text-beetz-dark/70">Comissão do garçom (10% embutidos ÷ 11)</span>
               <span className="font-bold">{currency(formCommission)}</span>
             </div>
           )}

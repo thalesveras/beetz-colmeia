@@ -287,7 +287,7 @@ export const mockCashierSettlements: CashierSettlement[] = [
   {
     id: 'cs2', event_id: 'e1', profile_id: 'p7', role_type: 'Garçom',
     cash_amount: 300, debit_amount: 150, credit_amount: 400, pix_amount: 250,
-    total: 300 + 150 + 400 + 250, commission_amount: (300 + 150 + 400 + 250) * 0.1, status: 'Aprovado', notes: null, created_by: 'p7',
+    total: 300 + 150 + 400 + 250, commission_amount: Math.round(((300 + 150 + 400 + 250) / 11) * 100) / 100, status: 'Aprovado', notes: null, created_by: 'p7',
     created_at: '2026-01-18T23:30:00Z'
   }
 ]

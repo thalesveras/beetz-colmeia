@@ -1152,7 +1152,9 @@ export async function listCashierSettlementsForEvent(eventId: string): Promise<C
 export async function createCashierSettlement(input: NewCashierSettlementInput): Promise<CashierSettlement> {
   if (isDemoMode) {
     const total = input.cash_amount + input.debit_amount + input.credit_amount + input.pix_amount
-    const commission_amount = input.role_type === 'Garçom' ? total * 0.1 : 0
+    // Regra de 23/07: a comissão é a taxa EMBUTIDA no arrecadado — ÷ 11
+    // (10% de 110 = 110/11), não 10% sobre o bruto. Espelha a coluna gerada.
+    const commission_amount = input.role_type === 'Garçom' ? Math.round((total / 11) * 100) / 100 : 0
     const settlement: CashierSettlement = { ...input, id: uid('cs'), total, commission_amount, status: 'Pendente', created_at: new Date().toISOString() }
     demoState.cashierSettlements.push(settlement)
     return settlement
@@ -1186,7 +1188,7 @@ export async function updateCashierSettlement(
     if (idx < 0) throw new Error('Recebimento não encontrado')
     const merged = { ...demoState.cashierSettlements[idx], ...patch }
     merged.total = merged.cash_amount + merged.debit_amount + merged.credit_amount + merged.pix_amount
-    merged.commission_amount = merged.role_type === 'Garçom' ? merged.total * 0.1 : 0
+    merged.commission_amount = merged.role_type === 'Garçom' ? Math.round((merged.total / 11) * 100) / 100 : 0
     demoState.cashierSettlements[idx] = merged
     return merged
   }
@@ -3209,8 +3211,12 @@ export async function generateScalePayments(eventId: string, createdBy: string |
       const sales = salesByProfile.get(app.profile_id) ?? 0
       if (!(pct > 0)) { skippedNoValue++; continue }
       if (!(sales > 0)) { skippedNoSales++; continue }
-      value = Math.round(sales * pct) / 100
-      detail = ` (${pct}% de ${sales.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})`
+      // "% das suas vendas" = sobre a base SEM a taxa de serviço embutida
+      // (arrecadado ÷ 1,1). Decisão da Diretoria em 23/07 — assim o 10%
+      // padrão equivale exatamente ao ÷ 11 da comissão de garçom.
+      const base = Math.round((sales / 1.1) * 100) / 100
+      value = Math.round(base * pct) / 100
+      detail = ` (${pct}% de ${base.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} — vendas sem a taxa)`
     } else {
       value = app.agreed_value ?? req?.unit_cost ?? role?.default_value ?? 0
       if (!(value > 0)) { skippedNoValue++; continue }
