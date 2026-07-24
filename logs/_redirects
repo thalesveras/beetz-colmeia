@@ -1,0 +1,3 @@
+# logs.beetz.bar/dashboard abre o painel direto no Dashboard
+# (site estático de um arquivo só: tudo aponta pro index)
+/dashboard /index.html 200

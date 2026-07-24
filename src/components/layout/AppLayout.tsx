@@ -1,11 +1,34 @@
+import { useEffect } from 'react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import MobileNav from './MobileNav'
 import NotificationBell from './NotificationBell'
 import BrandLogo from '../ui/BrandLogo'
+import { useAuth } from '../../contexts/AuthContext'
+import { supabase } from '../../lib/supabaseClient'
 
 export default function AppLayout({ children }: { children: ReactNode }) {
+  const { userId, isDemoMode } = useAuth()
+
+  // Batimento de presença: 1 ping/minuto ENQUANTO a aba está visível.
+  // Alimenta usage_daily (dashboard da Diretoria em logs.beetz.bar).
+  // Silencioso e descartável: falha de rede não incomoda ninguém.
+  useEffect(() => {
+    if (!userId || isDemoMode) return
+    const ping = () => {
+      if (document.visibilityState !== 'visible') return
+      supabase.rpc('ping_presence').then(() => {}, () => {})
+    }
+    ping() // conta o minuto da chegada
+    const timer = setInterval(ping, 60_000)
+    document.addEventListener('visibilitychange', ping)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', ping)
+    }
+  }, [userId, isDemoMode])
+
   return (
     <div className="min-h-screen flex bg-beetz-gray">
       <Sidebar />

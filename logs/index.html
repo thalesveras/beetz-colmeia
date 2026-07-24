@@ -42,7 +42,30 @@
   footer { margin-top: 26px; font-size: 12px; color: #666; display: flex; gap: 16px; flex-wrap: wrap; }
   footer a { color: #999; }
   .count { font-size: 12px; color: #888; margin-left: auto; }
-  @media (max-width: 640px) { td, th { padding: 7px 6px; } }
+  /* ---- Dashboard ---- */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 6px; }
+  .kpi { background: #191919; border: 1px solid #262626; border-radius: 14px; padding: 14px; }
+  .kpi b { display: block; font-size: 22px; margin-top: 4px; }
+  .kpi span { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: .05em; }
+  .kpi .live { color: #6ee7a0; }
+  .secao { margin: 20px 0 8px; font-size: 13px; font-weight: 800; color: #ccc; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .pills { display: inline-flex; gap: 6px; margin-left: auto; }
+  .pill { background: #1c1c1c; border: 1px solid #2a2a2a; color: #999; font-weight: 700; font-size: 12px; padding: 6px 12px; border-radius: 99px; }
+  .pill.on { background: #FED417; color: #0b0b0b; border-color: #FED417; }
+  .brow { display: flex; align-items: center; gap: 10px; margin: 7px 0; }
+  .brow .nome { width: 150px; font-size: 12px; font-weight: 600; color: #ddd; display: flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; flex-shrink: 0; }
+  .brow .trilho { flex: 1; background: #1c1c1c; border-radius: 99px; height: 18px; overflow: hidden; }
+  .brow .fill { height: 100%; background: linear-gradient(90deg, #FED417, #f5b700); border-radius: 99px; }
+  .brow .val { width: 78px; font-size: 11px; color: #aaa; text-align: right; flex-shrink: 0; }
+  .avatarzinho { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+  .cols { display: flex; align-items: flex-end; gap: 3px; height: 110px; margin-top: 8px; }
+  .col { flex: 1; background: linear-gradient(180deg, #FED417, #8a7409); border-radius: 4px 4px 0 0; min-height: 2px; }
+  .col.apagada { background: #202020; }
+  .eixo { display: flex; gap: 3px; margin-top: 4px; }
+  .eixo span { flex: 1; text-align: center; font-size: 9px; color: #666; overflow: hidden; }
+  .bolinha { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #444; margin-right: 6px; flex-shrink: 0; }
+  .bolinha.on { background: #4ade80; box-shadow: 0 0 6px #4ade8088; }
+  @media (max-width: 640px) { td, th { padding: 7px 6px; } .brow .nome { width: 110px; } }
 </style>
 </head>
 <body>
@@ -102,13 +125,16 @@ let nomes = new Map()
 const nomeDe = (id) => nomes.get(id) ?? '—'
 
 const ABAS = [
+  { key: 'dashboard', label: '📊 Dashboard' },
   { key: 'acessos', label: '🔑 Acessos' },
   { key: 'avisos', label: '🔔 Avisos' },
   { key: 'emails', label: '✉️ E-mails' },
   { key: 'eventos', label: '📅 Alterações de eventos' },
   { key: 'dns', label: '🌐 Subdomínios' }
 ]
-let abaAtual = 'acessos'
+// O dashboard é a página inicial do painel (e atende em /dashboard).
+let abaAtual = 'dashboard'
+let periodoDias = 7
 let linhasAtuais = []
 
 function tabela(colunas, linhas) {
@@ -121,7 +147,121 @@ async function carregarNomes() {
   nomes = new Map((data ?? []).map((p) => [p.id, `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim() || 'Sem nome']))
 }
 
+// minutos → "3h 42min" (ou "42min")
+const fmtMin = (m) => {
+  m = Math.round(m ?? 0)
+  if (m >= 60) { const r = m % 60; return `${Math.floor(m / 60)}h${r ? ` ${r}min` : ''}` }
+  return `${m}min`
+}
+// carimbo → "agora" / "há 12min" / "há 3h" / data curta
+const vistoRel = (iso) => {
+  if (!iso || iso.startsWith('1970')) return '<span class="muted">nunca</span>'
+  const min = (Date.now() - new Date(iso).getTime()) / 60000
+  if (min < 3) return '<span class="tag ok">agora</span>'
+  if (min < 60) return `há ${Math.round(min)}min`
+  if (min < 1440) return `há ${Math.round(min / 60)}h`
+  return quando(iso)
+}
+
+function renderDashboard(ov, q) {
+  const users = ov.usuarios ?? []
+  const filtro = q ? users.filter((u) =>
+    `${u.nome} ${u.cargo ?? ''} ${u.departamento ?? ''} ${u.cidade ?? ''}`.toLowerCase().includes(q)
+  ) : users
+
+  const online = users.filter((u) => u.online_agora)
+  const ativosHoje = users.filter((u) => (u.min_hoje ?? 0) > 0)
+  const minHoje = users.reduce((s, u) => s + (u.min_hoje ?? 0), 0)
+  const aprovados = users.filter((u) => u.status === 'Aprovado').length
+
+  // ---- ranking: quem mais fica online no período ----
+  const rank = users.filter((u) => (u.min_periodo ?? 0) > 0)
+    .sort((a, b) => (b.min_periodo ?? 0) - (a.min_periodo ?? 0)).slice(0, 12)
+  const topo = rank[0]?.min_periodo ?? 1
+  const avatar = (u) => u.avatar_url
+    ? `<img class="avatarzinho" src="${esc(u.avatar_url)}" onerror="this.style.display='none'" alt="">`
+    : '🐝'
+  const barras = rank.length ? rank.map((u) => `
+    <div class="brow">
+      <div class="nome" title="${esc(u.nome)}"><span class="bolinha ${u.online_agora ? 'on' : ''}"></span>${avatar(u)}${esc(u.nome)}</div>
+      <div class="trilho"><div class="fill" style="width:${Math.max(3, Math.round(100 * (u.min_periodo ?? 0) / topo))}%"></div></div>
+      <div class="val">${fmtMin(u.min_periodo)}</div>
+    </div>`).join('')
+    : '<p class="muted" style="padding:8px 2px">O medidor de tempo ligou agora — o ranking se preenche conforme a equipe usa o app.</p>'
+
+  // ---- atividade por dia (eixo completo, dias sem uso ficam apagados) ----
+  const porDia = new Map((ov.por_dia ?? []).map((d) => [d.dia, d.minutos]))
+  const dias = []
+  for (let i = periodoDias - 1; i >= 0; i--) {
+    const dt = new Date(Date.now() - i * 864e5)
+    dias.push({ iso: dt.toLocaleDateString('en-CA'), rotulo: dt.getDate() })
+  }
+  const maxDia = Math.max(1, ...dias.map((d) => porDia.get(d.iso) ?? 0))
+  const passoRotulo = periodoDias > 14 ? 5 : 1
+  const colsDia = dias.map((d) => {
+    const m = porDia.get(d.iso) ?? 0
+    return `<div class="col ${m ? '' : 'apagada'}" style="height:${Math.max(2, Math.round(100 * m / maxDia))}%" title="${d.rotulo}: ${fmtMin(m)}"></div>`
+  }).join('')
+  const eixoDia = dias.map((d, i) => `<span>${i % passoRotulo === 0 ? d.rotulo : ''}</span>`).join('')
+
+  // ---- horário de pico (pings por hora do dia, soma do período) ----
+  const porHora = ov.por_hora ?? {}
+  const maxHora = Math.max(1, ...Object.values(porHora).map(Number))
+  const colsHora = Array.from({ length: 24 }, (_, h) => {
+    const v = Number(porHora[String(h)] ?? 0)
+    return `<div class="col ${v ? '' : 'apagada'}" style="height:${Math.max(2, Math.round(100 * v / maxHora))}%" title="${h}h: ${v} min de uso somados"></div>`
+  }).join('')
+  const eixoHora = Array.from({ length: 24 }, (_, h) => `<span>${h % 3 === 0 ? h : ''}</span>`).join('')
+
+  // ---- tabela: mais detalhes sobre cada usuário ----
+  const linhas = filtro.map((u) => `
+    <tr>
+      <td><span class="bolinha ${u.online_agora ? 'on' : ''}"></span>${avatar(u)} <strong>${esc(u.nome)}</strong><br>
+          <span class="muted">${esc([u.cargo, u.departamento].filter(Boolean).join(' · ') || '—')}</span></td>
+      <td>${vistoRel(u.ultima_atividade)}</td>
+      <td>${(u.min_hoje ?? 0) > 0 ? fmtMin(u.min_hoje) : '<span class="muted">—</span>'}</td>
+      <td>${(u.min_periodo ?? 0) > 0 ? `<strong>${fmtMin(u.min_periodo)}</strong>` : '<span class="muted">—</span>'}</td>
+      <td>${u.dias_ativos || '<span class="muted">—</span>'}</td>
+      <td>${u.sessoes_vivas || '<span class="muted">—</span>'}</td>
+      <td>${u.ultimo_login ? quando(u.ultimo_login) : '<span class="muted">nunca</span>'}</td>
+      <td><span class="tag ${u.status === 'Aprovado' ? 'ok' : ''}">${esc(u.status ?? '—')}</span></td>
+    </tr>`).join('')
+
+  const html = `
+    <div class="kpis">
+      <div class="kpi"><span>No app agora</span><b class="live">${online.length}</b></div>
+      <div class="kpi"><span>Ativos hoje</span><b>${ativosHoje.length}</b></div>
+      <div class="kpi"><span>Tempo somado hoje</span><b>${fmtMin(minHoje)}</b></div>
+      <div class="kpi"><span>Contas aprovadas</span><b>${aprovados} <small class="muted" style="font-size:12px">/ ${users.length}</small></b></div>
+    </div>
+
+    <div class="secao">🏆 Quem mais fica online
+      <span class="pills">
+        <button class="pill ${periodoDias === 7 ? 'on' : ''}" data-p="7">7 dias</button>
+        <button class="pill ${periodoDias === 30 ? 'on' : ''}" data-p="30">30 dias</button>
+      </span>
+    </div>
+    ${barras}
+
+    <div class="secao">📈 Atividade por dia <span class="muted" style="font-weight:400">minutos somados da equipe</span></div>
+    <div class="cols">${colsDia}</div><div class="eixo">${eixoDia}</div>
+
+    <div class="secao">⏰ Horário de pico <span class="muted" style="font-weight:400">em que horas do dia o app é mais usado</span></div>
+    <div class="cols">${colsHora}</div><div class="eixo">${eixoHora}</div>
+
+    <div class="secao">🧑‍🤝‍🧑 Todo mundo, em detalhe <span class="muted" style="font-weight:400">a busca acima filtra esta lista</span></div>
+    <table><thead><tr><th>Pessoa</th><th>Visto por último</th><th>Hoje</th><th>Últimos ${periodoDias}d</th><th>Dias ativos</th><th>Sessões vivas</th><th>Último login</th><th>Situação</th></tr></thead>
+    <tbody>${linhas || `<tr><td colspan="8" class="muted">Ninguém bate com a busca.</td></tr>`}</tbody></table>`
+
+  return { html, n: `${filtro.length} pessoa(s)` }
+}
+
 const CARREGADORES = {
+  async dashboard() {
+    const { data, error } = await supabase.rpc('get_usage_overview', { days_back: periodoDias })
+    if (error) throw error
+    return { custom: true, dados: data }
+  },
   async acessos() {
     const { data, error } = await supabase.from('notifications')
       .select('profile_id, alert_key, title, created_at')
@@ -203,6 +343,15 @@ async function carregarAba() {
 function aplicarBusca() {
   if (!ultimoResultado) return
   const q = $('busca').value.trim().toLowerCase()
+  if (ultimoResultado.custom) {
+    // Dashboard: renderiza inteiro; a busca filtra a tabela de pessoas.
+    const { html, n } = renderDashboard(ultimoResultado.dados, q)
+    $('contagem').textContent = n
+    $('conteudo').innerHTML = html
+    $('conteudo').querySelectorAll('.pill').forEach((el) =>
+      el.addEventListener('click', () => { periodoDias = Number(el.dataset.p); carregarAba() }))
+    return
+  }
   let linhas = ultimoResultado.linhas
   if (q) {
     linhas = ultimoResultado.brutos
