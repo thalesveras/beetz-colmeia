@@ -169,9 +169,12 @@ export default function EventsList() {
         )
       })()}
 
-      {/* Recortes temporais: deslizam de lado no celular, uma linha só. */}
+      {/* Recortes temporais: deslizam de lado no celular, uma linha só —
+          rolagem CONTIDA na própria fileira (sem margens negativas: o
+          container da página é p-4 no mobile e qualquer sangria além dele
+          cria rolagem lateral na tela inteira). */}
       {!loading && (
-        <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-5 px-5 md:mx-0 md:px-0 md:flex-wrap md:overflow-visible md:pb-0">
+        <div className="flex gap-1.5 overflow-x-auto pb-1 md:flex-wrap md:overflow-visible md:pb-0">
           {pills.map((p) => (
             <button
               key={p.key}
