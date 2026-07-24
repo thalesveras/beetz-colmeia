@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { Plus, Trash2, X } from 'lucide-react'
 import {
   createEventProduct, deleteEventProduct, getEventStockByProduct, getProductAvgCosts,
-  listEventProducts, listEventSalesLines, listProducts, propagateEventProductCostToMovements, updateEventProduct
+  listEventProducts, listEventSalesImports, listEventSalesLines, listProducts,
+  propagateEventProductCostToMovements, updateEventProduct
 } from '../../lib/dataService'
 import type { EventStockLine } from '../../lib/dataService'
-import type { EventProduct, EventSalesLine, Product } from '../../lib/types'
+import type { EventProduct, EventSalesImport, EventSalesLine, Product } from '../../lib/types'
 import SalesReportCard from './SalesReportCard'
 
 const inputClass = 'w-full border border-beetz-dark/15 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
@@ -59,6 +60,7 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
   // (relatório do PDV mapeado) — viram dicas com botão "Usar" no modal.
   const [stockLines, setStockLines] = useState<EventStockLine[]>([])
   const [salesLines, setSalesLines] = useState<EventSalesLine[]>([])
+  const [salesImports, setSalesImports] = useState<EventSalesImport[]>([])
   const [avgCosts, setAvgCosts] = useState<Map<string, number>>(new Map())
   const [importingId, setImportingId] = useState<string | null>(null)
 
@@ -77,17 +79,19 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
 
   async function load() {
     setLoading(true)
-    const [eventProducts, allProducts, lines, sales, costs] = await Promise.all([
+    const [eventProducts, allProducts, lines, sales, imps, costs] = await Promise.all([
       listEventProducts(eventId),
       listProducts(),
       getEventStockByProduct(eventId).catch(() => []),
       listEventSalesLines(eventId).catch(() => []),
+      listEventSalesImports(eventId).catch(() => []),
       getProductAvgCosts().catch(() => new Map<string, number>())
     ])
     setItems(eventProducts)
     setProducts(allProducts)
     setStockLines(lines)
     setSalesLines(sales)
+    setSalesImports(imps)
     setAvgCosts(costs)
     setLoading(false)
   }
@@ -107,6 +111,27 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
     [stockLines]
   )
 
+  // A RECEITA REAL do PDV, produto a produto — só uploads OFICIAIS de vendas
+  // (os cobertos por um mais completo ficam de fora). É o dinheiro de
+  // verdade: combos e doses entram pelo que faturaram, não pelo preço de
+  // tabela — por isso o topo passa a bater com o card do PDV ao centavo.
+  const pdvOficial = useMemo(() => {
+    const oficiais = new Set(
+      salesImports.filter((i) => (i.kind ?? 'vendas') === 'vendas' && !i.superseded_by).map((i) => i.id)
+    )
+    const porProduto = new Map<string, number>()
+    let total = 0
+    let semVinculo = 0
+    for (const l of salesLines) {
+      if (!oficiais.has(l.import_id)) continue
+      const receita = l.total_net ?? l.total_gross ?? 0
+      total += receita
+      if (l.product_id) porProduto.set(l.product_id, (porProduto.get(l.product_id) ?? 0) + receita)
+      else semVinculo += receita
+    }
+    return { tem: total > 0, total, porProduto, semVinculo }
+  }, [salesImports, salesLines])
+
   // DECLARADA ANTES dos memos da tabela de propósito: visibleRows chama
   // productName quando a busca/ordenação por nome roda — com a const depois,
   // era ReferenceError (TDZ) e TELA BRANCA ao digitar na busca. O tsc não
@@ -117,7 +142,7 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
   // está com preço errado". Participação % = valor do item ÷ total do evento,
   // onde valor = vendido × preço (real) ou, sem vendas ainda, entrou × preço
   // (potencial) — dá pra priorizar o ajuste antes do evento começar.
-  type SortKey = 'name' | 'entrou' | 'vendido' | 'venda' | 'margin' | 'marginPct' | 'part' | 'resultado'
+  type SortKey = 'name' | 'entrou' | 'vendido' | 'venda' | 'faturado' | 'margin' | 'marginPct' | 'part' | 'resultado'
   const [sortKey, setSortKey] = useState<SortKey>('part')
   const [sortAsc, setSortAsc] = useState(false)
   const [search, setSearch] = useState('')
@@ -129,14 +154,24 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
     const enriched = items.map((item) => {
       const um = unitMargin(item.unit_price, item.sale_price, item.producer_percent)
       const econ = lineEconomics(item.sold_quantity ?? null, item.unit_price, item.sale_price, item.producer_percent)
-      const valor = item.sale_price != null ? (item.sold_quantity ?? item.quantity) * item.sale_price : null
-      return { item, um, econ, valor, part: null as number | null }
+      // FATURADO REAL do produto (linhas do PDV oficial): combos e doses
+      // entram pelo que renderam de verdade. Resultado real = faturado −
+      // % do produtor sobre o faturado − custo do vendido.
+      const real = pdvOficial.tem ? (pdvOficial.porProduto.get(item.product_id) ?? null) : null
+      const resultadoReal = real != null
+        ? real - real * ((item.producer_percent ?? 0) / 100) - (item.sold_quantity ?? 0) * item.unit_price
+        : null
+      // Part.% usa o real quando há PDV; senão, tabela (vendido × preço).
+      const valor = pdvOficial.tem
+        ? real
+        : item.sale_price != null ? (item.sold_quantity ?? item.quantity) * item.sale_price : null
+      return { item, um, econ, real, resultadoReal, valor, part: null as number | null }
     })
     const total = enriched.reduce((s, r) => s + (r.valor ?? 0), 0)
     for (const r of enriched) r.part = r.valor != null && total > 0 ? (r.valor / total) * 100 : null
     return enriched
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items])
+  }, [items, pdvOficial])
 
   const marginCounts = useMemo(() => ({
     neg: enrichedRows.filter((r) => r.um != null && r.um.value < 0).length,
@@ -156,10 +191,11 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
         case 'entrou': return r.item.quantity
         case 'vendido': return r.item.sold_quantity ?? null
         case 'venda': return r.item.sale_price ?? null
+        case 'faturado': return r.real
         case 'margin': return r.um?.value ?? null
         case 'marginPct': return r.um?.pctOfSale ?? null
         case 'part': return r.part
-        case 'resultado': return r.econ.resultado
+        case 'resultado': return r.resultadoReal ?? r.econ.resultado
       }
     }
     // Nulo sempre no fim, independente da direção — "sem dado" não é ranking.
@@ -218,6 +254,16 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
     return s + (e.resultado ?? 0)
   }, 0)
 
+  // Com PDV oficial, o topo fala a língua do DINHEIRO REAL (bate com o card
+  // do PDV ao centavo): vendas = Σ linhas da máquina; produtor leva = % de
+  // cada produto sobre o faturado real dele; resultado = real − produtor −
+  // custo do vendido. A conta por tabela vira nota de rodapé.
+  const totalProdutorReal = items.reduce(
+    (s, i) => s + (pdvOficial.porProduto.get(i.product_id) ?? 0) * ((i.producer_percent ?? 0) / 100), 0
+  )
+  const totalResultadoReal = pdvOficial.total - totalProdutorReal - totalCustoVendido
+  const usaReal = pdvOficial.tem
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!productId) return
@@ -253,26 +299,47 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
       {/* As VENDAS DO EVENTO calculadas pelos produtos: Σ vendido × preço de
           venda. Entrada é outra coluna da vida — o custo do que entrou. */}
       {!loading && items.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="bg-beetz-gray/60 rounded-xl p-3">
-            <p className="text-base font-extrabold leading-none">{currency(totalCustoVendido)}</p>
-            <p className="text-[11px] text-beetz-dark/50 mt-1">Custo do vendido</p>
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-beetz-gray/60 rounded-xl p-3">
+              <p className="text-base font-extrabold leading-none">{currency(totalCustoVendido)}</p>
+              <p className="text-[11px] text-beetz-dark/50 mt-1">Custo do vendido</p>
+            </div>
+            <div className="bg-beetz-dark text-white rounded-xl p-3">
+              <p className="text-base font-extrabold leading-none">
+                {usaReal ? currency(pdvOficial.total) : withSales.length > 0 ? currency(totalVendas) : '—'}
+              </p>
+              <p className="text-[11px] text-white/50 mt-1">
+                Vendas do evento{usaReal ? ' · PDV real' : ''}
+              </p>
+            </div>
+            <div className="bg-beetz-gray/60 rounded-xl p-3">
+              <p className="text-base font-extrabold leading-none">
+                {usaReal ? currency(totalProdutorReal) : withSales.length > 0 ? currency(totalProdutor) : '—'}
+              </p>
+              <p className="text-[11px] text-beetz-dark/50 mt-1">Produtor leva{usaReal ? ' · sobre o real' : ''}</p>
+            </div>
+            {(() => {
+              const resultado = usaReal ? totalResultadoReal : totalResultado
+              const temConta = usaReal || withSales.length > 0
+              return (
+                <div className={`rounded-xl p-3 ${!temConta ? 'bg-beetz-gray/60' : resultado >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
+                  <p className={`text-base font-extrabold leading-none ${!temConta ? '' : resultado >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                    {temConta ? currency(resultado) : '—'}
+                  </p>
+                  <p className="text-[11px] text-beetz-dark/50 mt-1">Resultado Beetz</p>
+                </div>
+              )
+            })()}
           </div>
-          <div className="bg-beetz-dark text-white rounded-xl p-3">
-            <p className="text-base font-extrabold leading-none">{withSales.length > 0 ? currency(totalVendas) : '—'}</p>
-            <p className="text-[11px] text-white/50 mt-1">Vendas do evento</p>
-          </div>
-          <div className="bg-beetz-gray/60 rounded-xl p-3">
-            <p className="text-base font-extrabold leading-none">{withSales.length > 0 ? currency(totalProdutor) : '—'}</p>
-            <p className="text-[11px] text-beetz-dark/50 mt-1">Produtor leva</p>
-          </div>
-          <div className={`rounded-xl p-3 ${withSales.length === 0 ? 'bg-beetz-gray/60' : totalResultado >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
-            <p className={`text-base font-extrabold leading-none ${withSales.length === 0 ? '' : totalResultado >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-              {withSales.length > 0 ? currency(totalResultado) : '—'}
+          {usaReal && (
+            <p className="text-[11px] text-beetz-dark/40">
+              Topo pelo dinheiro real do PDV ({currency(pdvOficial.total)}). Por preço de tabela (vendido × preço) daria {currency(totalVendas)} —
+              a diferença são combos e doses vendendo fora do preço unitário.
+              {pdvOficial.semVinculo > 0 && ` Atenção: ${currency(pdvOficial.semVinculo)} de linhas sem vínculo com produto.`}
             </p>
-            <p className="text-[11px] text-beetz-dark/50 mt-1">Resultado Beetz</p>
-          </div>
-        </div>
+          )}
+        </>
       )}
       {!loading && items.length > 0 && withSales.length < items.length && (
         <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
@@ -407,6 +474,7 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
                     { k: 'entrou', label: 'Entrou', right: true },
                     { k: 'vendido', label: 'Vendido', right: true },
                     { k: 'venda', label: 'Venda', right: true },
+                    ...(usaReal ? [{ k: 'faturado' as const, label: 'Faturado', right: true }] : []),
                     { k: 'margin', label: 'Margem/un', right: true },
                     { k: 'marginPct', label: 'Margem %', right: true },
                     { k: 'part', label: 'Part.', right: true },
@@ -426,7 +494,7 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
                 </tr>
               </thead>
               <tbody>
-                {visibleRows.map(({ item, um, econ, part }) => (
+                {visibleRows.map(({ item, um, econ, real, resultadoReal, part }) => (
                   <tr
                     key={item.id}
                     onClick={() => setSelected(item)}
@@ -442,6 +510,11 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
                     <td className={`py-2.5 px-3 text-right ${item.sale_price == null ? 'text-amber-600 text-xs font-semibold' : ''}`}>
                       {item.sale_price != null ? currency(item.sale_price) : 'definir'}
                     </td>
+                    {usaReal && (
+                      <td className={`py-2.5 px-3 text-right font-semibold ${real == null ? 'text-beetz-dark/30' : ''}`}>
+                        {real != null ? currency(real) : '—'}
+                      </td>
+                    )}
                     <td className={`py-2.5 px-3 text-right font-bold ${um == null ? 'text-beetz-dark/30' : um.value >= 0 ? 'text-green-700' : 'text-red-600'}`}>
                       {um != null ? `${um.value >= 0 ? '+' : ''}${currency(um.value)}` : '—'}
                     </td>
@@ -451,20 +524,26 @@ export default function ProductsTab({ eventId, defaultProducerPercent }: {
                     <td className={`py-2.5 px-3 text-right font-bold ${part == null ? 'text-beetz-dark/30' : ''}`}>
                       {part != null ? `${part < 1 ? part.toFixed(1) : Math.round(part)}%` : '—'}
                     </td>
-                    <td className={`py-2.5 px-3 text-right font-semibold ${econ.resultado == null ? 'text-beetz-dark/30' : econ.resultado >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                      {econ.resultado != null ? currency(econ.resultado) : '—'}
-                    </td>
+                    {(() => {
+                      const resultado = resultadoReal ?? econ.resultado
+                      return (
+                        <td className={`py-2.5 px-3 text-right font-semibold ${resultado == null ? 'text-beetz-dark/30' : resultado >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                          {resultado != null ? currency(resultado) : '—'}
+                        </td>
+                      )
+                    })()}
                   </tr>
                 ))}
                 {visibleRows.length === 0 && (
-                  <tr><td colSpan={8} className="py-4 px-3 text-sm text-beetz-dark/40">Nenhum produto com esses filtros.</td></tr>
+                  <tr><td colSpan={usaReal ? 9 : 8} className="py-4 px-3 text-sm text-beetz-dark/40">Nenhum produto com esses filtros.</td></tr>
                 )}
               </tbody>
             </table>
           </div>
           <p className="text-[11px] text-beetz-dark/40">
-            Part.% = fatia do produto no valor do evento (vendido × preço; sem vendas ainda, usa entrou × preço como potencial).
-            Toque na linha pra editar.
+            {usaReal
+              ? 'Faturado = receita REAL do PDV por produto (combos e doses pelo que renderam). Part.% e Resultado usam o real; Margem/un segue o preço de tabela. Toque na linha pra editar.'
+              : 'Part.% = fatia do produto no valor do evento (vendido × preço; sem vendas ainda, usa entrou × preço como potencial). Toque na linha pra editar.'}
           </p>
         </div>
       )}
