@@ -140,11 +140,13 @@ export default function Escala() {
       </div>
 
       {/* Filtro inteligente por evento — pills com data e contagem de vagas. */}
+      {/* No celular os chips deslizam de lado (uma linha só, sem torre de
+          filtros); no desktop quebram linha normalmente. */}
       {!loading && eventosDaLista.length > 1 && (
-        <div className="flex flex-wrap gap-1.5 mb-4">
+        <div className="flex gap-1.5 mb-4 overflow-x-auto pb-1 -mx-5 px-5 md:mx-0 md:px-0 md:flex-wrap md:overflow-visible md:pb-0">
           <button
             onClick={() => setFilterEvent('')}
-            className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
+            className={`shrink-0 text-xs font-semibold px-3 py-2 rounded-lg border transition-colors ${
               filterEvent === '' ? 'bg-beetz-dark border-beetz-dark text-white' : 'bg-white border-beetz-dark/12 text-beetz-dark/55'
             }`}
           >
@@ -155,7 +157,7 @@ export default function Escala() {
               key={ev.id}
               onClick={() => setFilterEvent(filterEvent === ev.id ? '' : ev.id)}
               title={ev.name}
-              className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors max-w-[240px] truncate ${
+              className={`shrink-0 text-xs font-semibold px-3 py-2 rounded-lg border transition-colors max-w-[240px] truncate ${
                 filterEvent === ev.id ? 'bg-beetz-yellow border-beetz-yellow text-beetz-dark' : 'bg-white border-beetz-dark/12 text-beetz-dark/55'
               }`}
             >
@@ -186,98 +188,110 @@ export default function Escala() {
             const remaining = slot.requirement.quantity - slot.confirmedCount
             const busy = busyId === slot.requirement.id
             return (
-              <div key={slot.requirement.id} className="bg-white rounded-2xl shadow-soft border border-beetz-dark/5 p-5">
-                <div className="flex flex-wrap items-start gap-4">
-                  {/* Flyer do evento à esquerda — e quando não tem, um
-                      "bilhete" com a data segura a identidade do card. */}
+              <div key={slot.requirement.id} className="bg-white rounded-2xl shadow-soft border border-beetz-dark/5 p-4 sm:p-5">
+                {/* Mobile-first: flyer + informação em cima; a AÇÃO vira botão
+                    de largura total embaixo — do tamanho do polegar, sem
+                    coluna espremida à direita. */}
+                <div className="flex items-start gap-3 sm:gap-4">
                   <Link to={`/eventos/${slot.event.id}`} className="shrink-0" title={slot.event.name}>
                     {slot.event.flyer_url ? (
                       <img
                         src={slot.event.flyer_url}
                         alt=""
-                        className="w-20 h-24 rounded-xl object-cover border border-beetz-dark/8 shadow-sm"
+                        className="w-16 h-20 sm:w-20 sm:h-24 rounded-xl object-cover border border-beetz-dark/8 shadow-sm"
                       />
                     ) : (
-                      <div className="w-20 h-24 rounded-xl dark-gradient flex flex-col items-center justify-center text-white border border-beetz-dark/8">
-                        <span className="text-2xl font-extrabold leading-none">{slot.event.event_date.split('-')[2]}</span>
+                      <div className="w-16 h-20 sm:w-20 sm:h-24 rounded-xl dark-gradient flex flex-col items-center justify-center text-white border border-beetz-dark/8">
+                        <span className="text-xl sm:text-2xl font-extrabold leading-none">{slot.event.event_date.split('-')[2]}</span>
                         <span className="text-[10px] uppercase tracking-widest text-white/60 mt-0.5">
                           {new Date(slot.event.event_date + 'T12:00:00').toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')}
                         </span>
-                        <span className="mt-1.5 text-sm">🐝</span>
+                        <span className="mt-1 text-sm">🐝</span>
                       </div>
                     )}
                   </Link>
-                  <div className="flex-1 min-w-[200px]">
-                    <p className="font-bold">
-                      {slot.requirement.role_label}
-                      {/* Valor à vista pra quem está decidindo se pega a vaga —
-                          transparência combinada com o dono: atrai candidatura
-                          e evita surpresa na hora do pagamento. */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <p className="font-bold">{slot.requirement.role_label}</p>
+                      {/* Valor à vista pra quem está decidindo se pega a vaga. */}
                       {(() => {
                         const role = slot.requirement.role_id ? roles.find((r) => r.id === slot.requirement.role_id) : undefined
                         if (role?.pay_type === 'percent') {
                           return (
-                            <span className="ml-2 text-xs font-bold bg-beetz-yellow/25 px-2 py-0.5 rounded-full align-middle">
+                            <span className="text-xs font-bold bg-beetz-yellow/25 px-2 py-0.5 rounded-full">
                               {role.default_percent ?? 0}% das suas vendas
                             </span>
                           )
                         }
                         if (slot.requirement.unit_cost != null && slot.requirement.unit_cost > 0) {
                           return (
-                            <span className="ml-2 text-xs font-bold bg-beetz-yellow/25 px-2 py-0.5 rounded-full align-middle">
+                            <span className="text-xs font-bold bg-beetz-yellow/25 px-2 py-0.5 rounded-full">
                               {slot.requirement.unit_cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                             </span>
                           )
                         }
                         return null
                       })()}
-                    </p>
-                    <Link to={`/eventos/${slot.event.id}`} className="text-sm text-beetz-dark/60 hover:text-beetz-dark font-medium">
+                      {app && (
+                        <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${STATUS_STYLES[app.status]}`}>
+                          {STATUS_LABELS[app.status]}
+                        </span>
+                      )}
+                    </div>
+                    <Link to={`/eventos/${slot.event.id}`} className="block truncate text-sm text-beetz-dark/60 hover:text-beetz-dark font-medium">
                       {slot.event.name}
                     </Link>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-beetz-dark/50">
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-xs text-beetz-dark/50">
                       <span className="flex items-center gap-1"><CalendarDays size={12} /> {formatDate(slot.event.event_date)}</span>
                       {slot.event.start_time && <span className="flex items-center gap-1"><Clock3 size={12} /> {slot.event.start_time}</span>}
                       {slot.event.location && <span className="flex items-center gap-1"><MapPin size={12} /> {slot.event.location}</span>}
                     </div>
+
+                    {/* Barra de vagas: o quanto a escala já encheu, num olhar. */}
+                    <div className="mt-2.5">
+                      <div className="flex items-center justify-between text-[11px] text-beetz-dark/45 mb-1">
+                        <span>{slot.confirmedCount} de {slot.requirement.quantity} confirmados</span>
+                        {!app && (
+                          <span className="font-bold text-beetz-dark/70">
+                            {remaining} {remaining === 1 ? 'vaga' : 'vagas'}
+                          </span>
+                        )}
+                      </div>
+                      <div className="h-1.5 rounded-full bg-beetz-gray overflow-hidden">
+                        <div
+                          className="h-full honey-gradient rounded-full transition-all"
+                          style={{ width: `${Math.min(100, slot.requirement.quantity > 0 ? (slot.confirmedCount / slot.requirement.quantity) * 100 : 0)}%` }}
+                        />
+                      </div>
+                    </div>
+
                     {slot.requirement.notes && (
                       <p className="text-xs text-beetz-dark/50 mt-2 bg-beetz-gray rounded-lg px-2.5 py-1.5">{slot.requirement.notes}</p>
                     )}
                   </div>
-
-                  <div className="flex flex-col items-end gap-2">
-                    {app ? (
-                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_STYLES[app.status]}`}>
-                        {STATUS_LABELS[app.status]}
-                      </span>
-                    ) : (
-                      <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-beetz-yellow/20 text-beetz-dark">
-                        {remaining} {remaining === 1 ? 'vaga' : 'vagas'}
-                      </span>
-                    )}
-                    <p className="text-[11px] text-beetz-dark/40">
-                      {slot.confirmedCount} de {slot.requirement.quantity} confirmados
-                    </p>
-
-                    {app && app.status !== 'Recusado' ? (
-                      <button
-                        onClick={() => handleCancel(slot)}
-                        disabled={busy}
-                        className="flex items-center gap-1 text-xs font-semibold text-beetz-dark/50 hover:text-red-600 px-3 py-1.5 rounded-lg hover:bg-beetz-gray disabled:opacity-50"
-                      >
-                        <X size={13} /> {busy ? '...' : app.status === 'Confirmado' ? 'Desistir' : 'Cancelar'}
-                      </button>
-                    ) : !app ? (
-                      <button
-                        onClick={() => handleApply(slot)}
-                        disabled={busy}
-                        className="flex items-center gap-1 honey-gradient text-beetz-dark font-bold px-4 py-2 rounded-xl text-sm disabled:opacity-60"
-                      >
-                        <Check size={14} /> {busy ? 'Enviando...' : 'Quero essa'}
-                      </button>
-                    ) : null}
-                  </div>
                 </div>
+
+                {app && app.status !== 'Recusado' ? (
+                  <div className="mt-3 sm:flex sm:justify-end">
+                    <button
+                      onClick={() => handleCancel(slot)}
+                      disabled={busy}
+                      className="w-full sm:w-auto flex items-center justify-center gap-1.5 text-sm font-semibold text-beetz-dark/55 hover:text-red-600 border border-beetz-dark/10 px-4 py-2.5 sm:py-2 rounded-xl hover:bg-beetz-gray disabled:opacity-50 transition-colors"
+                    >
+                      <X size={14} /> {busy ? '...' : app.status === 'Confirmado' ? 'Desistir da vaga' : 'Cancelar candidatura'}
+                    </button>
+                  </div>
+                ) : !app ? (
+                  <div className="mt-3 sm:flex sm:justify-end">
+                    <button
+                      onClick={() => handleApply(slot)}
+                      disabled={busy}
+                      className="w-full sm:w-auto flex items-center justify-center gap-1.5 honey-gradient text-beetz-dark font-bold px-5 py-3 sm:py-2 rounded-xl text-sm disabled:opacity-60"
+                    >
+                      <Check size={15} /> {busy ? 'Enviando...' : 'Quero essa'}
+                    </button>
+                  </div>
+                ) : null}
               </div>
             )
           })}
