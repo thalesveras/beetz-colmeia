@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { canViewFinancialSummary } from '../../lib/permissions'
-import { getFinanceDataset, type FinanceDataset, type FinanceRow } from '../../lib/dataService'
+import { getEventFinanceRows, getFinanceDataset, type EventFinanceRow, type FinanceDataset, type FinanceRow } from '../../lib/dataService'
 import { Donut, HorizontalBars, MonthlyBars, formatMoney, formatMoneyFull, monthLabel, type ChartDatum } from '../../components/finance/Charts'
 
 const inputClass = 'rounded-xl border border-beetz-dark/15 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
@@ -63,9 +63,65 @@ export default function FinanceDashboard() {
   const [groupBy, setGroupBy] = useState<GroupBy>('category')
   const [chartKind, setChartKind] = useState<ChartKind>('barras')
 
+  // As duas visões do painel: "Por evento" (o P&L de cada festa — a
+  // pergunta da Beetz) e "Despesas" (pra onde o dinheiro foi, o painel
+  // clássico). Cada uma com seus filtros; a busca é compartilhada.
+  const [visao, setVisao] = useState<'eventos' | 'despesas'>('eventos')
+  const [eventRows, setEventRows] = useState<EventFinanceRow[]>([])
+  const [evStatus, setEvStatus] = useState('')
+  type EvSortKey = 'name' | 'event_date' | 'pdv_faturado' | 'recebido_caixas' | 'despesas' | 'comissoes' | 'resultado'
+  const [evSort, setEvSort] = useState<{ key: EvSortKey; asc: boolean }>({ key: 'event_date', asc: false })
+
   useEffect(() => {
-    getFinanceDataset().then(setData).finally(() => setLoading(false))
+    Promise.all([getFinanceDataset(), getEventFinanceRows()])
+      .then(([d, ev]) => { setData(d); setEventRows(ev) })
+      .finally(() => setLoading(false))
   }, [])
+
+  const mesesEventos = useMemo(
+    () => [...new Set(eventRows.map((r) => r.event_date.slice(0, 7)))].sort().reverse(),
+    [eventRows]
+  )
+  const statusEventos = useMemo(() => [...new Set(eventRows.map((r) => r.status))], [eventRows])
+
+  const eventosFiltrados = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const dir = evSort.asc ? 1 : -1
+    return eventRows
+      .filter((r) =>
+        (!month || r.event_date.slice(0, 7) === month) &&
+        (!evStatus || r.status === evStatus) &&
+        (!q || r.name.toLowerCase().includes(q))
+      )
+      .map((r) => ({
+        ...r,
+        resultado: r.pdv_faturado - r.despesas,
+        margem: r.pdv_faturado > 0 ? ((r.pdv_faturado - r.despesas) / r.pdv_faturado) * 100 : null
+      }))
+      .sort((a, b) => {
+        const va = (a as any)[evSort.key]
+        const vb = (b as any)[evSort.key]
+        if (evSort.key === 'name') return dir * String(va).localeCompare(String(vb), 'pt-BR')
+        if (evSort.key === 'event_date') return dir * String(va).localeCompare(String(vb))
+        return dir * (Number(va ?? 0) - Number(vb ?? 0))
+      })
+  }, [eventRows, month, evStatus, search, evSort])
+
+  const totaisEv = useMemo(() => {
+    const fat = eventosFiltrados.reduce((s, r) => s + r.pdv_faturado, 0)
+    const desp = eventosFiltrados.reduce((s, r) => s + r.despesas, 0)
+    const com = eventosFiltrados.reduce((s, r) => s + r.comissoes, 0)
+    const receb = eventosFiltrados.reduce((s, r) => s + r.recebido_caixas, 0)
+    return { fat, desp, com, receb, res: fat - desp }
+  }, [eventosFiltrados])
+
+  const eventosSemPdv = useMemo(
+    () => eventosFiltrados.filter((r) => r.status === 'Concluído' && r.pdv_faturado === 0).length,
+    [eventosFiltrados]
+  )
+
+  const fmtDataEv = (iso: string) =>
+    new Date(iso + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: '2-digit' }).replace('.', '')
 
   const rows = data?.rows ?? []
 
@@ -144,10 +200,12 @@ export default function FinanceDashboard() {
     return null
   }, [groupBy, category, supplier, person, status, eventId, data])
 
-  const activeFilters = [month, eventId, category, supplier, person, status, search.trim()].filter(Boolean).length
+  const activeFilters = visao === 'eventos'
+    ? [month, evStatus, search.trim()].filter(Boolean).length
+    : [month, eventId, category, supplier, person, status, search.trim()].filter(Boolean).length
 
   function clearFilters() {
-    setMonth(''); setEventId(''); setCategory(''); setSupplier(''); setPerson(''); setStatus(''); setSearch('')
+    setMonth(''); setEventId(''); setCategory(''); setSupplier(''); setPerson(''); setStatus(''); setSearch(''); setEvStatus('')
   }
 
   if (!canViewFinancialSummary(accessRole)) {
@@ -167,13 +225,261 @@ export default function FinanceDashboard() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl md:text-3xl font-extrabold">Financeiro</h1>
-          <p className="text-beetz-dark/60 mt-1">Para onde o dinheiro foi — por evento, categoria, fornecedor e pessoa.</p>
+          <p className="text-beetz-dark/60 mt-1 hidden sm:block">O raio-X de cada evento — e pra onde o dinheiro foi.</p>
         </div>
         <Link to="/financeiro/despesas" className="text-sm font-semibold text-beetz-dark/70 hover:text-beetz-dark border border-beetz-dark/15 px-4 py-2 rounded-xl">
           Lançar despesas →
         </Link>
       </div>
 
+      {/* Barra de comando: GRUDA no topo na rolagem — visão, busca e filtros
+          sempre à mão, sem subir a tela (a dor da versão anterior). A sangria
+          -mx-4 é IGUAL ao p-4 do container no mobile: cola na borda sem vazar. */}
+      <div className="sticky top-12 z-20 bg-beetz-gray/95 backdrop-blur-sm -mx-4 px-4 md:mx-0 md:px-0 py-2 space-y-2">
+        <div className="flex items-center gap-2">
+          <div className="flex bg-white rounded-xl p-1 border border-beetz-dark/10 shrink-0">
+            <button
+              onClick={() => setVisao('eventos')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-colors ${visao === 'eventos' ? 'bg-beetz-dark text-white' : 'text-beetz-dark/50'}`}
+            >
+              Por evento
+            </button>
+            <button
+              onClick={() => setVisao('despesas')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-colors ${visao === 'despesas' ? 'bg-beetz-dark text-white' : 'text-beetz-dark/50'}`}
+            >
+              Despesas
+            </button>
+          </div>
+          <div className="relative flex-1 min-w-0">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-beetz-dark/30" />
+            <input
+              placeholder={visao === 'eventos' ? 'Buscar evento...' : 'Buscar descrição, fornecedor, pessoa...'}
+              value={search} onChange={(e) => setSearch(e.target.value)}
+              className={`${inputClass} w-full min-w-0 pl-9`}
+            />
+          </div>
+          <button
+            onClick={() => setShowFilters((v) => !v)}
+            className={`shrink-0 flex items-center gap-1.5 text-sm font-semibold px-3 py-2 rounded-xl border transition-colors ${
+              showFilters || activeFilters > 0
+                ? 'bg-beetz-dark text-white border-beetz-dark'
+                : 'bg-white text-beetz-dark/70 border-beetz-dark/10 hover:bg-beetz-gray'
+            }`}
+          >
+            <Filter size={14} /><span className="hidden sm:inline">Filtros</span>
+            {activeFilters > 0 && (
+              <span className="bg-beetz-yellow text-beetz-dark text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
+                {activeFilters}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {showFilters && (visao === 'eventos' ? (
+          <div className="bg-white rounded-2xl p-3 border border-beetz-dark/5 shadow-soft grid grid-cols-2 gap-2">
+            <select value={month} onChange={(e) => setMonth(e.target.value)} className={`${inputClass} min-w-0`}>
+              <option value="">Todos os meses</option>
+              {mesesEventos.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
+            </select>
+            <select value={evStatus} onChange={(e) => setEvStatus(e.target.value)} className={`${inputClass} min-w-0`}>
+              <option value="">Todos os status</option>
+              {statusEventos.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+            {activeFilters > 0 && (
+              <button onClick={clearFilters} className="col-span-2 text-xs font-semibold text-beetz-dark/50 hover:text-beetz-dark flex items-center gap-1 justify-end">
+                <X size={12} /> Limpar filtros
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="bg-white rounded-2xl p-4 border border-beetz-dark/5 shadow-soft grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
+            <select value={month} onChange={(e) => setMonth(e.target.value)} className={`${inputClass} min-w-0`}>
+              <option value="">Todos os meses</option>
+              {options.months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
+            </select>
+            <select value={eventId} onChange={(e) => setEventId(e.target.value)} className={`${inputClass} min-w-0`}>
+              <option value="">Todos os eventos</option>
+              {data?.events.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+            </select>
+            <select value={category} onChange={(e) => setCategory(e.target.value)} className={`${inputClass} min-w-0`}>
+              <option value="">Todas as categorias</option>
+              {options.categories.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select value={supplier} onChange={(e) => setSupplier(e.target.value)} className={`${inputClass} min-w-0`}>
+              <option value="">Todos os fornecedores</option>
+              {options.suppliers.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <select value={person} onChange={(e) => setPerson(e.target.value)} className={`${inputClass} min-w-0`}>
+              <option value="">Todos os colaboradores</option>
+              {options.people.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+            <select value={status} onChange={(e) => setStatus(e.target.value)} className={`${inputClass} min-w-0`}>
+              <option value="">Todos os status</option>
+              {options.statuses.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+            {activeFilters > 0 && (
+              <button onClick={clearFilters} className="col-span-2 sm:col-span-3 text-xs font-semibold text-beetz-dark/50 hover:text-beetz-dark flex items-center gap-1 justify-end">
+                <X size={12} /> Limpar filtros
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* ============ VISÃO POR EVENTO: o P&L de cada festa ============ */}
+      {visao === 'eventos' && (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="bg-beetz-dark text-white rounded-2xl p-4">
+              <p className="text-2xl font-extrabold leading-none">{formatMoney(totaisEv.fat)}</p>
+              <p className="text-xs text-white/60 mt-1.5">Faturado (PDV real)</p>
+            </div>
+            <div className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5">
+              <p className="text-2xl font-extrabold leading-none">{formatMoney(totaisEv.desp)}</p>
+              <p className="text-xs text-beetz-dark/50 mt-1.5">Despesas</p>
+            </div>
+            <div className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5">
+              <p className={`text-2xl font-extrabold leading-none ${totaisEv.res >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                {formatMoney(totaisEv.res)}
+              </p>
+              <p className="text-xs text-beetz-dark/50 mt-1.5">Resultado (fat − desp)</p>
+            </div>
+            <div className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5">
+              <p className="text-2xl font-extrabold leading-none">{formatMoney(totaisEv.com)}</p>
+              <p className="text-xs text-beetz-dark/50 mt-1.5">Comissões · caixas {formatMoney(totaisEv.receb)}</p>
+            </div>
+          </div>
+
+          {eventosSemPdv > 0 && (
+            <p className="text-xs text-beetz-dark/50 bg-beetz-yellow/15 border border-beetz-yellow/40 rounded-xl px-3 py-2">
+              ⚠️ {eventosSemPdv} evento(s) concluído(s) sem relatório de PDV importado — o faturado deles está zerado
+              aqui até subir o CSV em Evento → Produtos.
+            </p>
+          )}
+
+          {/* Celular: cards com os 3 números que decidem; toque abre o evento. */}
+          <div className="md:hidden space-y-3">
+            {eventosFiltrados.map((r) => (
+              <Link key={r.id} to={`/eventos/${r.id}`} className="block bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5 min-w-0 overflow-hidden">
+                <div className="flex items-center gap-3">
+                  {r.flyer_url ? (
+                    <img src={r.flyer_url} alt="" className="w-11 h-14 rounded-lg object-cover shrink-0 border border-beetz-dark/10" />
+                  ) : (
+                    <div className="w-11 h-14 rounded-lg dark-gradient flex items-center justify-center text-white text-lg shrink-0">🐝</div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold leading-snug truncate">{r.name}</p>
+                    <p className="text-[11px] text-beetz-dark/50">{fmtDataEv(r.event_date)} · {r.status}</p>
+                  </div>
+                  {r.margem !== null && (
+                    <span className={`shrink-0 text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                      r.margem >= 30 ? 'bg-green-100 text-green-700' : r.margem >= 0 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-600'
+                    }`}>
+                      {Math.round(r.margem)}%
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-3 gap-2 mt-3 text-center">
+                  <div className="bg-beetz-gray/60 rounded-xl py-2">
+                    <p className="text-sm font-extrabold">{formatMoney(r.pdv_faturado)}</p>
+                    <p className="text-[10px] text-beetz-dark/45">Faturado</p>
+                  </div>
+                  <div className="bg-beetz-gray/60 rounded-xl py-2">
+                    <p className="text-sm font-extrabold">{formatMoney(r.despesas)}</p>
+                    <p className="text-[10px] text-beetz-dark/45">Despesas</p>
+                  </div>
+                  <div className="bg-beetz-gray/60 rounded-xl py-2">
+                    <p className={`text-sm font-extrabold ${r.resultado >= 0 ? 'text-green-700' : 'text-red-600'}`}>{formatMoney(r.resultado)}</p>
+                    <p className="text-[10px] text-beetz-dark/45">Resultado</p>
+                  </div>
+                </div>
+              </Link>
+            ))}
+            {eventosFiltrados.length === 0 && (
+              <p className="text-sm text-beetz-dark/50 bg-white rounded-2xl p-6 text-center border border-beetz-dark/5">Nenhum evento com esses filtros.</p>
+            )}
+          </div>
+
+          {/* Desktop: a tabela completa, ordenável por qualquer coluna. */}
+          <div className="hidden md:block bg-white rounded-2xl shadow-soft border border-beetz-dark/5 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-[11px] uppercase tracking-wide text-beetz-dark/40 border-b border-beetz-dark/10">
+                  {([
+                    ['name', 'Evento', false],
+                    ['event_date', 'Data', false],
+                    ['pdv_faturado', 'Faturado (PDV)', true],
+                    ['recebido_caixas', 'Recebido caixas', true],
+                    ['despesas', 'Despesas', true],
+                    ['comissoes', 'Comissões', true],
+                    ['resultado', 'Resultado', true]
+                  ] as [EvSortKey, string, boolean][]).map(([k, label, right]) => (
+                    <th
+                      key={k}
+                      onClick={() => setEvSort((s) => ({ key: k, asc: s.key === k ? !s.asc : false }))}
+                      className={`px-4 py-3 cursor-pointer select-none hover:text-beetz-dark ${right ? 'text-right' : ''}`}
+                    >
+                      {label}{evSort.key === k ? (evSort.asc ? ' ↑' : ' ↓') : ''}
+                    </th>
+                  ))}
+                  <th className="px-4 py-3 text-right">Margem</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-beetz-dark/5">
+                {eventosFiltrados.map((r) => (
+                  <tr key={r.id} className="hover:bg-beetz-gray/50">
+                    <td className="px-4 py-3">
+                      <Link to={`/eventos/${r.id}`} className="font-semibold hover:underline">{r.name}</Link>
+                      <span className="ml-2 text-[10px] text-beetz-dark/40">{r.status}</span>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-beetz-dark/60">{fmtDataEv(r.event_date)}</td>
+                    <td className="px-4 py-3 text-right font-semibold">{r.pdv_faturado > 0 ? formatMoneyFull(r.pdv_faturado) : <span className="text-beetz-dark/30">—</span>}</td>
+                    <td className="px-4 py-3 text-right">{r.recebido_caixas > 0 ? formatMoneyFull(r.recebido_caixas) : <span className="text-beetz-dark/30">—</span>}</td>
+                    <td className="px-4 py-3 text-right">{r.despesas > 0 ? formatMoneyFull(r.despesas) : <span className="text-beetz-dark/30">—</span>}</td>
+                    <td className="px-4 py-3 text-right">{r.comissoes > 0 ? formatMoneyFull(r.comissoes) : <span className="text-beetz-dark/30">—</span>}</td>
+                    <td className={`px-4 py-3 text-right font-bold ${r.resultado > 0 ? 'text-green-700' : r.resultado < 0 ? 'text-red-600' : 'text-beetz-dark/30'}`}>
+                      {r.pdv_faturado > 0 || r.despesas > 0 ? formatMoneyFull(r.resultado) : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {r.margem !== null ? (
+                        <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                          r.margem >= 30 ? 'bg-green-100 text-green-700' : r.margem >= 0 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-600'
+                        }`}>
+                          {Math.round(r.margem)}%
+                        </span>
+                      ) : <span className="text-beetz-dark/30">—</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-beetz-dark/10 font-extrabold bg-beetz-gray/40">
+                  <td className="px-4 py-3" colSpan={2}>Total · {eventosFiltrados.length} evento(s)</td>
+                  <td className="px-4 py-3 text-right">{formatMoneyFull(totaisEv.fat)}</td>
+                  <td className="px-4 py-3 text-right">{formatMoneyFull(totaisEv.receb)}</td>
+                  <td className="px-4 py-3 text-right">{formatMoneyFull(totaisEv.desp)}</td>
+                  <td className="px-4 py-3 text-right">{formatMoneyFull(totaisEv.com)}</td>
+                  <td className={`px-4 py-3 text-right ${totaisEv.res >= 0 ? 'text-green-700' : 'text-red-600'}`}>{formatMoneyFull(totaisEv.res)}</td>
+                  <td className="px-4 py-3" />
+                </tr>
+              </tfoot>
+            </table>
+            {eventosFiltrados.length === 0 && (
+              <p className="text-sm text-beetz-dark/50 p-6 text-center">Nenhum evento com esses filtros.</p>
+            )}
+          </div>
+
+          <p className="text-[11px] text-beetz-dark/35">
+            Faturado = relatório oficial do PDV (Evento → Produtos). Resultado = faturado − despesas não canceladas.
+            Recebido caixas e comissões vêm dos recebimentos de garçons/caixas (sem os rejeitados).
+          </p>
+        </>
+      )}
+
+      {/* ============ VISÃO DESPESAS: o painel clássico ============ */}
+      {visao === 'despesas' && (
+        <>
       {/* A receita quase não é lançada — melhor dizer isso na cara do que
           mostrar um "lucro" calculado em cima de zero. */}
       {data && data.eventsWithoutRevenue > 0 && (
@@ -208,69 +514,6 @@ export default function FinanceDashboard() {
           <p className="text-2xl font-extrabold leading-none">{totals.pessoas}</p>
           <p className="text-xs text-beetz-dark/50 mt-1.5">Pessoas · {totals.fornecedores} fornecedor(es)</p>
         </div>
-      </div>
-
-      {/* ---------- Filtros ---------- */}
-      <div>
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          <div className="relative flex-1 min-w-[200px]">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-beetz-dark/30" />
-            <input
-              placeholder="Buscar por descrição, evento, fornecedor ou pessoa"
-              value={search} onChange={(e) => setSearch(e.target.value)}
-              className={`${inputClass} w-full pl-9`}
-            />
-          </div>
-          <button
-            onClick={() => setShowFilters((v) => !v)}
-            className={`flex items-center gap-1.5 text-sm font-semibold px-3.5 py-2 rounded-xl border transition-colors ${
-              showFilters || activeFilters > 0
-                ? 'bg-beetz-dark text-white border-beetz-dark'
-                : 'bg-white text-beetz-dark/70 border-beetz-dark/10 hover:bg-beetz-gray'
-            }`}
-          >
-            <Filter size={14} /> Filtros
-            {activeFilters > 0 && (
-              <span className="bg-beetz-yellow text-beetz-dark text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
-                {activeFilters}
-              </span>
-            )}
-          </button>
-        </div>
-
-        {showFilters && (
-          <div className="bg-white rounded-2xl p-4 border border-beetz-dark/5 shadow-soft grid sm:grid-cols-3 gap-3">
-            <select value={month} onChange={(e) => setMonth(e.target.value)} className={inputClass}>
-              <option value="">Todos os meses</option>
-              {options.months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
-            </select>
-            <select value={eventId} onChange={(e) => setEventId(e.target.value)} className={inputClass}>
-              <option value="">Todos os eventos</option>
-              {data?.events.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-            </select>
-            <select value={category} onChange={(e) => setCategory(e.target.value)} className={inputClass}>
-              <option value="">Todas as categorias</option>
-              {options.categories.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <select value={supplier} onChange={(e) => setSupplier(e.target.value)} className={inputClass}>
-              <option value="">Todos os fornecedores</option>
-              {options.suppliers.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-            <select value={person} onChange={(e) => setPerson(e.target.value)} className={inputClass}>
-              <option value="">Todos os colaboradores</option>
-              {options.people.map((p) => <option key={p} value={p}>{p}</option>)}
-            </select>
-            <select value={status} onChange={(e) => setStatus(e.target.value)} className={inputClass}>
-              <option value="">Todos os status</option>
-              {options.statuses.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-            {activeFilters > 0 && (
-              <button onClick={clearFilters} className="sm:col-span-3 text-xs font-semibold text-beetz-dark/50 hover:text-beetz-dark flex items-center gap-1 justify-end">
-                <X size={12} /> Limpar filtros
-              </button>
-            )}
-          </div>
-        )}
       </div>
 
       {/* ---------- Gráfico principal, com seletor de ângulo ---------- */}
@@ -357,6 +600,8 @@ export default function FinanceDashboard() {
           </div>
         )}
       </div>
+        </>
+      )}
     </div>
   )
 }

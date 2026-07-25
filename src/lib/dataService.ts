@@ -1667,6 +1667,39 @@ export async function updateRolePermission(
   return data as RolePermissions
 }
 
+// ---------- Financeiro: P&L por evento ----------
+// Uma linha por evento, agregada no banco: faturado (PDV oficial), recebido
+// dos caixas, comissões e despesas. O resultado nasce no front (fat − desp).
+export interface EventFinanceRow {
+  id: string
+  name: string
+  event_date: string
+  status: string
+  flyer_url: string | null
+  tax_percentage: number | null
+  pdv_faturado: number
+  recebido_caixas: number
+  comissoes: number
+  despesas: number
+  qtd_despesas: number
+  qtd_recebimentos: number
+}
+
+export async function getEventFinanceRows(): Promise<EventFinanceRow[]> {
+  if (isDemoMode) return []
+  const { data, error } = await supabase.rpc('finance_event_rows')
+  if (error) throw error
+  return ((data ?? []) as any[]).map((r) => ({
+    ...r,
+    pdv_faturado: Number(r.pdv_faturado ?? 0),
+    recebido_caixas: Number(r.recebido_caixas ?? 0),
+    comissoes: Number(r.comissoes ?? 0),
+    despesas: Number(r.despesas ?? 0),
+    qtd_despesas: Number(r.qtd_despesas ?? 0),
+    qtd_recebimentos: Number(r.qtd_recebimentos ?? 0)
+  })) as EventFinanceRow[]
+}
+
 // ---------- Configurações: Regras do /cadastro ----------
 // Nada aqui altera dados de perfis — só as regras do formulário.
 
