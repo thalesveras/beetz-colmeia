@@ -4,7 +4,7 @@ import {
 } from 'lucide-react'
 import {
   canApproveUsers, canManageUsers, canViewBirthdays, canViewFinancialSummary, canViewHiveMap,
-  canViewPraiseInsights, canViewRanking, canViewStockTab, canViewTeamDirectory
+  canViewPraiseInsights, canViewRanking, canViewStockTab, canViewTeamDirectory, getRolePermissionsMap
 } from './permissions'
 import type { AccessRole } from './permissions'
 
@@ -108,6 +108,61 @@ export function navGroupsFor(role: AccessRole): NavGroup[] {
     .map((g) => ({ ...g, items: [...g.items].sort(byLabel) }))
     .filter((g) => g.items.length > 0)
     .sort(byGroupLabel)
+}
+
+// ---------------------------------------------------------------------------
+// Barra inferior do celular: 4 atalhos + "Mais". A Diretoria pode montar a
+// barra de cada perfil em Configurações (role_permissions.mobile_nav); sem
+// escolha salva, vale o padrão por cargo. Toda opção respeita a permissão do
+// cargo — escolher "Financeiro" pra quem não pode ver não fura a trava: o
+// item é filtrado aqui e as páginas continuam barrando por dentro.
+// ---------------------------------------------------------------------------
+
+export interface MobileNavOption {
+  key: string
+  item: NavItem
+  allow: (role: AccessRole) => boolean
+}
+
+export const MOBILE_NAV_OPTIONS: MobileNavOption[] = [
+  { key: 'inicio', item: HOME_LINK, allow: () => true },
+  { key: 'eventos', item: { to: '/eventos', label: 'Eventos', icon: CalendarDays }, allow: () => true },
+  { key: 'escala', item: { to: '/escala', label: 'Escala', icon: ClipboardList }, allow: () => true },
+  { key: 'perfil', item: { to: '/perfil/me', label: 'Perfil', icon: UserCircle }, allow: () => true },
+  { key: 'turma', item: { to: '/turma', label: 'Turma', icon: Users }, allow: canViewTeamDirectory },
+  { key: 'ranking', item: { to: '/ranking', label: 'Ranking', icon: Trophy }, allow: canViewRanking },
+  { key: 'mapa', item: { to: '/mapa', label: 'Mapa', icon: Hexagon }, allow: canViewHiveMap },
+  { key: 'aniversariantes', item: { to: '/aniversariantes', label: 'Nivers', icon: Cake }, allow: canViewBirthdays },
+  { key: 'estoque', item: { to: '/estoque', label: 'Estoque', icon: Package }, allow: canViewStockTab },
+  { key: 'financeiro', item: { to: '/financeiro', label: 'Financeiro', icon: Wallet }, allow: canViewFinancialSummary },
+  { key: 'recebimentos', item: { to: '/financeiro/recebimentos', label: 'Receber', icon: Receipt }, allow: canViewFinancialSummary },
+  { key: 'admin', item: { to: '/admin', label: 'Admin', icon: ShieldCheck }, allow: (r) => canManageUsers(r) || canApproveUsers(r) }
+]
+
+// Padrões por cargo. Fora da Diretoria e do Operacional, o 4º atalho agora é
+// o PERFIL da própria pessoa — a Turma continua a um toque, dentro do "Mais".
+export const DEFAULT_MOBILE_NAV: Record<string, string[]> = {
+  diretoria: ['inicio', 'eventos', 'financeiro', 'admin'],
+  operacional: ['inicio', 'eventos', 'estoque', 'escala']
+}
+const FALLBACK_MOBILE_NAV = ['inicio', 'eventos', 'escala', 'perfil']
+
+export function defaultMobileNavKeys(role: AccessRole): string[] {
+  return DEFAULT_MOBILE_NAV[role] ?? FALLBACK_MOBILE_NAV
+}
+
+export function mobileNavFor(role: AccessRole): NavItem[] {
+  const salvo = getRolePermissionsMap()[role]?.mobile_nav
+  const keys = (salvo && salvo.length > 0 ? salvo : defaultMobileNavKeys(role)).slice(0, 4)
+  const items = keys
+    .map((k) => MOBILE_NAV_OPTIONS.find((o) => o.key === k))
+    .filter((o): o is MobileNavOption => Boolean(o && o.allow(role)))
+    .map((o) => o.item)
+  // Se a escolha salva ficou toda sem permissão (cargo mudou), volta pro
+  // padrão de fábrica — barra nunca aparece vazia.
+  return items.length > 0
+    ? items
+    : FALLBACK_MOBILE_NAV.map((k) => MOBILE_NAV_OPTIONS.find((o) => o.key === k)!.item)
 }
 
 // O item ativo: o /financeiro (Painel) casaria com /financeiro/despesas se a

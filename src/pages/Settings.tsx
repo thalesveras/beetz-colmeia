@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import Papa from 'papaparse'
 import {
-  AlertTriangle, Image, Plus, RefreshCw, Search, Upload, X, Save, Settings as SettingsIcon, ShieldAlert, Trash2,
+  AlertTriangle, Image, MoreHorizontal, Plus, RefreshCw, Search, Upload, X, Save, Settings as SettingsIcon, ShieldAlert, Trash2,
   Users, ListChecks, Layers, Trophy, Palette, Database, Mail, Send, Wallet
 } from 'lucide-react'
+import { defaultMobileNavKeys, MOBILE_NAV_OPTIONS } from '../lib/navigation'
 import { useAuth } from '../contexts/AuthContext'
 import StaffingRolesSection from '../components/settings/StaffingRolesSection'
 import { useConfig } from '../contexts/ConfigContext'
@@ -252,6 +253,15 @@ function RolePermissionsSection({ onSaved }: { onSaved: () => void }) {
     setSavingKey(null)
   }
 
+  // Barra do celular deste perfil: null = padrão do sistema pro cargo.
+  async function saveMobileNav(keys: string[] | null) {
+    setSavingKey('mobile_nav')
+    await updateRolePermission(selectedRole, { mobile_nav: keys })
+    await load()
+    await onSaved()
+    setSavingKey(null)
+  }
+
   return (
     <section className={cardClass}>
       <h2 className="text-lg font-bold mb-1">Perfis de acesso</h2>
@@ -306,6 +316,92 @@ function RolePermissionsSection({ onSaved }: { onSaved: () => void }) {
         <p className="text-sm text-beetz-dark/50">Carregando...</p>
       ) : (
         <div className="space-y-5">
+          {/* ---- Barra do celular deste perfil: 4 atalhos + prévia ao vivo ---- */}
+          <div>
+            <h3 className="text-xs font-bold uppercase tracking-wide text-beetz-dark/40 mb-2">Barra do celular</h3>
+            <div className="border border-beetz-dark/5 rounded-xl p-4 space-y-3">
+              <p className="text-sm text-beetz-dark/60">
+                Os 4 atalhos fixos da barra inferior no celular de quem tem este perfil. A ordem do toque é a
+                ordem na barra; o 5º lugar é sempre o "Mais".
+                {!current.mobile_nav?.length && <span className="ml-1 text-beetz-dark/40">(usando o padrão do sistema)</span>}
+              </p>
+              {(() => {
+                const efetivas = (current.mobile_nav?.length ? current.mobile_nav : defaultMobileNavKeys(selectedRole)).slice(0, 4)
+                const preview = efetivas.flatMap((k) => {
+                  const o = MOBILE_NAV_OPTIONS.find((x) => x.key === k)
+                  return o && o.allow(selectedRole) ? [o] : []
+                })
+                return (
+                  <>
+                    {/* prévia: a barra como ela vai aparecer no aparelho */}
+                    <div className="bg-beetz-dark rounded-2xl px-2 pt-2.5 pb-2 flex justify-around max-w-sm">
+                      {preview.map((o) => {
+                        const I = o.item.icon
+                        return (
+                          <span key={o.key} className="flex flex-col items-center gap-1 text-[10px] font-medium text-white/70 flex-1 min-w-0">
+                            <I size={18} /> <span className="truncate max-w-full">{o.item.label}</span>
+                          </span>
+                        )
+                      })}
+                      <span className="flex flex-col items-center gap-1 text-[10px] font-medium text-white/40 flex-1">
+                        <MoreHorizontal size={18} /> Mais
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {MOBILE_NAV_OPTIONS.map((o) => {
+                        const permitido = o.allow(selectedRole)
+                        const idx = efetivas.indexOf(o.key)
+                        const ligado = idx >= 0
+                        const I = o.item.icon
+                        return (
+                          <button
+                            key={o.key}
+                            disabled={!permitido || savingKey === 'mobile_nav'}
+                            title={permitido ? undefined : 'Este perfil não tem permissão pra essa tela'}
+                            onClick={() => {
+                              const novas = ligado
+                                ? efetivas.filter((k) => k !== o.key)
+                                : efetivas.length >= 4 ? efetivas : [...efetivas, o.key]
+                              if (!ligado && novas.length === efetivas.length) return
+                              saveMobileNav(novas)
+                            }}
+                            className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg border transition-colors ${
+                              ligado
+                                ? 'bg-beetz-yellow border-beetz-yellow text-beetz-dark'
+                                : 'bg-white border-beetz-dark/15 text-beetz-dark/70 hover:border-beetz-dark/30'
+                            } ${!permitido ? 'opacity-35' : ''}`}
+                          >
+                            {ligado && (
+                              <span className="w-4 h-4 rounded-full bg-beetz-dark text-white text-[10px] font-bold flex items-center justify-center">
+                                {idx + 1}
+                              </span>
+                            )}
+                            <I size={13} /> {o.item.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      {efetivas.length < 4 && (
+                        <p className="text-xs text-amber-700">Dá pra escolher mais {4 - efetivas.length} — a barra rende mais cheia.</p>
+                      )}
+                      {current.mobile_nav && current.mobile_nav.length > 0 && (
+                        <button
+                          onClick={() => saveMobileNav(null)}
+                          disabled={savingKey === 'mobile_nav'}
+                          className="text-xs font-semibold text-beetz-dark/50 hover:text-beetz-dark underline"
+                        >
+                          Voltar ao padrão do sistema
+                        </button>
+                      )}
+                      {savingKey === 'mobile_nav' && <span className="text-xs text-beetz-dark/40">Salvando...</span>}
+                    </div>
+                  </>
+                )
+              })()}
+            </div>
+          </div>
+
           {PERMISSION_GROUPS.map((group) => (
             <div key={group.title}>
               <h3 className="text-xs font-bold uppercase tracking-wide text-beetz-dark/40 mb-2">{group.title}</h3>

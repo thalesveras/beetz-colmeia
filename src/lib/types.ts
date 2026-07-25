@@ -858,6 +858,9 @@ export interface RolePermissions {
   // Medalha de perfil completo: parabéns pessoal, uma vez na vida. Opcional
   // porque defaults antigos não conhecem o campo (fallback: ligado).
   can_receive_alert_profile_complete?: boolean
+  // Barra inferior do celular: até 4 chaves do catálogo (navigation.ts).
+  // null/ausente = padrão do sistema pro cargo. Editável em Configurações.
+  mobile_nav?: string[] | null
   label: string
   builtin: boolean
   updated_at: string

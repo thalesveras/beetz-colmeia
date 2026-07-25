@@ -1,49 +1,16 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
-import {
-  Home, Users, CalendarDays, Package, ShieldCheck, Wallet, MoreHorizontal, ClipboardList, X, LogOut,
-  LayoutGrid, List
-} from 'lucide-react'
+import { MoreHorizontal, X, LogOut, LayoutGrid, List } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
-import { groupHasActive, isItemActive, navGroupsFor, INFO_LINK } from '../../lib/navigation'
-import type { NavItem } from '../../lib/navigation'
-import type { AccessRole } from '../../lib/permissions'
+import { groupHasActive, isItemActive, mobileNavFor, navGroupsFor, INFO_LINK } from '../../lib/navigation'
 
-// A barra do celular só cabe 5 alvos de toque de forma confortável — antes
-// eram até 10 itens espremidos com fonte de 9px e rolagem lateral. Agora são
-// 4 fixos + "Mais", e os 4 fixos mudam conforme o cargo: quem é da diretoria
-// vive no Financeiro, quem é do bar vive no Estoque, e a turma vive na Escala.
+// A barra do celular só cabe 5 alvos de toque de forma confortável: 4 fixos
+// + "Mais". Os 4 saem de mobileNavFor (navigation.ts): a Diretoria monta a
+// barra de cada perfil em Configurações; sem escolha salva, vale o padrão do
+// cargo — e fora da gestão o 4º atalho é o Perfil da própria pessoa.
 //
 // Estes 4 NÃO são alfabéticos de propósito: é atalho por frequência de uso, não
 // índice. O alfabético vale pra folha do "Mais", que é onde se procura algo.
-function primaryLinksFor(role: AccessRole): NavItem[] {
-  switch (role) {
-    case 'diretoria':
-      return [
-        { to: '/dashboard', label: 'Início', icon: Home },
-        { to: '/eventos', label: 'Eventos', icon: CalendarDays },
-        { to: '/financeiro', label: 'Financeiro', icon: Wallet },
-        { to: '/admin', label: 'Admin', icon: ShieldCheck }
-      ]
-    case 'operacional':
-      return [
-        { to: '/dashboard', label: 'Início', icon: Home },
-        { to: '/eventos', label: 'Eventos', icon: CalendarDays },
-        { to: '/estoque', label: 'Estoque', icon: Package },
-        { to: '/escala', label: 'Escala', icon: ClipboardList }
-      ]
-    // Garçom e caixa trabalham por evento: escala é a tela do dia a dia deles.
-    case 'garcom':
-    case 'caixa':
-    default:
-      return [
-        { to: '/dashboard', label: 'Início', icon: Home },
-        { to: '/eventos', label: 'Eventos', icon: CalendarDays },
-        { to: '/escala', label: 'Escala', icon: ClipboardList },
-        { to: '/turma', label: 'Turma', icon: Users }
-      ]
-  }
-}
 
 export default function MobileNav() {
   const { accessRole, signOut } = useAuth()
@@ -60,7 +27,7 @@ export default function MobileNav() {
     try { localStorage.setItem('colmeia:menu-view', v) } catch { /* modo privado antigo: só não lembra */ }
   }
 
-  const primary = primaryLinksFor(accessRole)
+  const primary = mobileNavFor(accessRole)
 
   // Mesma lista e mesmas permissões do desktop; aqui só tira o que já está fixo
   // na barra pra não aparecer duas vezes, e acrescenta Informações no fim.
