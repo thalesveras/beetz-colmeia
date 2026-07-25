@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CalendarDays, Clock3, MapPin, Plus } from 'lucide-react'
 import { listEvents } from '../../lib/dataService'
@@ -68,6 +68,9 @@ export default function EventsList() {
   const [recorte, setRecorte] = useState<Recorte>('proximos')
   const [statusFilter, setStatusFilter] = useState('')
   const [search, setSearch] = useState('')
+  // Carrossel do herói: slide visível + trilho pra rolar pelos pontinhos.
+  const [slideHeroi, setSlideHeroi] = useState(0)
+  const trilhoHeroi = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => { listEvents().then((e) => { setEvents(e); setLoading(false) }) }, [])
 
@@ -84,12 +87,15 @@ export default function EventsList() {
   )
   const deHoje = useMemo(() => futuros.filter((e) => e.event_date === hoje), [futuros, hoje])
 
-  // O herói: o evento de hoje (ou o próximo vivo). Some quando a pessoa está
-  // buscando ou em outro recorte — herói é boas-vindas, não obstáculo.
-  const heroi = useMemo(
-    () => futuros.find((e) => e.status !== 'Cancelado') ?? null,
-    [futuros]
-  )
+  // Os heróis: TODOS os eventos de hoje (dias de festa dupla viram carrossel);
+  // sem evento hoje, o próximo vivo assume sozinho. Somem quando a pessoa
+  // está buscando ou em outro recorte — herói é boas-vindas, não obstáculo.
+  const herois = useMemo(() => {
+    const hoje = deHoje.filter((e) => e.status !== 'Cancelado')
+    if (hoje.length > 0) return hoje
+    const prox = futuros.find((e) => e.status !== 'Cancelado')
+    return prox ? [prox] : []
+  }, [deHoje, futuros])
 
   const lista = useMemo(() => {
     let base: EventItem[]
@@ -119,7 +125,7 @@ export default function EventsList() {
     return g
   }, [lista])
 
-  const mostrarHeroi = heroi && recorte === 'proximos' && !search.trim() && !statusFilter
+  const mostrarHeroi = herois.length > 0 && recorte === 'proximos' && !search.trim() && !statusFilter
 
   const pills: { key: Recorte; label: string; count: number; destaque?: boolean }[] = [
     { key: 'proximos', label: 'Próximos', count: futuros.length },
@@ -140,34 +146,67 @@ export default function EventsList() {
         </Link>
       </div>
 
-      {/* O herói: o próximo compromisso da colmeia, impossível de não ver. */}
-      {!loading && mostrarHeroi && heroi && (() => {
-        const dias = diasAte(heroi.event_date)
-        const dist = distancia(dias)
-        return (
-          <Link
-            to={`/eventos/${heroi.id}`}
-            className="block rounded-3xl overflow-hidden relative dark-gradient text-white shadow-glow"
+      {/* Os heróis: os compromissos do dia, impossíveis de não ver — mais de
+          um evento hoje vira carrossel de arrastar, com pontinhos. Rolagem
+          contida no trilho (nada vaza pra página). */}
+      {!loading && mostrarHeroi && (
+        <div>
+          <div
+            ref={trilhoHeroi}
+            onScroll={(ev) => {
+              const el = ev.currentTarget
+              setSlideHeroi(Math.round(el.scrollLeft / (el.clientWidth + 12)))
+            }}
+            className="flex gap-3 overflow-x-auto snap-x snap-mandatory no-scrollbar"
           >
-            {heroi.flyer_url && (
-              <img src={heroi.flyer_url} alt="" className="absolute inset-0 w-full h-full object-cover opacity-35" />
-            )}
-            <div className="relative p-5 sm:p-6">
-              <span className={`inline-block text-xs font-extrabold px-3 py-1 rounded-full ${dias === 0 ? 'bg-beetz-yellow text-beetz-dark animate-pulse' : 'bg-white/15 text-beetz-yellow'}`}>
-                {dias === 0 ? 'É HOJE 🐝' : `Próximo evento · ${dist.label}`}
-              </span>
-              <h2 className="text-xl sm:text-2xl font-extrabold mt-2 leading-tight">{heroi.name}</h2>
-              <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-sm text-white/70">
-                <span className="flex items-center gap-1.5"><CalendarDays size={14} /> {dataCurta(heroi.event_date)}</span>
-                {heroi.start_time && <span className="flex items-center gap-1.5"><Clock3 size={14} /> {heroi.start_time}</span>}
-                {(heroi.location || heroi.city) && (
-                  <span className="flex items-center gap-1.5"><MapPin size={14} /> {[heroi.location, heroi.city].filter(Boolean).join(' · ')}</span>
-                )}
-              </div>
+            {herois.map((h) => {
+              const dias = diasAte(h.event_date)
+              const dist = distancia(dias)
+              return (
+                <Link
+                  key={h.id}
+                  to={`/eventos/${h.id}`}
+                  className="block rounded-3xl overflow-hidden relative dark-gradient text-white shadow-glow snap-center shrink-0 w-full"
+                >
+                  {h.flyer_url && (
+                    <img src={h.flyer_url} alt="" className="absolute inset-0 w-full h-full object-cover opacity-35" />
+                  )}
+                  <div className="relative p-5 sm:p-6">
+                    <span className={`inline-block text-xs font-extrabold px-3 py-1 rounded-full ${dias === 0 ? 'bg-beetz-yellow text-beetz-dark animate-pulse' : 'bg-white/15 text-beetz-yellow'}`}>
+                      {dias === 0 ? 'É HOJE 🐝' : `Próximo evento · ${dist.label}`}
+                    </span>
+                    <h2 className="text-xl sm:text-2xl font-extrabold mt-2 leading-tight">{h.name}</h2>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-sm text-white/70">
+                      <span className="flex items-center gap-1.5"><CalendarDays size={14} /> {dataCurta(h.event_date)}</span>
+                      {h.start_time && <span className="flex items-center gap-1.5"><Clock3 size={14} /> {h.start_time}</span>}
+                      {(h.location || h.city) && (
+                        <span className="flex items-center gap-1.5"><MapPin size={14} /> {[h.location, h.city].filter(Boolean).join(' · ')}</span>
+                      )}
+                    </div>
+                  </div>
+                </Link>
+              )
+            })}
+          </div>
+          {herois.length > 1 && (
+            <div className="flex justify-center items-center gap-1.5 mt-2.5">
+              {herois.map((h, i) => (
+                <button
+                  key={h.id}
+                  aria-label={`Ir para ${h.name}`}
+                  onClick={() => {
+                    const el = trilhoHeroi.current
+                    if (el) el.scrollTo({ left: i * (el.clientWidth + 12), behavior: 'smooth' })
+                  }}
+                  className={`h-2 rounded-full transition-all ${
+                    i === slideHeroi ? 'w-5 bg-beetz-dark' : 'w-2 bg-beetz-dark/25 hover:bg-beetz-dark/40'
+                  }`}
+                />
+              ))}
             </div>
-          </Link>
-        )
-      })()}
+          )}
+        </div>
+      )}
 
       {/* Recortes temporais: deslizam de lado no celular, uma linha só —
           rolagem CONTIDA na própria fileira (sem margens negativas: o
