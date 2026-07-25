@@ -115,13 +115,18 @@ export default function ProfilePage() {
       <div className="bg-white rounded-3xl shadow-soft border border-beetz-dark/5 overflow-hidden">
         {/* Capa: imagem da pessoa se tiver, senão o gradiente escuro padrão.
             Fica sempre ATRÁS da foto — o bloco de baixo é relative z-10. */}
-        <div className={`h-32 md:h-40 relative group ${profile.cover_url ? 'bg-beetz-dark' : 'dark-gradient'}`}>
-          {profile.cover_url && (
+        {/* Sem capa enviada, a faixa é CURTA no celular (um bloco preto de
+            128px comia um terço da tela) e ganha os favos da marca; com capa,
+            volta à altura cheia pra foto respirar. */}
+        <div className={`relative group ${profile.cover_url ? 'bg-beetz-dark h-32 md:h-40' : 'dark-gradient h-20 md:h-28'}`}>
+          {profile.cover_url ? (
             <img
               src={profile.cover_url}
               alt=""
               className="absolute inset-0 w-full h-full object-cover"
             />
+          ) : (
+            <div className="absolute inset-0 opacity-10 bg-honeycomb" style={{ backgroundSize: '24px 24px' }} />
           )}
           {/* Véu escuro embaixo: a foto e o nome vêm logo abaixo, e sem isso
               uma capa clara deixaria tudo ilegível. */}
@@ -169,7 +174,7 @@ export default function ProfilePage() {
         {/* relative z-10 mantém a foto e o conteúdo por cima da capa: a capa é
             position:relative (pro botão), e no CSS um elemento posicionado
             pinta por cima de irmãos estáticos mesmo vindo antes no HTML. */}
-        <div className="p-6 md:p-8 -mt-14 relative z-10">
+        <div className="p-5 md:p-8 -mt-14 relative z-10">
           {/* Anel branco: destaca a foto contra qualquer capa que a pessoa
               suba, clara ou escura. */}
           <div className="inline-block rounded-full ring-4 ring-white">
@@ -185,11 +190,13 @@ export default function ProfilePage() {
           </div>
 
           {!isOwnProfile && userId && canRecognize && (
-            <div className="flex flex-wrap gap-3 mt-6">
-              <button onClick={handleGiveHoney} className="flex items-center gap-2 honey-gradient text-beetz-dark font-bold px-5 py-2.5 rounded-xl hover:brightness-105 transition">
+            // No celular os dois dividem a linha meio a meio, altura de
+            // polegar; no desktop voltam ao tamanho natural.
+            <div className="flex gap-3 mt-6">
+              <button onClick={handleGiveHoney} className="flex-1 sm:flex-none flex items-center justify-center gap-2 honey-gradient text-beetz-dark font-bold px-5 py-3 sm:py-2.5 rounded-xl hover:brightness-105 transition">
                 🍯 Dar um Mel
               </button>
-              <button onClick={() => setShowComplimentBox((v) => !v)} className="flex items-center gap-2 bg-beetz-dark text-white font-bold px-5 py-2.5 rounded-xl hover:bg-black transition">
+              <button onClick={() => setShowComplimentBox((v) => !v)} className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-beetz-dark text-white font-bold px-5 py-3 sm:py-2.5 rounded-xl hover:bg-black transition">
                 💛 Elogiar
               </button>
             </div>
@@ -201,13 +208,18 @@ export default function ProfilePage() {
           {feedback && <p className="text-sm font-semibold text-beetz-dark mt-3">{feedback}</p>}
 
           {showComplimentBox && (
+            // min-w-0 no input + shrink-0 no botão: sem isso o placeholder
+            // longo impunha largura mínima e EXPULSAVA o "Enviar" da tela
+            // no celular (o clássico vazamento lateral).
             <div className="mt-4 flex gap-2">
               <input
                 value={complimentText} onChange={(e) => setComplimentText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleSendCompliment() }}
+                autoFocus
                 placeholder="Escreva um elogio rápido..."
-                className="flex-1 border border-beetz-dark/15 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow"
+                className="flex-1 min-w-0 border border-beetz-dark/15 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow"
               />
-              <button onClick={handleSendCompliment} className="bg-beetz-yellow font-semibold px-4 py-2 rounded-xl text-sm">Enviar</button>
+              <button onClick={handleSendCompliment} className="shrink-0 bg-beetz-yellow font-bold px-4 py-2.5 rounded-xl text-sm">Enviar</button>
             </div>
           )}
         </div>
