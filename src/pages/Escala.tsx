@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CalendarDays, Check, ClipboardList, Clock3, MapPin, X } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
@@ -12,6 +12,15 @@ function formatDate(iso: string) {
   const [y, m, d] = iso.split('-')
   return `${d}/${m}/${y}`
 }
+
+// "Hoje" no fuso do celular (nunca UTC — lição da home: depois das 21h o
+// evento da noite sumia). É a régua dos recortes temporais da Escala.
+function hojeISO() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+type RecorteEscala = 'hoje' | 'proximas' | 'passadas' | 'todas'
 
 const STATUS_STYLES: Record<StaffingApplicationStatus, string> = {
   Candidatado: 'bg-amber-100 text-amber-700',
@@ -38,6 +47,10 @@ export default function Escala() {
   // Filtro por evento: nasce da própria lista (só eventos que têm vaga),
   // com contagem — e some sozinho quando só existe um evento em jogo.
   const [filterEvent, setFilterEvent] = useState('')
+  // Recorte temporal: em dia de evento a tela JÁ ABRE em "Hoje" (decidido uma
+  // vez só, na primeira carga — depois o dedo manda).
+  const [recorte, setRecorte] = useState<RecorteEscala>('proximas')
+  const decidiuRecorte = useRef(false)
 
   async function load() {
     setLoading(true)
@@ -45,6 +58,11 @@ export default function Escala() {
       const [sl, rl] = await Promise.all([listOpenStaffingSlots(userId ?? null), listStaffingRoles()])
       setSlots(sl)
       setRoles(rl)
+      // Padrão esperto: se tem vaga PRA HOJE, é nela que a pessoa cai.
+      if (!decidiuRecorte.current) {
+        decidiuRecorte.current = true
+        if (sl.some((s) => s.event.event_date === hojeISO())) setRecorte('hoje')
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar as vagas.')
     } finally {
@@ -91,19 +109,55 @@ export default function Escala() {
 
   const list = tab === 'abertas' ? openSlots : mySlots
 
+  // ---- Recorte temporal: Hoje / Próximas / Passadas / Todas ----
+  // "Passadas" existem de verdade aqui: evento que virou a madrugada segue
+  // com vaga aberta até a Diretoria fechar a escala — sem o recorte, elas
+  // ficavam misturadas com as da semana que vem.
+  const hoje = hojeISO()
+  const contagens = useMemo(() => ({
+    hoje: list.filter((s) => s.event.event_date === hoje).length,
+    proximas: list.filter((s) => s.event.event_date >= hoje).length,
+    passadas: list.filter((s) => s.event.event_date < hoje).length,
+    todas: list.length
+  }), [list, hoje])
+
+  const recortadas = useMemo(() => {
+    let base = list
+    if (recorte === 'hoje') base = list.filter((s) => s.event.event_date === hoje)
+    if (recorte === 'proximas') base = list.filter((s) => s.event.event_date >= hoje)
+    if (recorte === 'passadas') base = list.filter((s) => s.event.event_date < hoje)
+    // Futuras: mais perto primeiro. Passadas: mais recente primeiro.
+    return [...base].sort((a, b) =>
+      recorte === 'passadas'
+        ? b.event.event_date.localeCompare(a.event.event_date)
+        : a.event.event_date.localeCompare(b.event.event_date)
+    )
+  }, [list, recorte, hoje])
+
+  // Troca de aba ou de recorte zera o filtro de evento (ele nasce da lista).
+  useEffect(() => { setFilterEvent('') }, [tab, recorte])
+
+  // Se o recorte ativo esvaziou (vaga preenchida, troca de aba), a pill dele
+  // some — então a seleção volta pro porto seguro em vez de ficar fantasma.
+  useEffect(() => {
+    if ((recorte === 'hoje' && contagens.hoje === 0) || (recorte === 'passadas' && contagens.passadas === 0)) {
+      setRecorte('proximas')
+    }
+  }, [recorte, contagens.hoje, contagens.passadas])
+
   const eventosDaLista = useMemo(() => {
     const m = new Map<string, { id: string; name: string; date: string; count: number }>()
-    for (const s of list) {
+    for (const s of recortadas) {
       const atual = m.get(s.event.id)
       if (atual) atual.count++
       else m.set(s.event.id, { id: s.event.id, name: s.event.name, date: s.event.event_date, count: 1 })
     }
     return [...m.values()].sort((a, b) => a.date.localeCompare(b.date))
-  }, [list])
+  }, [recortadas])
 
   const shown = useMemo(
-    () => (filterEvent ? list.filter((s) => s.event.id === filterEvent) : list),
-    [list, filterEvent]
+    () => (filterEvent ? recortadas.filter((s) => s.event.id === filterEvent) : recortadas),
+    [recortadas, filterEvent]
   )
 
   const diaMes = (iso: string) => {
@@ -139,6 +193,40 @@ export default function Escala() {
         </button>
       </div>
 
+      {/* Recorte temporal: Hoje (só aparece — e pulsa — quando tem vaga do
+          dia), Próximas, Passadas e Todas, sempre com contagem. No celular
+          deslizam de lado; em dia de evento a tela já ABRE em Hoje. */}
+      {!loading && list.length > 0 && (
+        <div className="flex gap-1.5 mb-3 overflow-x-auto pb-1 -mx-5 px-5 md:mx-0 md:px-0 md:flex-wrap md:overflow-visible md:pb-0">
+          {contagens.hoje > 0 && (
+            <button
+              onClick={() => setRecorte('hoje')}
+              className={`shrink-0 flex items-center gap-1.5 text-sm font-semibold px-3.5 py-2 rounded-xl transition-colors ${
+                recorte === 'hoje' ? 'bg-beetz-yellow text-beetz-dark' : 'bg-white text-beetz-dark/60 border border-beetz-dark/10'
+              }`}
+            >
+              <span className={`w-2 h-2 rounded-full bg-beetz-dark ${recorte === 'hoje' ? 'animate-pulse' : 'opacity-30'}`} />
+              🐝 Hoje ({contagens.hoje})
+            </button>
+          )}
+          {([
+            ['proximas', `Próximas (${contagens.proximas})`],
+            ...(contagens.passadas > 0 ? [['passadas', `Passadas (${contagens.passadas})`] as [RecorteEscala, string]] : []),
+            ['todas', `Todas (${contagens.todas})`]
+          ] as [RecorteEscala, string][]).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setRecorte(key)}
+              className={`shrink-0 text-sm font-semibold px-3.5 py-2 rounded-xl transition-colors ${
+                recorte === key ? 'bg-beetz-dark text-white' : 'bg-white text-beetz-dark/60 border border-beetz-dark/10'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Filtro inteligente por evento — pills com data e contagem de vagas. */}
       {/* No celular os chips deslizam de lado (uma linha só, sem torre de
           filtros); no desktop quebram linha normalmente. */}
@@ -150,7 +238,7 @@ export default function Escala() {
               filterEvent === '' ? 'bg-beetz-dark border-beetz-dark text-white' : 'bg-white border-beetz-dark/12 text-beetz-dark/55'
             }`}
           >
-            Todos ({list.length})
+            Todos ({recortadas.length})
           </button>
           {eventosDaLista.map((ev) => (
             <button
@@ -176,9 +264,13 @@ export default function Escala() {
           <p className="text-sm text-beetz-dark/50">
             {filterEvent
               ? 'Nenhuma vaga nesse evento com esse recorte.'
-              : tab === 'abertas'
-                ? 'Nenhuma vaga aberta nos próximos eventos por enquanto. Volte depois! 🐝'
-                : 'Você ainda não se candidatou pra nenhuma vaga.'}
+              : recorte === 'hoje'
+                ? 'Nenhuma vaga pra hoje — espia as Próximas! 🐝'
+                : recorte === 'passadas'
+                  ? 'Nada ficou pra trás — escala em dia. 🍯'
+                  : tab === 'abertas'
+                    ? 'Nenhuma vaga aberta nos próximos eventos por enquanto. Volte depois! 🐝'
+                    : 'Você ainda não se candidatou pra nenhuma vaga.'}
           </p>
         </div>
       ) : (
@@ -213,6 +305,12 @@ export default function Escala() {
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                       <p className="font-bold">{slot.requirement.role_label}</p>
+                      {slot.event.event_date === hoje && (
+                        <span className="text-[11px] font-extrabold bg-beetz-yellow text-beetz-dark px-2 py-0.5 rounded-full animate-pulse whitespace-nowrap">É HOJE 🐝</span>
+                      )}
+                      {slot.event.event_date < hoje && (
+                        <span className="text-[11px] font-semibold bg-beetz-dark/8 text-beetz-dark/50 px-2 py-0.5 rounded-full whitespace-nowrap">já rolou</span>
+                      )}
                       {/* Valor à vista pra quem está decidindo se pega a vaga. */}
                       {(() => {
                         const role = slot.requirement.role_id ? roles.find((r) => r.id === slot.requirement.role_id) : undefined
