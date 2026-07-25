@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Cake, ChevronLeft, ChevronRight, Filter, Mail, Search } from 'lucide-react'
-import { listDepartments, listPendingProfilesForDirectory, listProfiles, pendingDepartmentHintToSlug } from '../lib/dataService'
-import type { BirthdayEmailTarget } from '../lib/dataService'
+import { listBirthdayProfiles, listDepartments, listPendingProfilesForDirectory, pendingDepartmentHintToSlug } from '../lib/dataService'
+import type { BirthdayEmailTarget, BirthdayProfileLite } from '../lib/dataService'
 import { useAuth } from '../contexts/AuthContext'
 import { canSendBirthdayEmail, canViewBirthdays, canViewPendingProfileDetails } from '../lib/permissions'
-import type { Department, PendingProfileDirectoryItem, Profile } from '../lib/types'
+import type { Department, PendingProfileDirectoryItem } from '../lib/types'
 import Avatar from '../components/ui/Avatar'
 import PendingProfileModal from '../components/ui/PendingProfileModal'
 import BirthdayEmailModal from '../components/ui/BirthdayEmailModal'
@@ -45,7 +45,7 @@ function normalize(s: string) {
 }
 
 type BirthdayItem =
-  | { kind: 'real'; day: number; month: number; year: number | null; profile: Profile }
+  | { kind: 'real'; day: number; month: number; year: number | null; profile: BirthdayProfileLite }
   | { kind: 'pending'; day: number; month: number; year: number | null; profile: PendingProfileDirectoryItem }
 
 type KindFilter = 'todos' | 'cadastrados' | 'pre'
@@ -58,7 +58,7 @@ export default function Birthdays() {
   // amarradas na mesma chave. Agora tem flag própria.
   const canSendEmail = canSendBirthdayEmail(accessRole)
 
-  const [profiles, setProfiles] = useState<Profile[]>([])
+  const [profiles, setProfiles] = useState<BirthdayProfileLite[]>([])
   const [pending, setPending] = useState<PendingProfileDirectoryItem[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [loading, setLoading] = useState(true)
@@ -81,7 +81,7 @@ export default function Birthdays() {
   const [showFilters, setShowFilters] = useState(false)
 
   useEffect(() => {
-    Promise.all([listProfiles(), listDepartments(), listPendingProfilesForDirectory()]).then(([p, d, pend]) => {
+    Promise.all([listBirthdayProfiles(), listDepartments(), listPendingProfilesForDirectory()]).then(([p, d, pend]) => {
       setProfiles(p)
       setDepartments(d)
       setPending(pend)

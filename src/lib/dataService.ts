@@ -1033,6 +1033,32 @@ export async function listPendingProfilesForPicker(): Promise<PendingProfilePick
 // Igual ao picker acima, mas com cidade/cargo/departamento/foto — usado pra
 // mostrar pré-cadastro na Turma e no Mapa da Colmeia (qualquer colaborador
 // com perfil pode ver, a function no banco confere is_staff).
+// Aniversariantes: versão DIETA dos perfis (24 MB → ~10 KB). A view corta
+// avatares base64 (viram inicial no front); avatar de Storage passa normal.
+export interface BirthdayProfileLite {
+  id: string
+  first_name: string | null
+  last_name: string | null
+  birth_date: string
+  department_id: string | null
+  avatar_url: string | null
+}
+
+export async function listBirthdayProfiles(): Promise<BirthdayProfileLite[]> {
+  if (isDemoMode) {
+    return demoState.profiles
+      .filter((p) => p.onboarding_completed && p.approval_status === 'Aprovado' && p.birth_date)
+      .map((p) => ({
+        id: p.id, first_name: p.first_name, last_name: p.last_name,
+        birth_date: p.birth_date as string, department_id: p.department_id,
+        avatar_url: p.avatar_url?.startsWith('data:') ? null : p.avatar_url ?? null
+      }))
+  }
+  const { data, error } = await supabase.from('birthday_profiles_lite').select('*')
+  if (error) throw error
+  return (data ?? []) as BirthdayProfileLite[]
+}
+
 export async function listPendingProfilesForDirectory(): Promise<PendingProfileDirectoryItem[]> {
   if (isDemoMode) return []
   return fetchAllPages(async (from, to) => {
