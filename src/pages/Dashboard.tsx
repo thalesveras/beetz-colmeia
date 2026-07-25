@@ -8,7 +8,7 @@ import {
   listProfilesLite, listEvents, listOpenStaffingSlots, getRanking, listDepartments,
   countPendingProfilesForDirectory, type RankingEntry
 } from '../lib/dataService'
-import { canViewFinancialSummary, canManageUsers } from '../lib/permissions'
+import { canViewFinancialSummary, canManageUsers, canViewRanking } from '../lib/permissions'
 import type { Department, EventItem, OpenStaffingSlot, Profile } from '../lib/types'
 import StatCard from '../components/ui/StatCard'
 import MetricDrilldown from '../components/ui/MetricDrilldown'
@@ -16,6 +16,45 @@ import Avatar from '../components/ui/Avatar'
 
 function formatDate(d: string) {
   return new Date(d + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
+// "Hoje" no fuso do CELULAR — nunca em UTC: depois das 21h em São Luís o
+// toISOString() já virou amanhã e o evento DESTA NOITE sumia da home bem
+// na hora em que a equipe abre o app pra ir trabalhar nele.
+function hojeISO() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+// "dom · 20 jul" — mesma língua do /eventos, pra home não destoar.
+function dataCurta(dateISO: string) {
+  const d = new Date(dateISO + 'T12:00:00')
+  const semana = d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '')
+  const diaMes = d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }).replace('.', '')
+  return `${semana} · ${diaMes}`
+}
+
+// Distância em palavras + cor do selo (o padrão da casa).
+function distancia(dateISO: string, hoje: string) {
+  const dias = Math.round((new Date(dateISO + 'T12:00:00').getTime() - new Date(hoje + 'T12:00:00').getTime()) / 86400000)
+  if (dias === 0) return { label: 'É HOJE 🐝', tone: 'bg-beetz-yellow text-beetz-dark' }
+  if (dias === 1) return { label: 'amanhã', tone: 'bg-amber-100 text-amber-800' }
+  if (dias <= 7) return { label: `em ${dias} dias`, tone: 'bg-amber-100 text-amber-800' }
+  return { label: `em ${dias} dias`, tone: 'bg-beetz-gray text-beetz-dark/60' }
+}
+
+// Flyer do evento; sem flyer, vira o "bilhete" com dia/mês (padrão da casa).
+function FlyerThumb({ e }: { e: EventItem }) {
+  return e.flyer_url ? (
+    <img src={e.flyer_url} alt="" className="w-14 h-[72px] rounded-lg object-cover shrink-0 border border-beetz-dark/10" />
+  ) : (
+    <div className="w-14 h-[72px] rounded-lg dark-gradient flex flex-col items-center justify-center shrink-0">
+      <span className="text-base font-extrabold text-white leading-none">{e.event_date.split('-')[2]}</span>
+      <span className="text-[8px] uppercase tracking-widest text-beetz-yellow mt-0.5">
+        {new Date(e.event_date + 'T12:00:00').toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')}
+      </span>
+    </div>
+  )
 }
 
 // Dashboard pessoal: em vez de "0 líderes / 0 eventos ativos" (número
@@ -60,8 +99,9 @@ export default function Dashboard() {
 
   if (loading) return <p className="text-beetz-dark/50 p-8">Carregando a colmeia...</p>
 
-  const today = new Date().toISOString().slice(0, 10)
+  const today = hojeISO()
   const upcoming = events.filter((e) => e.event_date >= today).sort((a, b) => (a.event_date < b.event_date ? -1 : 1))
+  const eventosDeHoje = upcoming.filter((e) => e.event_date === today && e.status !== 'Cancelado')
   const activeEvents = events.filter((e) => e.status === 'Confirmado' || e.status === 'Em andamento').length
 
   const myConfirmed = slots.filter((s) => s.myApplication?.status === 'Confirmado')
@@ -113,6 +153,28 @@ export default function Dashboard() {
         </p>
       </div>
 
+      {/* ---- É HOJE: quando tem evento hoje, a home avisa antes de tudo ---- */}
+      {eventosDeHoje.length > 0 && (
+        <Link
+          to={`/eventos/${eventosDeHoje[0].id}`}
+          className="relative block overflow-hidden dark-gradient text-white rounded-2xl shadow-glow"
+        >
+          {eventosDeHoje[0].flyer_url && (
+            <img src={eventosDeHoje[0].flyer_url} alt="" className="absolute inset-0 w-full h-full object-cover opacity-30" />
+          )}
+          <div className="relative p-4 sm:p-5 flex items-center gap-x-3 gap-y-1 flex-wrap">
+            <span className="text-[11px] font-extrabold px-2.5 py-1 rounded-full bg-beetz-yellow text-beetz-dark animate-pulse whitespace-nowrap">É HOJE 🐝</span>
+            <span className="font-bold min-w-0 flex-1 truncate">{eventosDeHoje[0].name}</span>
+            {(eventosDeHoje[0].location || eventosDeHoje[0].city) && (
+              <span className="text-sm text-white/70 flex items-center gap-1 min-w-0">
+                <MapPin size={13} className="shrink-0" />
+                <span className="truncate">{[eventosDeHoje[0].location, eventosDeHoje[0].city].filter(Boolean).join(' · ')}</span>
+              </span>
+            )}
+          </div>
+        </Link>
+      )}
+
       {/* ---- Meus próximos eventos: o que mais importa pra quem trabalha ---- */}
       <section>
         <div className="flex items-center justify-between mb-4">
@@ -130,21 +192,35 @@ export default function Dashboard() {
             </Link>
           </div>
         ) : (
-          <div className="grid md:grid-cols-3 gap-4">
-            {myConfirmed.slice(0, 3).map((s) => (
-              <Link
-                key={s.requirement.id}
-                to={`/eventos/${s.event.id}`}
-                className="bg-beetz-dark text-white rounded-2xl p-5 hover:shadow-glow transition-shadow"
-              >
-                <p className="text-xs font-semibold text-beetz-yellow mb-1">{formatDate(s.event.event_date)}</p>
-                <h3 className="font-bold">{s.event.name}</h3>
-                <p className="text-sm text-white/60 mt-1">{s.requirement.role_label}</p>
-                {s.event.location && (
-                  <p className="text-xs text-white/40 mt-2 flex items-center gap-1"><MapPin size={11} /> {s.event.location}</p>
-                )}
-              </Link>
-            ))}
+          <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-4">
+            {myConfirmed.slice(0, 3).map((s) => {
+              const dist = distancia(s.event.event_date, today)
+              return (
+                <Link
+                  key={s.requirement.id}
+                  to={`/eventos/${s.event.id}`}
+                  className="relative overflow-hidden bg-beetz-dark text-white rounded-2xl p-5 hover:shadow-glow transition-shadow min-w-0"
+                >
+                  {/* o flyer é o fundo do compromisso — a pessoa reconhece a festa de longe */}
+                  {s.event.flyer_url && (
+                    <img src={s.event.flyer_url} alt="" className="absolute inset-0 w-full h-full object-cover opacity-25" />
+                  )}
+                  <div className="relative">
+                    <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-beetz-yellow text-beetz-dark whitespace-nowrap">{dist.label}</span>
+                      <span className="text-xs font-semibold text-beetz-yellow whitespace-nowrap">{dataCurta(s.event.event_date)}</span>
+                    </div>
+                    <h3 className="font-bold mt-2 leading-snug">{s.event.name}</h3>
+                    <p className="text-sm text-white/70 mt-1">🐝 {s.requirement.role_label}</p>
+                    {s.event.location && (
+                      <p className="text-xs text-white/50 mt-2 flex items-center gap-1 min-w-0">
+                        <MapPin size={11} className="shrink-0" /> <span className="truncate">{s.event.location}</span>
+                      </p>
+                    )}
+                  </div>
+                </Link>
+              )
+            })}
           </div>
         )}
       </section>
@@ -296,37 +372,66 @@ export default function Dashboard() {
           <h2 className="text-lg font-bold">Próximos eventos da colmeia</h2>
           <Link to="/eventos" className="text-sm font-semibold text-beetz-dark/70 hover:text-beetz-dark">Ver todos →</Link>
         </div>
-        <div className="grid md:grid-cols-3 gap-4">
-          {upcoming.slice(0, 3).map((e) => (
-            <Link key={e.id} to={`/eventos/${e.id}`} className="bg-white rounded-2xl p-5 shadow-soft border border-beetz-dark/5 hover:shadow-glow transition-shadow">
-              <p className="text-xs font-semibold text-beetz-dark/50 mb-1">{formatDate(e.event_date)}</p>
-              <h3 className="font-bold">{e.name}</h3>
-              <p className="text-sm text-beetz-dark/60 mt-1">📍 {e.location} · {e.city}</p>
-              <span className="inline-block mt-3 text-xs font-semibold bg-beetz-yellow/30 text-beetz-dark px-2.5 py-1 rounded-full">{e.status}</span>
-            </Link>
-          ))}
+        <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-4">
+          {upcoming.slice(0, 3).map((e) => {
+            const dist = distancia(e.event_date, today)
+            return (
+              <Link
+                key={e.id}
+                to={`/eventos/${e.id}`}
+                className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5 hover:shadow-glow transition-shadow flex gap-3 items-start min-w-0 overflow-hidden"
+              >
+                <FlyerThumb e={e} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${dist.tone}`}>{dist.label}</span>
+                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap bg-beetz-yellow/30 text-beetz-dark">{e.status}</span>
+                  </div>
+                  <h3 className="font-bold leading-snug mt-1 line-clamp-2">{e.name}</h3>
+                  <p className="text-xs text-beetz-dark/55 mt-1 truncate">
+                    {dataCurta(e.event_date)}
+                    {(e.location || e.city) ? ` · ${[e.location, e.city].filter(Boolean).join(' · ')}` : ''}
+                  </p>
+                </div>
+              </Link>
+            )
+          })}
           {upcoming.length === 0 && <p className="text-sm text-beetz-dark/50">Nenhum evento futuro por enquanto.</p>}
         </div>
       </section>
 
-      {/* ---- Ranking: comunidade, fica por último ---- */}
-      {ranking.length > 0 && (
+      {/* ---- Ranking: comunidade, fica por último. Respeita a mesma
+           permissão que mostra o Ranking no menu — se o cargo não vê lá,
+           a home não vaza aqui. ---- */}
+      {ranking.length > 0 && canViewRanking(accessRole) && (
         <section>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-bold">Ranking da colmeia</h2>
             <Link to="/ranking" className="text-sm font-semibold text-beetz-dark/70 hover:text-beetz-dark">Ver completo →</Link>
           </div>
           <div className="bg-white rounded-2xl shadow-soft border border-beetz-dark/5 divide-y divide-beetz-dark/5">
-            {ranking.slice(0, 5).map((entry, i) => (
-              <Link key={entry.profile.id} to={`/perfil/${entry.profile.id}`} className="flex items-center gap-3 p-4 hover:bg-beetz-gray/60 transition-colors">
-                <span className="w-6 text-center font-extrabold text-beetz-dark/40">{i + 1}</span>
-                <Avatar src={entry.profile.avatar_url} name={`${entry.profile.first_name} ${entry.profile.last_name}`} size="sm" />
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-sm truncate">{entry.profile.first_name} {entry.profile.last_name}</p>
-                </div>
-                <span className="text-sm font-bold text-beetz-dark/70">🍯 {entry.honeyReceived}</span>
-              </Link>
-            ))}
+            {ranking.slice(0, 5).map((entry, i) => {
+              const souEu = entry.profile.id === userId
+              return (
+                <Link
+                  key={entry.profile.id}
+                  to={`/perfil/${entry.profile.id}`}
+                  className={`flex items-center gap-3 p-4 transition-colors ${souEu ? 'bg-beetz-yellow/10 hover:bg-beetz-yellow/20' : 'hover:bg-beetz-gray/60'}`}
+                >
+                  {i < 3
+                    ? <span className="w-7 text-center text-xl leading-none">{['🥇', '🥈', '🥉'][i]}</span>
+                    : <span className="w-7 text-center font-extrabold text-beetz-dark/40">{i + 1}</span>}
+                  <Avatar src={entry.profile.avatar_url} name={`${entry.profile.first_name} ${entry.profile.last_name}`} size="sm" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-sm truncate">
+                      {entry.profile.first_name} {entry.profile.last_name}
+                      {souEu && <span className="ml-2 text-[10px] font-bold uppercase tracking-wide text-beetz-dark/40">você</span>}
+                    </p>
+                  </div>
+                  <span className="text-sm font-bold text-beetz-dark/70">🍯 {entry.honeyReceived}</span>
+                </Link>
+              )
+            })}
           </div>
         </section>
       )}
