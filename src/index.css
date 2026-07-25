@@ -58,6 +58,11 @@ input::-webkit-date-and-time-value {
   background: transparent;
 }
 
+/* Trilhos de carrossel: rolagem viva, barra invisível (a barra amarela
+   global embaixo do banner da home ficava feia). */
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
 .honey-gradient {
   background: linear-gradient(135deg, #fed417 0%, #ffe985 100%);
 }

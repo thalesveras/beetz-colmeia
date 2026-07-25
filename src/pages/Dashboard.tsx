@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Users, CalendarDays, Trophy, Clock, ClipboardList, ArrowRight, CalendarCheck, MapPin, Wallet
@@ -72,6 +72,9 @@ export default function Dashboard() {
   // Qual métrica está aberta em detalhe. null = nenhuma.
   const [drill, setDrill] = useState<'colaboradores' | 'eventos' | 'proximo' | null>(null)
   const [loading, setLoading] = useState(true)
+  // Carrossel do "É HOJE": qual slide está na janela + o trilho pra rolar via pontinhos.
+  const [slideHoje, setSlideHoje] = useState(0)
+  const trilhoHoje = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     Promise.all([
@@ -153,26 +156,59 @@ export default function Dashboard() {
         </p>
       </div>
 
-      {/* ---- É HOJE: quando tem evento hoje, a home avisa antes de tudo ---- */}
+      {/* ---- É HOJE: todos os eventos do dia num carrossel — arrasta pro
+           lado no dedo (scroll com imã), pontinhos mostram onde está.
+           Rolagem CONTIDA no trilho: nada vaza pra página. ---- */}
       {eventosDeHoje.length > 0 && (
-        <Link
-          to={`/eventos/${eventosDeHoje[0].id}`}
-          className="relative block overflow-hidden dark-gradient text-white rounded-2xl shadow-glow"
-        >
-          {eventosDeHoje[0].flyer_url && (
-            <img src={eventosDeHoje[0].flyer_url} alt="" className="absolute inset-0 w-full h-full object-cover opacity-30" />
-          )}
-          <div className="relative p-4 sm:p-5 flex items-center gap-x-3 gap-y-1 flex-wrap">
-            <span className="text-[11px] font-extrabold px-2.5 py-1 rounded-full bg-beetz-yellow text-beetz-dark animate-pulse whitespace-nowrap">É HOJE 🐝</span>
-            <span className="font-bold min-w-0 flex-1 truncate">{eventosDeHoje[0].name}</span>
-            {(eventosDeHoje[0].location || eventosDeHoje[0].city) && (
-              <span className="text-sm text-white/70 flex items-center gap-1 min-w-0">
-                <MapPin size={13} className="shrink-0" />
-                <span className="truncate">{[eventosDeHoje[0].location, eventosDeHoje[0].city].filter(Boolean).join(' · ')}</span>
-              </span>
-            )}
+        <section>
+          <div
+            ref={trilhoHoje}
+            onScroll={(ev) => {
+              const el = ev.currentTarget
+              setSlideHoje(Math.round(el.scrollLeft / (el.clientWidth + 12)))
+            }}
+            className="flex gap-3 overflow-x-auto snap-x snap-mandatory no-scrollbar"
+          >
+            {eventosDeHoje.map((e) => (
+              <Link
+                key={e.id}
+                to={`/eventos/${e.id}`}
+                className="relative block overflow-hidden dark-gradient text-white rounded-2xl shadow-glow snap-center shrink-0 w-full"
+              >
+                {e.flyer_url && (
+                  <img src={e.flyer_url} alt="" className="absolute inset-0 w-full h-full object-cover opacity-30" />
+                )}
+                <div className="relative p-4 sm:p-5 flex items-center gap-x-3 gap-y-1 flex-wrap">
+                  <span className="text-[11px] font-extrabold px-2.5 py-1 rounded-full bg-beetz-yellow text-beetz-dark animate-pulse whitespace-nowrap">É HOJE 🐝</span>
+                  <span className="font-bold min-w-0 flex-1 truncate">{e.name}</span>
+                  {(e.location || e.city) && (
+                    <span className="text-sm text-white/70 flex items-center gap-1 min-w-0">
+                      <MapPin size={13} className="shrink-0" />
+                      <span className="truncate">{[e.location, e.city].filter(Boolean).join(' · ')}</span>
+                    </span>
+                  )}
+                </div>
+              </Link>
+            ))}
           </div>
-        </Link>
+          {eventosDeHoje.length > 1 && (
+            <div className="flex justify-center items-center gap-1.5 mt-2.5">
+              {eventosDeHoje.map((e, i) => (
+                <button
+                  key={e.id}
+                  aria-label={`Ir para ${e.name}`}
+                  onClick={() => {
+                    const el = trilhoHoje.current
+                    if (el) el.scrollTo({ left: i * (el.clientWidth + 12), behavior: 'smooth' })
+                  }}
+                  className={`h-2 rounded-full transition-all ${
+                    i === slideHoje ? 'w-5 bg-beetz-dark' : 'w-2 bg-beetz-dark/25 hover:bg-beetz-dark/40'
+                  }`}
+                />
+              ))}
+            </div>
+          )}
+        </section>
       )}
 
       {/* ---- Meus próximos eventos: o que mais importa pra quem trabalha ---- */}
