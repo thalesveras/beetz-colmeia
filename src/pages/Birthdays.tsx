@@ -140,14 +140,22 @@ export default function Birthdays() {
       .sort((a, b) => a.day - b.day)
   }, [allItems, month, onlyToday, today, thisMonth, kind, dept, search, departments])
 
-  const activeFilters = [search.trim() ? 1 : 0, dept ? 1 : 0, kind !== 'todos' ? 1 : 0, onlyToday ? 1 : 0]
+  // "Hoje" saiu da conta: virou pill própria, com estado à vista — o badge
+  // do botão Filtros conta só os filtros escondidos no painel.
+  const activeFilters = [search.trim() ? 1 : 0, dept ? 1 : 0, kind !== 'todos' ? 1 : 0]
     .reduce((a, b) => a + b, 0)
 
   function clearFilters() {
-    setSearch(''); setDept(''); setKind('todos'); setOnlyToday(false)
+    setSearch(''); setDept(''); setKind('todos')
   }
 
-  const todayCount = allItems.filter((i) => i.month === thisMonth && i.day === today).length
+  const itensDeHoje = useMemo(
+    () => allItems.filter((i) => i.month === thisMonth && i.day === today).sort((a, b) =>
+      `${a.profile.first_name ?? ''}`.localeCompare(`${b.profile.first_name ?? ''}`, 'pt-BR')),
+    [allItems, thisMonth, today]
+  )
+  const todayCount = itensDeHoje.length
+  const mesAtualCount = allItems.filter((i) => i.month === thisMonth).length
 
   // Era a única tela do menu Comunidade sem trava — Turma, Mapa e Ranking
   // todas checam permissão, e essa entrava direto pra qualquer um.
@@ -167,29 +175,91 @@ export default function Birthdays() {
         <h1 className="text-2xl md:text-3xl font-extrabold flex items-center gap-2">
           <Cake size={26} className="text-beetz-yellow" /> Aniversariantes
         </h1>
-        <p className="text-beetz-dark/60 mt-1">
-          Quem faz aniversário na colmeia — cadastrado(a) ou não.
-          {todayCount > 0 && ` Hoje tem ${todayCount} aniversariante${todayCount > 1 ? 's' : ''}! 🎉`}
-        </p>
+        <p className="text-beetz-dark/60 mt-1">Quem faz aniversário na colmeia — cadastrado(a) ou não.</p>
       </div>
 
-      {/* Navegação de mês — o coração da tela, fica sempre visível */}
-      <div className="flex items-center gap-2">
+      {/* 🎉 A faixa do dia: quem faz aniversário HOJE ganha o palco, sempre
+          visível, independente do mês que você está folheando. Avatares
+          deslizam de lado (rolagem contida) e cada um abre o perfil. */}
+      {!loading && todayCount > 0 && (
+        <div className="relative overflow-hidden dark-gradient text-white rounded-2xl p-4">
+          <div className="absolute inset-0 opacity-10 bg-honeycomb" style={{ backgroundSize: '24px 24px' }} />
+          <div className="relative">
+            <p className="text-sm font-extrabold text-beetz-yellow mb-3">
+              🎉 {todayCount === 1 ? 'Tem parabéns HOJE' : `${todayCount} parabéns pra dar HOJE`}
+            </p>
+            <div className="flex gap-4 overflow-x-auto no-scrollbar pb-1">
+              {itensDeHoje.map((item) => {
+                const nome = `${item.profile.first_name ?? ''} ${item.profile.last_name ?? ''}`.trim()
+                const idade = turningAge(item.year, now.getFullYear())
+                const miolo = (
+                  <>
+                    <span className="rounded-full ring-2 ring-beetz-yellow">
+                      <Avatar src={item.profile.avatar_url} name={nome} size="md" />
+                    </span>
+                    <span className="text-[11px] font-semibold truncate max-w-[64px]">{item.profile.first_name}</span>
+                    {idade !== null && <span className="text-[10px] text-beetz-yellow font-bold">{idade} anos 🎂</span>}
+                  </>
+                )
+                const classe = 'flex flex-col items-center gap-1 shrink-0 w-16 text-center'
+                return item.kind === 'real' ? (
+                  <Link key={`h-${item.profile.id}`} to={`/perfil/${item.profile.id}`} className={classe}>{miolo}</Link>
+                ) : (
+                  <button key={`h-${item.profile.id}`} onClick={() => canViewDetails && setViewingPending(item.profile)} className={classe}>{miolo}</button>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Filtros inteligentes: os dois recortes que respondem 90% das visitas
+          viram pills de um toque — o resto mora no botão Filtros. */}
+      {!loading && (
+        <div className="flex gap-1.5 overflow-x-auto pb-1 md:flex-wrap md:overflow-visible md:pb-0">
+          {todayCount > 0 && (
+            <button
+              onClick={() => { setOnlyToday(!onlyToday); setMonth(thisMonth) }}
+              className={`shrink-0 text-sm font-semibold px-3.5 py-2 rounded-xl transition-colors ${
+                onlyToday ? 'bg-beetz-yellow text-beetz-dark' : 'bg-white text-beetz-dark/60 border border-beetz-dark/10'
+              }`}
+            >
+              🎂 Hoje ({todayCount})
+            </button>
+          )}
+          <button
+            onClick={() => { setMonth(thisMonth); setOnlyToday(false) }}
+            className={`shrink-0 text-sm font-semibold px-3.5 py-2 rounded-xl transition-colors ${
+              month === thisMonth && !onlyToday ? 'bg-beetz-dark text-white' : 'bg-white text-beetz-dark/60 border border-beetz-dark/10'
+            }`}
+          >
+            Este mês ({mesAtualCount})
+          </button>
+        </div>
+      )}
+
+      {/* Navegação de mês: select encolhe (min-w-0) e ninguém mais é
+          empurrado pra fora da tela; se apertar, o Filtros desce de linha. */}
+      <div className="flex items-center gap-2 flex-wrap">
         <button
-          onClick={() => setMonth((m) => (m === 1 ? 12 : m - 1))}
-          className="p-2 rounded-xl bg-white border border-beetz-dark/10 hover:bg-beetz-gray"
+          onClick={() => { setMonth((m) => (m === 1 ? 12 : m - 1)); setOnlyToday(false) }}
+          className="shrink-0 p-2 rounded-xl bg-white border border-beetz-dark/10 hover:bg-beetz-gray"
           aria-label="Mês anterior"
         >
           <ChevronLeft size={16} />
         </button>
-        <select value={month} onChange={(e) => setMonth(Number(e.target.value))} className={`${inputClass} font-semibold capitalize flex-1 sm:flex-none sm:min-w-[160px]`}>
+        <select
+          value={month}
+          onChange={(e) => { setMonth(Number(e.target.value)); setOnlyToday(false) }}
+          className={`${inputClass} font-semibold capitalize flex-1 min-w-0 sm:flex-none sm:min-w-[160px]`}
+        >
           {MONTHS.map((m, i) => (
             <option key={m} value={i + 1}>{m}{i + 1 === thisMonth ? ' (mês atual)' : ''}</option>
           ))}
         </select>
         <button
-          onClick={() => setMonth((m) => (m === 12 ? 1 : m + 1))}
-          className="p-2 rounded-xl bg-white border border-beetz-dark/10 hover:bg-beetz-gray"
+          onClick={() => { setMonth((m) => (m === 12 ? 1 : m + 1)); setOnlyToday(false) }}
+          className="shrink-0 p-2 rounded-xl bg-white border border-beetz-dark/10 hover:bg-beetz-gray"
           aria-label="Próximo mês"
         >
           <ChevronRight size={16} />
@@ -197,7 +267,7 @@ export default function Birthdays() {
 
         <button
           onClick={() => setShowFilters((v) => !v)}
-          className={`ml-auto flex items-center gap-1.5 text-sm font-semibold px-3 py-2 rounded-xl border transition-colors ${
+          className={`ml-auto shrink-0 flex items-center gap-1.5 text-sm font-semibold px-3 py-2 rounded-xl border transition-colors ${
             showFilters || activeFilters > 0
               ? 'bg-beetz-dark text-white border-beetz-dark'
               : 'bg-white text-beetz-dark/70 border-beetz-dark/10 hover:bg-beetz-gray'
@@ -212,10 +282,12 @@ export default function Birthdays() {
         </button>
       </div>
 
+      {/* Painel compacto: busca em cima, selects dividindo a linha no celular.
+          O antigo checkbox "Só quem faz hoje" virou a pill 🎂 Hoje lá em cima. */}
       {showFilters && (
         <div className="bg-white rounded-2xl p-4 border border-beetz-dark/5 shadow-soft space-y-3">
-          <div className="grid sm:grid-cols-3 gap-3">
-            <div className="relative">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div className="relative col-span-2 sm:col-span-1">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-beetz-dark/30" />
               <input
                 placeholder="Buscar por nome"
@@ -224,31 +296,23 @@ export default function Birthdays() {
                 className={`${inputClass} w-full pl-9`}
               />
             </div>
-            <select value={dept} onChange={(e) => setDept(e.target.value)} className={`${inputClass} w-full`}>
+            <select value={dept} onChange={(e) => setDept(e.target.value)} className={`${inputClass} w-full min-w-0`}>
               <option value="">Todos os departamentos</option>
               {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
-            <select value={kind} onChange={(e) => setKind(e.target.value as KindFilter)} className={`${inputClass} w-full`}>
+            <select value={kind} onChange={(e) => setKind(e.target.value as KindFilter)} className={`${inputClass} w-full min-w-0`}>
               <option value="todos">Cadastrados e pré-cadastros</option>
               <option value="cadastrados">Só cadastrados</option>
               <option value="pre">Só pré-cadastros</option>
             </select>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="flex items-center gap-2 text-sm text-beetz-dark/70">
-              <input
-                type="checkbox"
-                checked={onlyToday}
-                onChange={(e) => { setOnlyToday(e.target.checked); if (e.target.checked) setMonth(thisMonth) }}
-              />
-              Só quem faz hoje
-            </label>
-            {activeFilters > 0 && (
-              <button onClick={clearFilters} className="text-xs font-semibold text-beetz-dark/50 hover:text-beetz-dark ml-auto">
+          {activeFilters > 0 && (
+            <div className="flex justify-end">
+              <button onClick={clearFilters} className="text-xs font-semibold text-beetz-dark/50 hover:text-beetz-dark">
                 Limpar filtros
               </button>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -256,14 +320,18 @@ export default function Birthdays() {
         <p className="text-beetz-dark/50">Carregando...</p>
       ) : filtered.length === 0 ? (
         <p className="text-beetz-dark/50 bg-white rounded-2xl p-8 text-center border border-beetz-dark/5">
-          {activeFilters > 0
-            ? 'Nenhum aniversariante com esses filtros.'
-            : `Ninguém faz aniversário em ${MONTHS[month - 1]}.`}
+          {onlyToday
+            ? 'Ninguém apaga velinha hoje — espia o resto do mês! 🎂'
+            : activeFilters > 0
+              ? 'Nenhum aniversariante com esses filtros.'
+              : `Ninguém faz aniversário em ${MONTHS[month - 1]}.`}
         </p>
       ) : (
         <>
           <p className="text-xs text-beetz-dark/40">
-            {filtered.length} {filtered.length === 1 ? 'pessoa' : 'pessoas'} em {MONTHS[month - 1]}
+            {onlyToday
+              ? `${filtered.length} ${filtered.length === 1 ? 'pessoa apaga velinha' : 'pessoas apagam velinha'} hoje`
+              : `${filtered.length} ${filtered.length === 1 ? 'pessoa' : 'pessoas'} em ${MONTHS[month - 1]}`}
           </p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {filtered.map((item) => {
