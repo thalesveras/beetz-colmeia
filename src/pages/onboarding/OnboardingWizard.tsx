@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
-import { upsertProfile } from '../../lib/dataService'
-import type { Profile } from '../../lib/types'
+import { checkSignupValueTaken, listSignupFieldRules, upsertProfile } from '../../lib/dataService'
+import type { Profile, SignupFieldRule } from '../../lib/types'
 import ProgressBar from '../../components/ui/ProgressBar'
 import StepPersonalData from './StepPersonalData'
 import StepFamilyInfo from './StepFamilyInfo'
@@ -27,6 +27,23 @@ export default function OnboardingWizard() {
   const [step, setStep] = useState(0)
   const [data, setData] = useState<OnboardingData>({ email: email ?? '', skills: [] })
   const [saving, setSaving] = useState(false)
+  const [checando, setChecando] = useState(false)
+  // Regras do cadastro vindas de Configurações (obrigatórios + únicos).
+  // Se a carga falhar, o wizard segue como sempre foi — regra nunca derruba cadastro.
+  const [rules, setRules] = useState<SignupFieldRule[]>([])
+  useEffect(() => { listSignupFieldRules().then(setRules).catch(() => {}) }, [])
+
+  // Obrigatoriedade vale só pra quem AINDA está se cadastrando (decisão da
+  // Diretoria) — perfil antigo editando não fica refém de campo novo.
+  const cadastroNovo = !profile?.onboarding_completed
+
+  function preenchido(key: string): boolean {
+    if (key === 'skills') return (data.skills?.length ?? 0) > 0
+    if (key === 'department_id') return Boolean(data.department_id)
+    if (key === 'avatar_url') return Boolean(data.avatar_url)
+    const v = (data as any)[key]
+    return String(v ?? '').trim() !== ''
+  }
 
   useEffect(() => {
     if (profile) setData({ ...profile })
@@ -45,6 +62,37 @@ export default function OnboardingWizard() {
       alert('O CPF digitado não é válido — confere os números antes de continuar (ou deixe em branco pra preencher depois).')
       return
     }
+
+    const daEtapa = rules.filter((r) => r.step === step + 1)
+
+    // Obrigatórios da etapa (Configurações → Cadastro), só pra cadastro novo.
+    if (cadastroNovo) {
+      const faltando = daEtapa.filter((r) => r.required && !preenchido(r.field_key))
+      if (faltando.length > 0) {
+        alert(`Antes de avançar, preencha: ${faltando.map((f) => f.label).join(', ')}.`)
+        return
+      }
+    }
+
+    // Únicos: o banco confere se o valor já é de outra pessoa (sem contar
+    // você mesmo). Rede falhou? Deixa passar — regra nunca trava cadastro.
+    const unicos = daEtapa.filter((r) => r.is_unique && r.unique_capable && preenchido(r.field_key))
+    if (unicos.length > 0) {
+      setChecando(true)
+      try {
+        for (const r of unicos) {
+          const tomado = await checkSignupValueTaken(r.field_key, String((data as any)[r.field_key] ?? ''))
+          if (tomado) {
+            alert(`Já existe um cadastro na Colmeia com este ${r.label}. Confere o valor — e se achar que é engano, fala com a Diretoria.`)
+            setChecando(false)
+            return
+          }
+        }
+      } catch { /* indisponível: segue o baile */ } finally {
+        setChecando(false)
+      }
+    }
+
     if (step < steps.length - 1) {
       setStep(step + 1)
       window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -90,10 +138,10 @@ export default function OnboardingWizard() {
             ← Voltar
           </button>
           <button
-            onClick={handleNext} disabled={saving}
+            onClick={handleNext} disabled={saving || checando}
             className="honey-gradient text-beetz-dark font-bold px-6 py-2.5 rounded-xl hover:brightness-105 transition disabled:opacity-60"
           >
-            {saving ? 'Salvando...' : step === steps.length - 1 ? 'Concluir cadastro 🐝' : 'Próxima etapa →'}
+            {saving ? 'Salvando...' : checando ? 'Conferindo...' : step === steps.length - 1 ? 'Concluir cadastro 🐝' : 'Próxima etapa →'}
           </button>
         </div>
       </div>

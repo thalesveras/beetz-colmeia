@@ -858,11 +858,24 @@ export interface RolePermissions {
   // Medalha de perfil completo: parabéns pessoal, uma vez na vida. Opcional
   // porque defaults antigos não conhecem o campo (fallback: ligado).
   can_receive_alert_profile_complete?: boolean
+  // (regras do /cadastro moram em SignupFieldRule, tabela própria)
   // Barra inferior do celular: até 4 chaves do catálogo (navigation.ts).
   // null/ausente = padrão do sistema pro cargo. Editável em Configurações.
   mobile_nav?: string[] | null
   label: string
   builtin: boolean
+  updated_at: string
+}
+
+// Regras do /cadastro, administráveis pela Diretoria em Configurações.
+// Valem só pro FORMULÁRIO daqui pra frente — nunca tocam dados existentes.
+export interface SignupFieldRule {
+  field_key: string
+  step: number            // etapa do wizard (1..5)
+  label: string
+  required: boolean       // trava o "Avançar" (só em cadastro novo)
+  is_unique: boolean      // barra valor repetido (checado no banco, sem expor de quem é)
+  unique_capable: boolean // só campos de identidade podem ligar unicidade
   updated_at: string
 }
 

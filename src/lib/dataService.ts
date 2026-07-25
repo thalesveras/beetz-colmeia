@@ -1641,6 +1641,41 @@ export async function updateRolePermission(
   return data as RolePermissions
 }
 
+// ---------- Configurações: Regras do /cadastro ----------
+// Nada aqui altera dados de perfis — só as regras do formulário.
+
+import type { SignupFieldRule } from './types'
+
+const DEMO_SIGNUP_RULES: SignupFieldRule[] = []
+
+export async function listSignupFieldRules(): Promise<SignupFieldRule[]> {
+  if (isDemoMode) return DEMO_SIGNUP_RULES
+  const { data, error } = await supabase.from('signup_field_rules')
+    .select('*').order('step').order('label')
+  if (error) throw error
+  return (data ?? []) as SignupFieldRule[]
+}
+
+export async function updateSignupFieldRule(
+  fieldKey: string,
+  patch: Partial<Pick<SignupFieldRule, 'required' | 'is_unique'>>
+): Promise<void> {
+  if (isDemoMode) return
+  const { error } = await supabase.from('signup_field_rules')
+    .update({ ...patch, updated_at: new Date().toISOString() }).eq('field_key', fieldKey)
+  if (error) throw error
+}
+
+// "Esse valor já é de alguém?" — o banco responde só sim/não (função
+// security definer), normalizando máscaras, e IGNORA o próprio usuário
+// (editar o próprio perfil nunca tropeça em si mesmo).
+export async function checkSignupValueTaken(fieldKey: string, value: string): Promise<boolean> {
+  if (isDemoMode) return false
+  const { data, error } = await supabase.rpc('signup_value_taken', { campo: fieldKey, valor: value })
+  if (error) throw error
+  return Boolean(data)
+}
+
 // ---------- Configurações: Categorias de despesa ----------
 export async function listExpenseCategories(): Promise<ExpenseCategory[]> {
   if (isDemoMode) return demoState.expenseCategories

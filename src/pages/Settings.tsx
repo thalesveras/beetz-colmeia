@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Papa from 'papaparse'
 import {
-  AlertTriangle, Image, MoreHorizontal, Plus, RefreshCw, Search, Upload, X, Save, Settings as SettingsIcon, ShieldAlert, Trash2,
+  AlertTriangle, ClipboardCheck, Image, MoreHorizontal, Plus, RefreshCw, Search, Upload, X, Save, Settings as SettingsIcon, ShieldAlert, Trash2,
   Users, ListChecks, Layers, Trophy, Palette, Database, Mail, Send, Wallet
 } from 'lucide-react'
 import { defaultMobileNavKeys, MOBILE_NAV_OPTIONS } from '../lib/navigation'
@@ -16,10 +16,11 @@ import {
   authorizeZohoWithCode, createDepartment, createRolePermission, deleteDepartment, deleteRolePermission,
   importZohoPendingProfiles, inspectZohoCreatorFields, listBadgeDefsConfig, listDepartments,
   listExpenseCategories, listEmailLog, listHiveLevelsConfig, listPaymentMethods, listRolePermissions,
-  listServiceModalities, listTeamEmails, listZohoMeta, peekZohoReport, sendCampaignEmail, sendEmail,
+  listServiceModalities, listSignupFieldRules, listTeamEmails, listZohoMeta, peekZohoReport, sendCampaignEmail, sendEmail,
   removeBrandLogo, syncZohoCreator, updateAppSettings, updateBadgeDef, updateDepartmentAccessRole,
-  updateHiveLevel, updateRolePermission, updateServiceModality, uploadBrandLogo
+  updateHiveLevel, updateRolePermission, updateServiceModality, updateSignupFieldRule, uploadBrandLogo
 } from '../lib/dataService'
+import type { SignupFieldRule } from '../lib/types'
 import type { ZohoAuthorizeResult, ZohoMetaItem, ZohoPendingProfilesStats, ZohoReportPeek } from '../lib/dataService'
 import type {
   AppSettings, BadgeDefConfig, Department, EmailLogEntry, ExperienceLevel, ExpenseCategory, HiveLevelConfig,
@@ -102,10 +103,11 @@ const PERMISSION_GROUPS: { title: string; fields: { key: PermissionKey; label: s
 ]
 
 
-type SettingsTabKey = 'perfis' | 'listas' | 'funcoes' | 'modalidades' | 'gamificacao' | 'marca' | 'dados' | 'comunicacao'
+type SettingsTabKey = 'perfis' | 'cadastro' | 'listas' | 'funcoes' | 'modalidades' | 'gamificacao' | 'marca' | 'dados' | 'comunicacao'
 
 const SETTINGS_TABS: { key: SettingsTabKey; label: string; icon: typeof Users }[] = [
   { key: 'perfis', label: 'Perfis de acesso', icon: Users },
+  { key: 'cadastro', label: 'Cadastro', icon: ClipboardCheck },
   { key: 'listas', label: 'Listas de opções', icon: ListChecks },
   { key: 'funcoes', label: 'Funções & Valores', icon: Wallet },
   { key: 'modalidades', label: 'Modalidades de serviço', icon: Layers },
@@ -154,6 +156,7 @@ export default function Settings() {
       </div>
 
       {tab === 'perfis' && <RolePermissionsSection onSaved={refreshConfig} />}
+      {tab === 'cadastro' && <SignupRulesSection />}
       {tab === 'listas' && <ListsSection />}
       {tab === 'modalidades' && <ModalitiesSection />}
       {tab === 'gamificacao' && <GamificationSection onSaved={refreshConfig} />}
@@ -162,6 +165,105 @@ export default function Settings() {
       {tab === 'dados' && <DataImporterSection />}
       {tab === 'comunicacao' && <><BirthdayAutoCard /><EmailDispatcherSection /></>}
     </div>
+  )
+}
+
+// ---------- Regras do /cadastro ----------
+// A Diretoria decide o que o formulário exige. NADA aqui toca dado já salvo:
+// obrigatório vale só pra quem ainda está se cadastrando; único vale só pra
+// valores novos (duplicata antiga fica em paz).
+const ETAPAS_CADASTRO = ['Dados pessoais', 'Informações familiares', 'Informações profissionais', 'Saúde e observações', 'Perfil social']
+
+function SignupRulesSection() {
+  const [rules, setRules] = useState<SignupFieldRule[]>([])
+  const [loading, setLoading] = useState(true)
+  const [savingKey, setSavingKey] = useState<string | null>(null)
+
+  async function load() {
+    setLoading(true)
+    try { setRules(await listSignupFieldRules()) } finally { setLoading(false) }
+  }
+  useEffect(() => { load() }, [])
+
+  async function toggleRule(rule: SignupFieldRule, campo: 'required' | 'is_unique') {
+    setSavingKey(rule.field_key + campo)
+    try {
+      await updateSignupFieldRule(rule.field_key, { [campo]: !rule[campo] })
+      await load()
+    } finally {
+      setSavingKey(null)
+    }
+  }
+
+  return (
+    <section className={cardClass}>
+      <h2 className="text-lg font-bold mb-1">Regras do cadastro</h2>
+      <p className="text-sm text-beetz-dark/60 mb-1">
+        O que o formulário de cadastro exige de quem está entrando na Colmeia, etapa por etapa.
+      </p>
+      <p className="text-xs text-beetz-dark/45 mb-5">
+        Nada aqui altera dados já salvos: <strong>Obrigatório</strong> trava o avançar só de quem ainda está se
+        cadastrando, e <strong>Único</strong> impede valor repetido só em cadastros novos — perfis e duplicatas
+        antigas ficam exatamente como estão.
+      </p>
+
+      {loading ? (
+        <p className="text-sm text-beetz-dark/50">Carregando...</p>
+      ) : (
+        <div className="space-y-5">
+          {ETAPAS_CADASTRO.map((titulo, i) => {
+            const daEtapa = rules.filter((r) => r.step === i + 1)
+            if (daEtapa.length === 0) return null
+            return (
+              <div key={titulo}>
+                <h3 className="text-xs font-bold uppercase tracking-wide text-beetz-dark/40 mb-2">
+                  Etapa {i + 1} · {titulo}
+                </h3>
+                <div className="divide-y divide-beetz-dark/5 border border-beetz-dark/5 rounded-xl overflow-hidden">
+                  {daEtapa.map((r) => {
+                    const busyReq = savingKey === r.field_key + 'required'
+                    const busyUni = savingKey === r.field_key + 'is_unique'
+                    return (
+                      <div key={r.field_key} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
+                        <span className="flex-1 min-w-[140px] text-sm font-medium">{r.label}</span>
+                        <button
+                          onClick={() => toggleRule(r, 'required')}
+                          disabled={busyReq}
+                          className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 ${
+                            r.required ? 'bg-beetz-dark text-white' : 'bg-beetz-gray text-beetz-dark/45 hover:text-beetz-dark/70'
+                          }`}
+                        >
+                          {busyReq ? '...' : 'Obrigatório'}
+                        </button>
+                        {r.unique_capable ? (
+                          <button
+                            onClick={() => toggleRule(r, 'is_unique')}
+                            disabled={busyUni}
+                            title="Impede que dois cadastros usem o mesmo valor (só daqui pra frente)"
+                            className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 ${
+                              r.is_unique ? 'bg-beetz-yellow text-beetz-dark' : 'bg-beetz-gray text-beetz-dark/45 hover:text-beetz-dark/70'
+                            }`}
+                          >
+                            {busyUni ? '...' : 'Único'}
+                          </button>
+                        ) : (
+                          <span
+                            className="text-xs font-bold px-3 py-1.5 rounded-lg bg-beetz-gray/50 text-beetz-dark/20 cursor-not-allowed"
+                            title="Unicidade só faz sentido em campos de identidade (CPF, telefone, Pix, Instagram)"
+                          >
+                            Único
+                          </span>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </section>
   )
 }
 
