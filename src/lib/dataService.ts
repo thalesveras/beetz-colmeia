@@ -1667,6 +1667,27 @@ export async function updateRolePermission(
   return data as RolePermissions
 }
 
+// ---------- Financeiro: dados de Pix pra folha de pagamento ----------
+// Só os 4 campos de Pix dos perfis (leve). Usado nos Recebimentos pra
+// relacionar comissão → chave e montar a folha de pagamentos.
+export interface ProfilePixLite {
+  id: string
+  pix_key: string | null
+  pix_key_type: string | null
+  pix_owner_name: string | null
+}
+
+export async function listProfilesPixLite(): Promise<ProfilePixLite[]> {
+  if (isDemoMode) {
+    return demoState.profiles.map((p) => ({
+      id: p.id, pix_key: p.pix_key ?? null, pix_key_type: p.pix_key_type ?? null, pix_owner_name: p.pix_owner_name ?? null
+    }))
+  }
+  const { data, error } = await supabase.from('profiles').select('id, pix_key, pix_key_type, pix_owner_name')
+  if (error) throw error
+  return (data ?? []) as ProfilePixLite[]
+}
+
 // ---------- Financeiro: P&L por evento ----------
 // Uma linha por evento, agregada no banco: faturado (PDV oficial), recebido
 // dos caixas, comissões e despesas. O resultado nasce no front (fat − desp).

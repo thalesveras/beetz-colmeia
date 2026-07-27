@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Receipt } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
-import { listAllCashierSettlements, listAllSettlementInternals, listEvents, listProfilesLite } from '../lib/dataService'
+import { listAllCashierSettlements, listAllSettlementInternals, listEvents, listProfilesLite, listProfilesPixLite } from '../lib/dataService'
+import type { ProfilePixLite } from '../lib/dataService'
 import type { CashierRoleType, CashierSettlement, CashierSettlementInternal, CashierStatus, EventItem, Profile } from '../lib/types'
 import { canMoveSettlementEvent, canReviewCashier, canViewFinancialSummary } from '../lib/permissions'
 import EditSettlementModal from './events/EditSettlementModal'
@@ -36,6 +37,9 @@ const ALL_COLS: { key: string; label: string }[] = [
   { key: 'pix', label: 'Pix' },
   { key: 'total', label: 'Total' },
   { key: 'comissao', label: 'Comissão' },
+  // Relacionadas do PERFIL do colaborador — pra montar a folha de Pix.
+  { key: 'chavepix', label: 'Chave Pix' },
+  { key: 'titularpix', label: 'Titular Pix' },
   { key: 'acerto', label: 'Acerto' },
   { key: 'data', label: 'Data' }
 ]
@@ -55,6 +59,9 @@ export default function Receipts() {
   const [onlyDevendo, setOnlyDevendo] = useState(false)
   // Recebimento aberto pra edição (modal padrão da casa, o mesmo do evento).
   const [editing, setEditing] = useState<CashierSettlement | null>(null)
+  // Pix do perfil de cada colaborador (relacionado pelo profile_id).
+  const [pixByProfile, setPixByProfile] = useState<Map<string, ProfilePixLite>>(new Map())
+  const [folhaCopiada, setFolhaCopiada] = useState(false)
   const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
 
   // Visibilidade das colunas — padrão: todas; lembrada por aparelho.
@@ -91,19 +98,23 @@ export default function Receipts() {
 
   async function load() {
     setLoading(true)
-    const [s, ints, evs, profs] = await Promise.all([
+    const [s, ints, evs, profs, pix] = await Promise.all([
       listAllCashierSettlements(),
       listAllSettlementInternals().catch(() => [] as CashierSettlementInternal[]),
       listEvents(),
       // Lite: era o listProfiles COMPLETO (7,8 MB com fotos base64) que
       // segurava esta tela no "Carregando recebimentos..." — a página só
       // precisa de nomes.
-      listProfilesLite()
+      listProfilesLite(),
+      // Pix relacionado do perfil (4 campos, leve) — falha aqui não derruba
+      // a tela: a coluna aparece vazia.
+      listProfilesPixLite().catch(() => [] as ProfilePixLite[])
     ])
     setSettlements(s)
     setInternals(new Map(ints.map((i) => [i.settlement_id, i])))
     setEvents(evs)
     setProfiles(profs)
+    setPixByProfile(new Map(pix.map((p) => [p.id, p])))
     setLoading(false)
   }
 
@@ -137,6 +148,49 @@ export default function Receipts() {
 
   const total = useMemo(() => filtered.reduce((sum, s) => sum + s.total, 0), [filtered])
   const totalCommission = useMemo(() => filtered.reduce((sum, s) => sum + s.commission_amount, 0), [filtered])
+
+  // ---- Folha de pagamentos Pix: comissões do recorte filtrado, somadas
+  // POR PESSOA, cada uma com a chave Pix do perfil. É a lista que a
+  // Diretoria cola no app do banco pra pagar os garçons. ----
+  const folhaPix = useMemo(() => {
+    const porPessoa = new Map<string, { nome: string; valor: number; lancamentos: number }>()
+    for (const s of filtered) {
+      if (!s.profile_id || s.commission_amount <= 0) continue
+      const atual = porPessoa.get(s.profile_id) ?? { nome: profileName(s.profile_id), valor: 0, lancamentos: 0 }
+      atual.valor += s.commission_amount
+      atual.lancamentos++
+      porPessoa.set(s.profile_id, atual)
+    }
+    return [...porPessoa.entries()]
+      .map(([profileId, dados]) => ({ profileId, ...dados, pix: pixByProfile.get(profileId) ?? null }))
+      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtered, pixByProfile, profiles])
+  const folhaSemChave = folhaPix.filter((p) => !p.pix?.pix_key?.trim()).length
+
+  async function copiarFolhaPix() {
+    const evento = eventFilter ? (eventsById.get(eventFilter)?.name ?? 'evento') : 'todos os eventos'
+    const totalFolha = folhaPix.reduce((s, p) => s + p.valor, 0)
+    const linhas = folhaPix.map((p) => {
+      const chave = p.pix?.pix_key?.trim()
+      const tipo = p.pix?.pix_key_type ? ` (${p.pix.pix_key_type})` : ''
+      const titular = p.pix?.pix_owner_name?.trim()
+      return chave
+        ? `${p.nome} — ${currency(p.valor)} — ${chave}${tipo}${titular ? ` — titular: ${titular}` : ''}`
+        : `${p.nome} — ${currency(p.valor)} — ⚠️ SEM CHAVE PIX CADASTRADA`
+    })
+    const texto = [
+      `🍯 Folha Pix Beetz — ${evento}`,
+      `${folhaPix.length} pagamento(s) · Total ${currency(totalFolha)}${folhaSemChave ? ` · ⚠️ ${folhaSemChave} sem chave` : ''}`,
+      '',
+      ...linhas
+    ].join('\n')
+    try {
+      await navigator.clipboard.writeText(texto)
+      setFolhaCopiada(true)
+      setTimeout(() => setFolhaCopiada(false), 2500)
+    } catch { /* clipboard bloqueado: nada explode */ }
+  }
 
   // A conta de quem deve a casa, POR PESSOA, no escopo do evento selecionado
   // (ignora os outros filtros de propósito — é um placar, não uma busca):
@@ -274,6 +328,23 @@ export default function Receipts() {
                 <p className="text-green-400 text-xs mt-0.5">{acertados} acertado(s) ✓</p>
               )}
             </div>
+            {/* A folha: soma as comissões do recorte por pessoa e copia com
+                a chave Pix de cada uma — pronto pra colar no app do banco. */}
+            {folhaPix.length > 0 && (
+              <div className="w-full sm:w-auto">
+                <button
+                  onClick={copiarFolhaPix}
+                  className="w-full sm:w-auto honey-gradient text-beetz-dark font-bold px-4 py-2.5 rounded-xl text-sm"
+                >
+                  {folhaCopiada ? 'Copiada ✓' : `📋 Copiar folha Pix (${folhaPix.length})`}
+                </button>
+                {folhaSemChave > 0 && (
+                  <p className="text-amber-300 text-[11px] mt-1 text-center sm:text-right">
+                    ⚠️ {folhaSemChave} sem chave Pix no perfil
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           {/* A conta de quem deve a casa: por pessoa, somando todos os
@@ -324,6 +395,8 @@ export default function Receipts() {
                     {col('pix') && <th className="p-3 text-right">Pix</th>}
                     {col('total') && <th className="p-3 text-right">Total</th>}
                     {col('comissao') && <th className="p-3 text-right">Comissão</th>}
+                    {col('chavepix') && <th className="p-3">Chave Pix</th>}
+                    {col('titularpix') && <th className="p-3">Titular Pix</th>}
                     {col('acerto') && <th className="p-3">Acerto</th>}
                     {col('data') && <th className="p-3">Data</th>}
                     {canReviewCashier(accessRole) && <th className="p-3"></th>}
@@ -357,6 +430,25 @@ export default function Receipts() {
                         {col('total') && <td className="p-3 text-right font-bold whitespace-nowrap">{currency(s.total)}</td>}
                         {col('comissao') && (
                           <td className="p-3 text-right whitespace-nowrap">{s.role_type === 'Garçom' ? currency(s.commission_amount) : '—'}</td>
+                        )}
+                        {col('chavepix') && (
+                          <td className="p-3 text-xs whitespace-nowrap">
+                            {(() => {
+                              const px = s.profile_id ? pixByProfile.get(s.profile_id) : null
+                              if (!px?.pix_key?.trim()) return <span className="text-amber-600 font-semibold">sem chave ⚠️</span>
+                              return (
+                                <span className="inline-flex items-center gap-1.5 max-w-[220px]">
+                                  <span className="truncate font-medium" title={px.pix_key}>{px.pix_key}</span>
+                                  {px.pix_key_type && <span className="text-beetz-dark/40 shrink-0">({px.pix_key_type})</span>}
+                                </span>
+                              )
+                            })()}
+                          </td>
+                        )}
+                        {col('titularpix') && (
+                          <td className="p-3 text-xs text-beetz-dark/60 whitespace-nowrap max-w-[180px] truncate">
+                            {(s.profile_id && pixByProfile.get(s.profile_id)?.pix_owner_name?.trim()) || '—'}
+                          </td>
                         )}
                         {col('acerto') && (
                           <td className="p-3 whitespace-nowrap">
