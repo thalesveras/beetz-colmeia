@@ -354,9 +354,17 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
                 <tbody>${d.cardapio.map((c) => `<tr><td>${esc(c.produto)}</td><td class="num">${c.vendidos || '—'}</td><td class="num">${esc(currency(c.preco))}</td><td class="num"><strong>${c.total ? esc(currency(c.total)) : '—'}</strong></td></tr>`).join('')}</tbody>
                 <tfoot><tr><td colspan="3">Total do cardápio</td><td class="num">${esc(currency(cardapioTotal))}</td></tr></tfoot></table>` : vazio
 
-              const equipeHtml = d.equipe.length ? `<table class="grade">
+              // Avatar no padrão Beetz (Avatar.tsx): foto redonda com borda
+              // preta; sem foto, círculo amarelo com as iniciais em negrito.
+              // Foto quebrada no meio do caminho? O onerror troca pelas
+              // iniciais na hora. Só URLs http contam (nunca base64).
+              const iniciais = (nome: string) => nome.split(' ').filter(Boolean).slice(0, 2).map((parte) => parte[0]).join('').toUpperCase() || '🐝'
+              const avatarHtml = (m: { nome: string; foto: string | null }) => m.foto && m.foto.startsWith('http')
+                ? `<span class="avawrap"><img class="ava" src="${esc(m.foto)}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><span class="avaini" style="display:none">${esc(iniciais(m.nome || ''))}</span></span>`
+                : `<span class="avawrap"><span class="avaini">${esc(iniciais(m.nome || ''))}</span></span>`
+              const equipeHtml = d.equipe.length ? `<table class="grade eqp">
                 <thead><tr><th>Nome</th><th>CPF</th><th>Função no evento</th></tr></thead>
-                <tbody>${d.equipe.map((m) => `<tr><td>${esc(m.nome || 'Sem nome')}</td><td>${esc(cpfFmt(m.cpf))}</td><td>${esc(m.funcao ?? '—')}</td></tr>`).join('')}</tbody></table>` : vazio
+                <tbody>${d.equipe.map((m) => `<tr><td>${avatarHtml(m)}<span>${esc(m.nome || 'Sem nome')}</span></td><td>${esc(cpfFmt(m.cpf))}</td><td>${esc(m.funcao ?? '—')}</td></tr>`).join('')}</tbody></table>` : vazio
 
               const recebTotal = d.recebimentos.reduce((s, x) => s + (x.total ?? 0), 0)
               const recebCom = d.recebimentos.reduce((s, x) => s + (x.comissao ?? 0), 0)
@@ -375,11 +383,11 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
                 <tbody>${d.transferencias.map((t) => `<tr><td>${esc(t.produto)}</td><td class="num">${t.qtd}</td><td class="num">${t.devolvido ?? '—'}</td><td>${esc(t.status)}</td></tr>`).join('')}</tbody></table>` : vazio
 
               const geradoPor = profile ? `${profile.first_name ?? ''} ${profile.last_name ?? ''}`.trim() : ''
-              // Identidade visual = RÉPLICA do cartão preto de fechamento do
-              // app (visão produtor): o dossiê inteiro é uma pilha de cartões
-              // #050505 arredondados sobre o papel, Poppins, kickers em
-              // amarelo/45%, valores brancos, negativo #f87171, saldo em
-              // green-400, minicards rgba(255,255,255,.07) e totais #fed417.
+              // Identidade visual: herói = cartão preto com o FLYER AO FUNDO
+              // em opacity .25, igualzinho aos cards de evento do site
+              // (Dashboard/meus eventos); conta e saldo vivem dentro dele.
+              // Seções seguintes = cartões brancos com barrinha amarela,
+              // zebra suave e totais com régua dourada. Poppins em tudo.
               w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(`Dossiê de fechamento — ${event.name}`)}</title>
               <link rel="preconnect" href="https://fonts.googleapis.com">
               <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -388,65 +396,66 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
                 * { -webkit-print-color-adjust: exact; print-color-adjust: exact; box-sizing: border-box; }
                 body { font-family: 'Poppins', -apple-system, 'Segoe UI', Arial, sans-serif; margin: 0 auto; max-width: 730px; padding: 0 4px; }
                 .faixa { height: 6px; background: linear-gradient(135deg, #fed417 0%, #ffe985 100%); border-radius: 0 0 8px 8px; margin-bottom: 12px; }
-                .card { background: #050505; color: #fff; border-radius: 22px; padding: 22px 26px; margin-bottom: 12px;
-                        background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.035) 1px, transparent 0); background-size: 18px 18px;
-                        -webkit-box-decoration-break: clone; box-decoration-break: clone; }
-                .head { display: flex; gap: 16px; align-items: center; }
-                .flyer { width: 74px; height: 74px; object-fit: cover; border-radius: 16px; flex-shrink: 0; }
-                .kicker { font-size: 10px; font-weight: 700; letter-spacing: 2.5px; color: rgba(255,255,255,.45); margin: 0 0 3px; text-transform: uppercase; }
+                .hero { position: relative; overflow: hidden; background: #050505; color: #fff; border-radius: 22px; margin-bottom: 12px; page-break-inside: avoid; }
+                .herobg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .25; }
+                .heroin { position: relative; padding: 24px 26px; }
+                .kicker { font-size: 10px; font-weight: 700; letter-spacing: 2.5px; color: rgba(255,255,255,.55); margin: 0 0 3px; text-transform: uppercase; }
                 .kicker .mel { color: #fed417; }
-                h1 { font-size: 21px; font-weight: 800; margin: 0 0 4px; color: #fff; letter-spacing: .2px; }
-                .meta { font-size: 11.5px; color: rgba(255,255,255,.5); margin: 1px 0; }
+                h1 { font-size: 22px; font-weight: 800; margin: 0 0 4px; color: #fff; letter-spacing: .2px; }
+                .meta { font-size: 11.5px; color: rgba(255,255,255,.65); margin: 1px 0; }
                 .chip { display: inline-block; font-size: 10px; font-weight: 700; background: linear-gradient(135deg, #fed417 0%, #ffe985 100%); color: #050505; padding: 3px 11px; border-radius: 99px; margin-top: 6px; }
-                .divisor { border: 0; border-top: 1px solid rgba(255,255,255,.1); margin: 16px 0 6px; }
-                .kicker2 { font-size: 10px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; color: rgba(254,212,23,.8); margin: 0 0 8px; }
+                .divisor { border: 0; border-top: 1px solid rgba(255,255,255,.18); margin: 16px 0 6px; }
                 table { width: 100%; border-collapse: collapse; }
-                .conta td { padding: 8px 2px; border-bottom: 1px solid rgba(255,255,255,.08); font-size: 12.5px; }
-                .k { color: rgba(255,255,255,.7); } .v { font-weight: 600; text-align: right; white-space: nowrap; color: #fff; } .neg { color: #f87171; }
-                .saldo { display: flex; justify-content: space-between; align-items: baseline; border-top: 1px solid rgba(255,255,255,.15); margin-top: 6px; padding-top: 13px; }
+                .conta td { padding: 8px 2px; border-bottom: 1px solid rgba(255,255,255,.12); font-size: 12.5px; }
+                .k { color: rgba(255,255,255,.75); } .v { font-weight: 600; text-align: right; white-space: nowrap; color: #fff; } .neg { color: #f87171; }
+                .saldo { display: flex; justify-content: space-between; align-items: baseline; border-top: 1px solid rgba(255,255,255,.22); margin-top: 6px; padding-top: 13px; }
                 .saldo span { font-weight: 700; font-size: 13.5px; color: #fff; } .saldo strong { font-size: 24px; font-weight: 800; letter-spacing: .3px; }
                 .minis { display: flex; gap: 10px; margin-top: 15px; }
-                .mini { flex: 1; background: rgba(255,255,255,.07); border-radius: 14px; padding: 10px 13px; }
-                .mini p { margin: 0 0 2px; font-size: 9.5px; color: rgba(255,255,255,.5); }
+                .mini { flex: 1; background: rgba(0,0,0,.45); border: 1px solid rgba(255,255,255,.14); border-radius: 14px; padding: 10px 13px; }
+                .mini p { margin: 0 0 2px; font-size: 9.5px; color: rgba(255,255,255,.6); }
                 .mini strong { font-size: 13.5px; color: #fff; } .mini .amarelo { color: #fed417; }
-                .grade th { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: rgba(255,255,255,.4); text-align: left; padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,.15); }
-                .grade td { font-size: 11px; color: rgba(255,255,255,.85); padding: 6.5px 8px; border-bottom: 1px solid rgba(255,255,255,.06); vertical-align: top; }
-                .grade td strong { color: #fff; }
-                .grade tbody tr:nth-child(even) td { background: rgba(255,255,255,.04); }
-                .grade tfoot td { font-weight: 800; color: #fed417; border-top: 1.5px solid rgba(254,212,23,.55); border-bottom: 0; padding-top: 9px; }
+                .card { background: #fff; color: #050505; border: 1.5px solid #ececee; border-radius: 22px; padding: 20px 24px; margin-bottom: 12px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+                .kicker2 { font-size: 10px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; color: #050505; border-left: 4px solid #fed417; padding-left: 9px; margin: 0 0 10px; }
+                .grade th { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: #9c9c9c; text-align: left; padding: 6px 8px; border-bottom: 2px solid #050505; }
+                .grade td { font-size: 11px; color: #050505; padding: 6.5px 8px; border-bottom: 1px solid #f0f0f2; vertical-align: top; }
+                .grade tbody tr:nth-child(even) td { background: #f7f7f8; }
+                .grade tfoot td { font-weight: 800; color: #050505; border-top: 2px solid #fed417; border-bottom: 0; padding-top: 9px; }
                 .grade tr { page-break-inside: avoid; }
+                .eqp td { vertical-align: middle; }
+                .avawrap { display: inline-flex; vertical-align: middle; margin-right: 8px; }
+                .ava, .avaini { width: 26px; height: 26px; border-radius: 99px; border: 2px solid #050505; }
+                .ava { object-fit: cover; display: block; }
+                .avaini { display: flex; align-items: center; justify-content: center; background: #fed417; color: #050505; font-weight: 800; font-size: 9px; letter-spacing: .3px; }
                 .num { text-align: right; white-space: nowrap; }
-                .obs { font-size: 10px; color: rgba(255,255,255,.4); margin-top: 2px; font-weight: 400; }
-                .vazio { font-size: 11px; color: rgba(255,255,255,.4); margin: 2px 0 0; }
+                .obs { font-size: 10px; color: #9c9c9c; margin-top: 2px; font-weight: 400; }
+                .vazio { font-size: 11px; color: #a1a1aa; margin: 2px 0 0; }
                 .foot { font-size: 9px; color: #a1a1aa; margin: 16px 4px 0; }
               </style></head><body>
                 <div class="faixa"></div>
 
-                <div class="card">
-                  <div class="head">
-                    ${event.flyer_url ? `<img class="flyer" src="${esc(event.flyer_url)}" alt="">` : ''}
-                    <div>
-                      <p class="kicker"><span class="mel">🐝 Beetz</span> · Dossiê de fechamento</p>
-                      <h1>${esc(event.name)}</h1>
-                      ${meta ? `<p class="meta">${esc(meta)}</p>` : ''}
-                      ${endereco ? `<p class="meta">📍 ${esc(endereco)}</p>` : ''}
-                      <span class="chip">${esc(event.status)}</span>
+                <div class="hero">
+                  ${event.flyer_url ? `<img class="herobg" src="${esc(event.flyer_url)}" alt="">` : ''}
+                  <div class="heroin">
+                    <p class="kicker"><span class="mel">🐝 Beetz</span> · Dossiê de fechamento</p>
+                    <h1>${esc(event.name)}</h1>
+                    ${meta ? `<p class="meta">${esc(meta)}</p>` : ''}
+                    ${endereco ? `<p class="meta">📍 ${esc(endereco)}</p>` : ''}
+                    <span class="chip">${esc(event.status)}</span>
+                    <hr class="divisor">
+                    <table class="conta">
+                      ${linha(`Vendas (${vendasFonte})`, currency(vendasBase))}
+                      ${linha('Percentual do produtor', `${pctProdutor}%`)}
+                      ${linha(`Valor a receber (${pctProdutor}% de ${currency(vendasBase)})`, currency(valorAReceber))}
+                      ${linha('Créditos ou bonificações', currency(summary.creditosOuBonificacoes))}
+                      ${linha('Consumo da produção', `− ${currency(summary.consumoProducao)}`, true)}
+                      ${linha('Repasses já pagos', `− ${currency(summary.repasses)}`, true)}
+                    </table>
+                    <div class="saldo"><span>Saldo a receber</span><strong style="color:${saldoAReceber >= 0 ? '#4ade80' : '#f87171'}">${esc(currency(saldoAReceber))}</strong></div>
+                    <div class="minis">
+                      <div class="mini"><p>Arrecadado pelos caixas</p><strong>${esc(currency(summary.recebimentos))}</strong></div>
+                      <div class="mini"><p>Comissões da equipe</p><strong class="amarelo">${esc(currency(recebCom))}</strong></div>
+                      <div class="mini"><p>Já repassado</p><strong class="amarelo">${esc(currency(summary.repasses))}</strong></div>
                     </div>
-                  </div>
-                  <hr class="divisor">
-                  <table class="conta">
-                    ${linha(`Vendas (${vendasFonte})`, currency(vendasBase))}
-                    ${linha('Percentual do produtor', `${pctProdutor}%`)}
-                    ${linha(`Valor a receber (${pctProdutor}% de ${currency(vendasBase)})`, currency(valorAReceber))}
-                    ${linha('Créditos ou bonificações', currency(summary.creditosOuBonificacoes))}
-                    ${linha('Consumo da produção', `− ${currency(summary.consumoProducao)}`, true)}
-                    ${linha('Repasses já pagos', `− ${currency(summary.repasses)}`, true)}
-                  </table>
-                  <div class="saldo"><span>Saldo a receber</span><strong style="color:${saldoAReceber >= 0 ? '#4ade80' : '#f87171'}">${esc(currency(saldoAReceber))}</strong></div>
-                  <div class="minis">
-                    <div class="mini"><p>Arrecadado pelos caixas</p><strong>${esc(currency(summary.recebimentos))}</strong></div>
-                    <div class="mini"><p>Comissões da equipe</p><strong class="amarelo">${esc(currency(recebCom))}</strong></div>
-                    <div class="mini"><p>Já repassado</p><strong class="amarelo">${esc(currency(summary.repasses))}</strong></div>
                   </div>
                 </div>
 
@@ -460,17 +469,21 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
               </body></html>`)
               w.document.close()
               w.focus()
-              // Poppins e flyer precisam carregar antes do print — senão a
-              // folha sai com fonte trocada ou foto em branco. fonts.ready
-              // cobre a fonte; o timeout de segurança dispara mesmo offline.
+              // Poppins, o flyer do herói e as fotos da equipe precisam
+              // carregar antes do print — senão saem quadros em branco.
+              // Espera fonte + decode de TODAS as imagens, com teto de
+              // segurança de 5s pra rede lenta não travar o botão.
               let disparado = false
               const disparar = () => {
                 if (disparado) return
                 disparado = true
                 try { w.focus(); w.print() } catch { /* janela já fechada */ }
               }
-              try { w.document.fonts.ready.then(() => setTimeout(disparar, 400)) } catch { /* sem suporte */ }
-              setTimeout(disparar, 1800)
+              const imagensProntas = () => Promise.allSettled(
+                Array.from(w.document.images).map((img) => (img.decode ? img.decode() : Promise.resolve()).catch(() => { /* foto quebrada: onerror põe as iniciais */ }))
+              )
+              try { w.document.fonts.ready.then(imagensProntas).then(() => setTimeout(disparar, 200)) } catch { setTimeout(disparar, 1500) }
+              setTimeout(disparar, 5000)
             } catch {
               alert('Não deu pra montar o dossiê agora — tenta de novo em instantes.')
             } finally {

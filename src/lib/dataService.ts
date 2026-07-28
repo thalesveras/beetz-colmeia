@@ -1671,7 +1671,7 @@ export async function updateRolePermission(
 // Todas as seções numa chamada; nomes resolvidos no banco; RLS do chamador vale.
 export interface ClosingDossier {
   cardapio: { produto: string; vendidos: number; preco: number; total: number }[]
-  equipe: { nome: string; cpf: string | null; funcao: string | null }[]
+  equipe: { nome: string; cpf: string | null; funcao: string | null; foto: string | null }[]
   consumo: { produto: string; qtd: number; total: number; obs: string | null; por: string | null }[]
   consumo_total: number
   transferencias: { produto: string; qtd: number; devolvido: number | null; status: string; obs: string | null }[]
