@@ -221,6 +221,16 @@ function SignupRulesSection() {
                   Etapa {i + 1} · {titulo}
                 </h3>
                 <div className="divide-y divide-beetz-dark/5 border border-beetz-dark/5 rounded-xl overflow-hidden">
+                  {/* Nome e sobrenome não são opção: LEI FIXA do formulário
+                      (sem eles a pessoa vira "Sem nome" em escala e folha Pix). */}
+                  {i === 0 && (
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 bg-beetz-gray/40">
+                      <span className="flex-1 min-w-[140px] text-sm font-medium">Nome e sobrenome</span>
+                      <span className="text-xs font-bold px-3 py-1.5 rounded-lg bg-beetz-dark text-white cursor-default" title="Regra fixa do sistema — não dá pra desligar">
+                        Sempre obrigatórios 🔒
+                      </span>
+                    </div>
+                  )}
                   {daEtapa.map((r) => {
                     const busyReq = savingKey === r.field_key + 'required'
                     const busyUni = savingKey === r.field_key + 'is_unique'

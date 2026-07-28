@@ -55,6 +55,17 @@ export default function OnboardingWizard() {
   }
 
   async function handleNext() {
+    // Nome e sobrenome são LEI FIXA (não configurável): é como a colmeia te
+    // reconhece em escala, recebimento e folha Pix. Antes o "required" do
+    // input era decorativo — dava pra concluir o cadastro sem nome e nascer
+    // "Sem nome (perfil incompleto)" em todo canto do sistema.
+    if (cadastroNovo && step === 0) {
+      if (!String(data.first_name ?? '').trim() || !String(data.last_name ?? '').trim()) {
+        alert('Nome e sobrenome são obrigatórios — é como todo mundo te encontra na colmeia. 🐝')
+        return
+      }
+    }
+
     // CPF preenchido tem que ser válido pra sair da etapa 1 — CPF errado no
     // cadastro vira dor de cabeça em pagamento e contrato lá na frente.
     // Em branco pode passar (nem todo fluxo exige).

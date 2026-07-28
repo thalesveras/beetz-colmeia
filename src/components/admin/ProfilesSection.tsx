@@ -112,13 +112,22 @@ export default function ProfilesSection() {
             const role = computeAccessRole(p, departments)
             const isDiretoria = role === 'diretoria'
             return (
-              <div key={p.id} className="flex flex-wrap items-center gap-3 p-4">
-                <Avatar src={p.avatar_url} name={`${p.first_name} ${p.last_name}`} size="sm" />
-                <div className="flex-1 min-w-[160px]">
-                  <p className="font-semibold text-sm">{p.first_name} {p.last_name}</p>
-                  <p className="text-xs text-beetz-dark/50">{p.email}</p>
+              /* Mobile: dois andares por pessoa — identidade em cima,
+                 controles numa fileira firme embaixo (o "Apagar" órfão
+                 caindo sozinho pra 3ª linha era o caos do celular). */
+              <div key={p.id} className="p-4 space-y-2.5 sm:space-y-0 sm:flex sm:flex-wrap sm:items-center sm:gap-3">
+                <div className="flex items-center gap-3 min-w-0 sm:flex-1 sm:min-w-[200px]">
+                  <Avatar src={p.avatar_url} name={`${p.first_name} ${p.last_name}`} size="sm" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-sm truncate">{p.first_name} {p.last_name}</p>
+                    <p className="text-xs text-beetz-dark/50 truncate">{p.email}</p>
+                  </div>
+                  <span className="sm:hidden shrink-0 text-[10px] font-semibold bg-beetz-gray px-2 py-1 rounded-full">
+                    {(ACCESS_ROLE_LABELS[role] ?? role).split(' (')[0]}
+                  </span>
                 </div>
-                <span className="text-xs font-semibold bg-beetz-gray px-2.5 py-1 rounded-full">{ACCESS_ROLE_LABELS[role]}</span>
+                <span className="hidden sm:inline text-xs font-semibold bg-beetz-gray px-2.5 py-1 rounded-full">{ACCESS_ROLE_LABELS[role]}</span>
+                <div className="flex items-center gap-2 sm:contents">
                 {isDiretoria ? (
                   <div className="flex items-center gap-1.5 text-sm text-beetz-dark/50 border border-beetz-dark/10 bg-beetz-gray/50 rounded-xl px-3 py-2" title="Por segurança, o departamento de quem é Diretoria não pode ser trocado por aqui — evita perda acidental de acesso.">
                     <Lock size={13} />
@@ -129,7 +138,7 @@ export default function ProfilesSection() {
                     value={p.department_id || ''}
                     disabled={savingId === p.id}
                     onChange={(e) => handleChangeDepartment(p.id, e.target.value)}
-                    className="text-sm border border-beetz-dark/15 rounded-xl px-3 py-2 disabled:opacity-50"
+                    className="flex-1 min-w-0 sm:flex-none text-sm border border-beetz-dark/15 rounded-xl px-3 py-2 disabled:opacity-50 bg-white"
                   >
                     <option value="" disabled>Selecionar departamento...</option>
                     {departments.map((d) => <option key={d.id} value={d.id}>{d.icon} {d.name}</option>)}
@@ -138,9 +147,9 @@ export default function ProfilesSection() {
 
                 <button
                   onClick={() => setEditingProfile(p)}
-                  className="flex items-center gap-1.5 text-xs font-semibold text-beetz-dark/70 border border-beetz-dark/15 px-3 py-2 rounded-xl hover:bg-beetz-gray transition-colors"
+                  className="shrink-0 flex items-center gap-1.5 text-xs font-semibold text-beetz-dark/70 border border-beetz-dark/15 px-3 py-2 rounded-xl hover:bg-beetz-gray transition-colors"
                 >
-                  <Pencil size={13} /> Editar
+                  <Pencil size={13} /><span className="hidden sm:inline"> Editar</span>
                 </button>
 
                 {!isDiretoria && (
@@ -163,12 +172,13 @@ export default function ProfilesSection() {
                   ) : (
                     <button
                       onClick={() => setConfirmDeleteId(p.id)}
-                      className="flex items-center gap-1.5 text-xs font-semibold text-red-600 border border-red-100 bg-red-50 px-3 py-2 rounded-xl hover:bg-red-100 transition-colors"
+                      className="shrink-0 flex items-center gap-1.5 text-xs font-semibold text-red-600 border border-red-100 bg-red-50 px-3 py-2 rounded-xl hover:bg-red-100 transition-colors"
                     >
-                      <Trash2 size={13} /> Apagar
+                      <Trash2 size={13} /><span className="hidden sm:inline"> Apagar</span>
                     </button>
                   )
                 )}
+                </div>
               </div>
             )
           })}

@@ -1,8 +1,23 @@
+import { useState } from 'react'
 import type { OnboardingData } from './OnboardingWizard'
 import Avatar from '../../components/ui/Avatar'
 import { cleanCpf, formatCpf, isValidCpf } from '../../lib/cpf'
+import { useAuth } from '../../contexts/AuthContext'
+import { supabase } from '../../lib/supabaseClient'
 
 interface Props { data: OnboardingData; update: (patch: Partial<OnboardingData>) => void }
+
+// Encolhe a foto no navegador (máx. 800px, JPEG 85%): a selfie de 6 MB da
+// câmera vira ~150 KB antes de subir.
+async function encolherFoto(file: File): Promise<Blob> {
+  const bmp = await createImageBitmap(file)
+  const escala = Math.min(1, 800 / Math.max(bmp.width, bmp.height))
+  const c = document.createElement('canvas')
+  c.width = Math.round(bmp.width * escala)
+  c.height = Math.round(bmp.height * escala)
+  c.getContext('2d')!.drawImage(bmp, 0, 0, c.width, c.height)
+  return await new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('sem blob'))), 'image/jpeg', 0.85))
+}
 
 const ufs = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO']
 const PIX_KEY_TYPES = ['CPF', 'Telefone', 'Email', 'Chave aleatória']
@@ -14,12 +29,37 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 const inputClass = 'w-full border border-beetz-dark/15 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
 
 export default function StepPersonalData({ data, update }: Props) {
-  function handlePhoto(e: React.ChangeEvent<HTMLInputElement>) {
+  const { userId, isDemoMode } = useAuth()
+  const [fotoBusy, setFotoBusy] = useState(false)
+  const [fotoErro, setFotoErro] = useState<string | null>(null)
+
+  // A foto vai DIRETO pro Storage (pasta do próprio usuário), encolhida —
+  // nunca mais base64 gigante dentro do banco (era isso que deixava Admin,
+  // Turma e Aniversariantes de joelhos: 33 MB de fotos viajando por visita).
+  async function handlePhoto(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-    const reader = new FileReader()
-    reader.onload = () => update({ avatar_url: reader.result as string })
-    reader.readAsDataURL(file)
+    setFotoErro(null)
+    // Demo/sem login ainda: prévia local, sem tocar em Storage.
+    if (isDemoMode || !userId) {
+      const reader = new FileReader()
+      reader.onload = () => update({ avatar_url: reader.result as string })
+      reader.readAsDataURL(file)
+      return
+    }
+    setFotoBusy(true)
+    try {
+      const blob = await encolherFoto(file)
+      const path = `${userId}/avatar-${Date.now()}.jpg`
+      const { error } = await supabase.storage.from('avatars').upload(path, blob, { contentType: 'image/jpeg', upsert: true })
+      if (error) throw error
+      const { data: pub } = supabase.storage.from('avatars').getPublicUrl(path)
+      update({ avatar_url: pub.publicUrl })
+    } catch {
+      setFotoErro('Não deu pra enviar a foto agora — tenta de novo ou siga sem ela (dá pra colocar depois no perfil).')
+    } finally {
+      setFotoBusy(false)
+    }
   }
 
   return (
@@ -27,11 +67,12 @@ export default function StepPersonalData({ data, update }: Props) {
       <div className="flex items-center gap-4">
         <Avatar src={data.avatar_url} name={`${data.first_name || ''} ${data.last_name || ''}`} size="xl" />
         <div>
-          <label className="inline-block bg-beetz-dark text-white text-sm font-semibold px-4 py-2 rounded-xl cursor-pointer hover:bg-black transition">
-            Escolher foto
+          <label className={`inline-block bg-beetz-dark text-white text-sm font-semibold px-4 py-2 rounded-xl cursor-pointer hover:bg-black transition ${fotoBusy ? 'opacity-60 pointer-events-none' : ''}`}>
+            {fotoBusy ? 'Enviando...' : 'Escolher foto'}
             <input type="file" accept="image/*" className="hidden" onChange={handlePhoto} />
           </label>
-          <p className="text-xs text-beetz-dark/50 mt-2">JPG ou PNG, até 2MB.</p>
+          <p className="text-xs text-beetz-dark/50 mt-2">Qualquer foto serve — a gente ajusta o tamanho.</p>
+          {fotoErro && <p className="text-xs text-red-600 mt-1">{fotoErro}</p>}
         </div>
       </div>
 
