@@ -126,6 +126,7 @@ const nomeDe = (id) => nomes.get(id) ?? '—'
 
 const ABAS = [
   { key: 'dashboard', label: '📊 Dashboard' },
+  { key: 'cadastros', label: '🧑 Cadastros' },
   { key: 'acessos', label: '🔑 Acessos' },
   { key: 'avisos', label: '🔔 Avisos' },
   { key: 'emails', label: '✉️ E-mails' },
@@ -262,6 +263,33 @@ const CARREGADORES = {
     if (error) throw error
     return { custom: true, dados: data }
   },
+  async cadastros() {
+    // A trilha de entrada na Colmeia: quem criou perfil, quando, com que
+    // e-mail, em que departamento — e se terminou o cadastro (wizard).
+    const [{ data, error }, { data: deps }] = await Promise.all([
+      supabase.from('profiles')
+        .select('id, first_name, last_name, email, city, approval_status, onboarding_completed, created_at, department_id')
+        .order('created_at', { ascending: false }).limit(200),
+      supabase.from('departments').select('id, name')
+    ])
+    if (error) throw error
+    const depNome = new Map((deps ?? []).map((d) => [d.id, d.name]))
+    const nome = (p) => `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim() || 'Sem nome'
+    return {
+      colunas: ['Quando', 'Nome', 'E-mail', 'Departamento', 'Cidade', 'Situação', 'Cadastro'],
+      linhas: (data ?? []).map((p) => `<tr>
+        <td>${quando(p.created_at)}</td>
+        <td><strong>${esc(nome(p))}</strong></td>
+        <td>${esc(p.email ?? '—')}</td>
+        <td>${esc(depNome.get(p.department_id) ?? '—')}</td>
+        <td>${esc(p.city ?? '—')}</td>
+        <td><span class="tag ${p.approval_status === 'Aprovado' ? 'ok' : 'mel'}">${esc(p.approval_status ?? '—')}</span></td>
+        <td>${p.onboarding_completed ? '<span class="tag ok">completo ✓</span>' : '<span class="tag err">incompleto</span>'}</td>
+      </tr>`),
+      texto: (p) => `${nome(p)} ${p.email ?? ''} ${depNome.get(p.department_id) ?? ''} ${p.city ?? ''} ${p.approval_status ?? ''} ${p.onboarding_completed ? 'completo' : 'incompleto'}`,
+      brutos: data ?? []
+    }
+  },
   async acessos() {
     const { data, error } = await supabase.from('notifications')
       .select('profile_id, alert_key, title, created_at')
@@ -330,7 +358,9 @@ const CARREGADORES = {
 
 let ultimoResultado = null
 async function carregarAba() {
-  $('conteudo').innerHTML = '<p class="muted" style="padding:12px 4px">Carregando...</p>'
+  $('conteudo').innerHTML = abaAtual === 'dashboard'
+    ? '<p class="muted" style="padding:12px 4px">Carregando o panorama... a primeira consulta do dia pode levar alguns segundos. ⏳</p>'
+    : '<p class="muted" style="padding:12px 4px">Carregando...</p>'
   $('contagem').textContent = ''
   try {
     ultimoResultado = await CARREGADORES[abaAtual]()
