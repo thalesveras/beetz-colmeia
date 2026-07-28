@@ -132,6 +132,32 @@ export default function EventDetail() {
     <div className="space-y-6 max-w-4xl">
       <Link to="/eventos" className="text-sm text-beetz-dark/50 hover:text-beetz-dark">← Voltar para eventos</Link>
 
+      {/* Tira de identidade GRUDADA no topo: deslizou por qualquer aba, o
+          nome do evento segue à vista — sem ela, três abas depois ninguém
+          sabia mais de qual festa era a tela. Fina de propósito (uma linha):
+          as abas continuam em fluxo normal com o flex-wrap de sempre.
+          Sangria -mx-4 = p-4 do container no mobile: cola sem vazar. */}
+      {event && (
+        <div className="sticky top-12 z-20 bg-beetz-gray/95 backdrop-blur-sm -mx-4 px-4 md:mx-0 md:px-0 py-1.5">
+          <div className="flex items-center gap-2.5 min-w-0">
+            {event.flyer_url ? (
+              <img src={event.flyer_url} alt="" className="w-8 h-10 rounded-md object-cover shrink-0 border border-beetz-dark/10" />
+            ) : (
+              <div className="w-8 h-10 rounded-md dark-gradient flex items-center justify-center text-white text-xs font-extrabold shrink-0">
+                {event.event_date.split('-')[2]}
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="font-extrabold leading-tight truncate">{event.name}</p>
+              <p className="text-[11px] text-beetz-dark/50 truncate">
+                {new Date(event.event_date + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' }).replace('.', '')}
+                {event.location ? ` · ${event.location}` : ''} · {event.status}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Barra de abas no TOPO da página (pedido do dono: embaixo do cartão
           gigante do evento ela ficava invisível sem rolar). O cartão do evento,
           o líder e o contrato moraram pra dentro da aba Resumo — que agora é
