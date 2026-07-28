@@ -70,7 +70,8 @@ const PERMISSION_GROUPS: { title: string; fields: { key: PermissionKey; label: s
     fields: [
       { key: 'can_approve_users', label: 'Aprovar novos cadastros', description: 'Liberar (ou recusar) quem acabou de se cadastrar no app.' },
       { key: 'can_manage_users', label: 'Gerenciar departamentos e perfis', description: 'Trocar o departamento de qualquer colaborador (e, com isso, seu papel de acesso).' },
-      { key: 'can_view_financial_summary', label: 'Ver fechamento — visão diretoria', description: 'Ver vendas, percentual, custos e lucro/perda de um evento.' }
+      { key: 'can_view_financial_summary', label: 'Ver fechamento — visão diretoria', description: 'Ver vendas, percentual, custos e lucro/perda de um evento.' },
+      { key: 'can_export_closing_pdf', label: 'Exportar dossiê de fechamento (PDF)', description: 'Gera o documento completo do evento: conta do fechamento, cardápio, equipe com CPF, recebimentos e consumo da produção. Documento interno sensível.' }
     ]
   },
   {

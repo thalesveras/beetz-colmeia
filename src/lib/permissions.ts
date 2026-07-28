@@ -182,6 +182,12 @@ export function canGroupReceipts(role: AccessRole) {
   return permsOf(role).can_group_receipts ?? permsOf(role).can_manage_users
 }
 
+// Dossiê completo de fechamento em PDF — documento interno com equipe (CPF),
+// recebimentos e consumo. Fallback conservador: só quem gerencia usuários.
+export function canExportClosingPdf(role: AccessRole) {
+  return permsOf(role).can_export_closing_pdf ?? permsOf(role).can_manage_users
+}
+
 export function canApproveUsers(role: AccessRole) {
   return permsOf(role).can_approve_users
 }

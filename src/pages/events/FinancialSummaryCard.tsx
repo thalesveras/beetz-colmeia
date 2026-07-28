@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Building2, Copy, Printer, Save, ShieldCheck, UserRound } from 'lucide-react'
-import { getEventFinancialSummary, listEventRepasses, updateEvent } from '../../lib/dataService'
+import { getClosingDossier, getEventFinancialSummary, listEventRepasses, updateEvent } from '../../lib/dataService'
 import type { EventFinancialSummary, EventItem, EventRepasse } from '../../lib/types'
+import { useAuth } from '../../contexts/AuthContext'
+import { canExportClosingPdf } from '../../lib/permissions'
 
 // Fechamento como PRESTAÇÃO DE CONTAS, em duas visões (pedido do dono):
 // — Visão empresa: o resultado da Beetz no evento (receita − custos = lucro).
@@ -26,11 +28,13 @@ interface Props {
 }
 
 export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
+  const { accessRole, profile } = useAuth()
   const [summary, setSummary] = useState<EventFinancialSummary | null>(null)
   const [repasses, setRepasses] = useState<EventRepasse[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [dossieBusy, setDossieBusy] = useState(false)
   const [view, setView] = useState<'empresa' | 'produtor'>('empresa')
 
   const [salesAmount, setSalesAmount] = useState(event.sales_amount)
@@ -325,12 +329,135 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
             }
           }
 
+          // ---- DOSSIÊ COMPLETO (Diretoria): o relatório nível Zoho, com o
+          // design da casa. Busca todas as seções no banco numa chamada e
+          // abre a folha pronta pra "Salvar como PDF". Documento interno:
+          // carrega CPF da equipe — por isso vive atrás da flag da matriz.
+          async function exportDossie() {
+            if (!summary) return
+            setDossieBusy(true)
+            try {
+              const d = await getClosingDossier(event.id)
+              const w = window.open('', '_blank')
+              if (!w) { alert('O navegador bloqueou a janela do PDF. Libere pop-ups pra este site e tente de novo.'); return }
+              const cpfFmt = (c: string | null) => {
+                const n = (c ?? '').replace(/\D/g, '')
+                return n.length === 11 ? `${n.slice(0, 3)}.${n.slice(3, 6)}.${n.slice(6, 9)}-${n.slice(9)}` : (c ?? '—')
+              }
+              const linha = (k: string, v: string, neg = false) =>
+                `<tr><td class="k">${esc(k)}</td><td class="v${neg ? ' neg' : ''}">${esc(v)}</td></tr>`
+              const vazio = '<p class="vazio">Nenhum registro.</p>'
+
+              const cardapioTotal = d.cardapio.reduce((s, c) => s + (c.total ?? 0), 0)
+              const cardapioHtml = d.cardapio.length ? `<table class="grade">
+                <thead><tr><th>Produto</th><th class="num">Vendidos</th><th class="num">Preço</th><th class="num">Total</th></tr></thead>
+                <tbody>${d.cardapio.map((c) => `<tr><td>${esc(c.produto)}</td><td class="num">${c.vendidos || '—'}</td><td class="num">${esc(currency(c.preco))}</td><td class="num"><strong>${c.total ? esc(currency(c.total)) : '—'}</strong></td></tr>`).join('')}</tbody>
+                <tfoot><tr><td colspan="3">Total do cardápio</td><td class="num">${esc(currency(cardapioTotal))}</td></tr></tfoot></table>` : vazio
+
+              const equipeHtml = d.equipe.length ? `<table class="grade">
+                <thead><tr><th>Nome</th><th>CPF</th><th>Função no evento</th></tr></thead>
+                <tbody>${d.equipe.map((m) => `<tr><td>${esc(m.nome || 'Sem nome')}</td><td>${esc(cpfFmt(m.cpf))}</td><td>${esc(m.funcao ?? '—')}</td></tr>`).join('')}</tbody></table>` : vazio
+
+              const recebTotal = d.recebimentos.reduce((s, x) => s + (x.total ?? 0), 0)
+              const recebCom = d.recebimentos.reduce((s, x) => s + (x.comissao ?? 0), 0)
+              const recebHtml = d.recebimentos.length ? `<table class="grade">
+                <thead><tr><th>Colaborador(a)</th><th>Tipo</th><th class="num">Total apurado</th><th class="num">Comissão</th></tr></thead>
+                <tbody>${d.recebimentos.map((x) => `<tr><td>${esc(x.nome ?? '—')}</td><td>${esc(x.tipo)}</td><td class="num">${esc(currency(x.total))}</td><td class="num">${x.comissao ? esc(currency(x.comissao)) : '—'}</td></tr>`).join('')}</tbody>
+                <tfoot><tr><td colspan="2">Total</td><td class="num">${esc(currency(recebTotal))}</td><td class="num">${esc(currency(recebCom))}</td></tr></tfoot></table>` : vazio
+
+              const consumoHtml = d.consumo.length ? `<table class="grade">
+                <thead><tr><th>Produto</th><th class="num">Qtd</th><th class="num">Custo</th><th>Informado por</th></tr></thead>
+                <tbody>${d.consumo.map((c) => `<tr><td>${esc(c.produto)}${c.obs ? `<div class="obs">${esc(c.obs)}</div>` : ''}</td><td class="num">${c.qtd}</td><td class="num">${esc(currency(c.total))}</td><td>${esc(c.por ?? '—')}</td></tr>`).join('')}</tbody>
+                <tfoot><tr><td>Total do consumo</td><td></td><td class="num">${esc(currency(Number(d.consumo_total)))}</td><td></td></tr></tfoot></table>` : vazio
+
+              const transfHtml = d.transferencias.length ? `<table class="grade">
+                <thead><tr><th>Produto</th><th class="num">Qtd</th><th class="num">Devolvido</th><th>Status</th></tr></thead>
+                <tbody>${d.transferencias.map((t) => `<tr><td>${esc(t.produto)}</td><td class="num">${t.qtd}</td><td class="num">${t.devolvido ?? '—'}</td><td>${esc(t.status)}</td></tr>`).join('')}</tbody></table>` : vazio
+
+              const geradoPor = profile ? `${profile.first_name ?? ''} ${profile.last_name ?? ''}`.trim() : ''
+              w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(`Dossiê de fechamento — ${event.name}`)}</title><style>
+                @page { margin: 16mm 13mm; }
+                * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                body { font-family: -apple-system, 'Segoe UI', Arial, sans-serif; color: #221f1a; margin: 0 auto; max-width: 720px; padding: 0 8px; }
+                .faixa { height: 6px; background: linear-gradient(90deg, #FED417, #f5b700); border-radius: 0 0 6px 6px; margin-bottom: 18px; }
+                .head { display: flex; gap: 16px; align-items: flex-start; padding-bottom: 14px; border-bottom: 2px solid #221f1a; }
+                .flyer { width: 76px; height: 96px; object-fit: cover; border-radius: 10px; }
+                .kicker { font-size: 10px; font-weight: 800; letter-spacing: 2.5px; color: #b08900; margin: 0 0 2px; }
+                h1 { font-size: 22px; margin: 0 0 4px; } .meta { font-size: 12px; color: #777; margin: 1px 0; }
+                .chip { display: inline-block; font-size: 10px; font-weight: 700; background: #fff5cc; color: #6b5b00; border: 1px solid #FED417; padding: 2px 8px; border-radius: 99px; margin-top: 5px; }
+                h2 { font-size: 13px; margin: 24px 0 6px; padding-left: 8px; border-left: 4px solid #FED417; text-transform: uppercase; letter-spacing: 1px; }
+                table { width: 100%; border-collapse: collapse; }
+                .conta td { padding: 8px 4px; border-bottom: 1px solid #eee; font-size: 13px; }
+                .k { color: #666; } .v { font-weight: 600; text-align: right; white-space: nowrap; } .neg { color: #b91c1c; }
+                .saldo { display: flex; justify-content: space-between; align-items: baseline; border-top: 2px solid #221f1a; margin-top: 4px; padding-top: 10px; }
+                .saldo span { font-weight: 700; } .saldo strong { font-size: 22px; }
+                .grade th { font-size: 9px; text-transform: uppercase; letter-spacing: .5px; color: #999; text-align: left; padding: 6px 6px; border-bottom: 1.5px solid #ddd; }
+                .grade td { font-size: 11px; padding: 6px 6px; border-bottom: 1px solid #f0ede4; vertical-align: top; }
+                .grade tbody tr:nth-child(even) td { background: #faf8f2; }
+                .grade tfoot td { font-weight: 800; border-top: 1.5px solid #221f1a; border-bottom: 0; padding-top: 8px; }
+                .grade tr { page-break-inside: avoid; }
+                .num { text-align: right; white-space: nowrap; }
+                .obs { font-size: 10px; color: #999; margin-top: 2px; }
+                .vazio { font-size: 11px; color: #aaa; padding: 6px 2px; }
+                .foot { font-size: 9px; color: #aaa; margin-top: 28px; border-top: 1px solid #eee; padding-top: 8px; }
+              </style></head><body>
+                <div class="faixa"></div>
+                <div class="head">
+                  ${event.flyer_url ? `<img class="flyer" src="${esc(event.flyer_url)}" alt="">` : ''}
+                  <div>
+                    <p class="kicker">🐝 BEETZ · DOSSIÊ DE FECHAMENTO</p>
+                    <h1>${esc(event.name)}</h1>
+                    ${meta ? `<p class="meta">${esc(meta)}</p>` : ''}
+                    ${endereco ? `<p class="meta">${esc(endereco)}</p>` : ''}
+                    <span class="chip">${esc(event.status)}</span>
+                  </div>
+                </div>
+
+                <h2>Conta do fechamento</h2>
+                <table class="conta">
+                  ${linha(`Vendas (${vendasFonte})`, currency(vendasBase))}
+                  ${linha('Percentual do produtor', `${pctProdutor}%`)}
+                  ${linha('Valor a receber do produtor', currency(valorAReceber))}
+                  ${linha('Créditos ou bonificações', currency(summary.creditosOuBonificacoes))}
+                  ${linha('Consumo da produção', `− ${currency(summary.consumoProducao)}`, true)}
+                  ${linha('Repasses já pagos', `− ${currency(summary.repasses)}`, true)}
+                </table>
+                <div class="saldo"><span>Saldo a receber do produtor</span><strong style="color:${saldoAReceber >= 0 ? '#15803d' : '#b91c1c'}">${esc(currency(saldoAReceber))}</strong></div>
+
+                <h2>Cardápio do evento</h2>${cardapioHtml}
+                <h2>Equipe escalada (${d.equipe.length})</h2>${equipeHtml}
+                <h2>Recebimentos da equipe (${d.recebimentos.length})</h2>${recebHtml}
+                <h2>Consumo da produção</h2>${consumoHtml}
+                <h2>Transferências solicitadas pela produção</h2>${transfHtml}
+
+                <p class="foot">Documento interno da Beetz — contém dados pessoais da equipe. Gerado pela Colmeia em ${new Date().toLocaleString('pt-BR')}${geradoPor ? ` por ${esc(geradoPor)}` : ''}.</p>
+              </body></html>`)
+              w.document.close()
+              w.focus()
+              setTimeout(() => w.print(), 450)
+            } catch {
+              alert('Não deu pra montar o dossiê agora — tenta de novo em instantes.')
+            } finally {
+              setDossieBusy(false)
+            }
+          }
+
           return (
           <>
           <div className="flex flex-wrap gap-2 mb-3">
             <button onClick={exportPdf} className="flex items-center gap-1.5 honey-gradient text-beetz-dark font-bold px-4 py-2 rounded-xl text-sm">
               <Printer size={14} /> Exportar PDF
             </button>
+            {canExportClosingPdf(accessRole) && (
+              <button
+                onClick={exportDossie}
+                disabled={dossieBusy}
+                title="Documento interno completo: conta, cardápio, equipe com CPF, recebimentos e consumo"
+                className="flex items-center gap-1.5 bg-beetz-dark text-white font-bold px-4 py-2 rounded-xl text-sm border border-white/20 hover:bg-black disabled:opacity-60"
+              >
+                <ShieldCheck size={14} /> {dossieBusy ? 'Montando...' : 'Dossiê completo (PDF)'}
+              </button>
+            )}
             <button onClick={copyResumo} className="flex items-center gap-1.5 bg-white/10 text-white font-bold px-4 py-2 rounded-xl text-sm hover:bg-white/15">
               <Copy size={14} /> {copied ? 'Copiado ✓' : 'Copiar pro WhatsApp'}
             </button>

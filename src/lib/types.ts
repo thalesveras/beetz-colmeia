@@ -861,6 +861,8 @@ export interface RolePermissions {
   // Agrupar recebimentos por colaborador (folha de transferências).
   // Opcional: defaults antigos não conhecem — fallback: só Diretoria.
   can_group_receipts?: boolean
+  // Exportar o dossiê completo de fechamento em PDF (visão Diretoria).
+  can_export_closing_pdf?: boolean
   // (regras do /cadastro moram em SignupFieldRule, tabela própria)
   // Barra inferior do celular: até 4 chaves do catálogo (navigation.ts).
   // null/ausente = padrão do sistema pro cargo. Editável em Configurações.

@@ -1667,6 +1667,26 @@ export async function updateRolePermission(
   return data as RolePermissions
 }
 
+// ---------- Fechamento: dossiê completo do evento (PDF da Diretoria) ----------
+// Todas as seções numa chamada; nomes resolvidos no banco; RLS do chamador vale.
+export interface ClosingDossier {
+  cardapio: { produto: string; vendidos: number; preco: number; total: number }[]
+  equipe: { nome: string; cpf: string | null; funcao: string | null }[]
+  consumo: { produto: string; qtd: number; total: number; obs: string | null; por: string | null }[]
+  consumo_total: number
+  transferencias: { produto: string; qtd: number; devolvido: number | null; status: string; obs: string | null }[]
+  recebimentos: { nome: string | null; tipo: string; total: number; comissao: number; status: string }[]
+}
+
+export async function getClosingDossier(eventId: string): Promise<ClosingDossier> {
+  if (isDemoMode) {
+    return { cardapio: [], equipe: [], consumo: [], consumo_total: 0, transferencias: [], recebimentos: [] }
+  }
+  const { data, error } = await supabase.rpc('closing_dossier', { ev: eventId })
+  if (error) throw error
+  return data as ClosingDossier
+}
+
 // ---------- Financeiro: dados de Pix pra folha de pagamento ----------
 // Só os 4 campos de Pix dos perfis (leve). Usado nos Recebimentos pra
 // relacionar comissão → chave e montar a folha de pagamentos.
