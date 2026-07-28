@@ -375,66 +375,102 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
                 <tbody>${d.transferencias.map((t) => `<tr><td>${esc(t.produto)}</td><td class="num">${t.qtd}</td><td class="num">${t.devolvido ?? '—'}</td><td>${esc(t.status)}</td></tr>`).join('')}</tbody></table>` : vazio
 
               const geradoPor = profile ? `${profile.first_name ?? ''} ${profile.last_name ?? ''}`.trim() : ''
-              w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(`Dossiê de fechamento — ${event.name}`)}</title><style>
-                @page { margin: 16mm 13mm; }
-                * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-                body { font-family: -apple-system, 'Segoe UI', Arial, sans-serif; color: #221f1a; margin: 0 auto; max-width: 720px; padding: 0 8px; }
-                .faixa { height: 6px; background: linear-gradient(90deg, #FED417, #f5b700); border-radius: 0 0 6px 6px; margin-bottom: 18px; }
-                .head { display: flex; gap: 16px; align-items: flex-start; padding-bottom: 14px; border-bottom: 2px solid #221f1a; }
-                .flyer { width: 76px; height: 96px; object-fit: cover; border-radius: 10px; }
-                .kicker { font-size: 10px; font-weight: 800; letter-spacing: 2.5px; color: #b08900; margin: 0 0 2px; }
-                h1 { font-size: 22px; margin: 0 0 4px; } .meta { font-size: 12px; color: #777; margin: 1px 0; }
-                .chip { display: inline-block; font-size: 10px; font-weight: 700; background: #fff5cc; color: #6b5b00; border: 1px solid #FED417; padding: 2px 8px; border-radius: 99px; margin-top: 5px; }
-                h2 { font-size: 13px; margin: 24px 0 6px; padding-left: 8px; border-left: 4px solid #FED417; text-transform: uppercase; letter-spacing: 1px; }
+              // Identidade visual = RÉPLICA do cartão preto de fechamento do
+              // app (visão produtor): o dossiê inteiro é uma pilha de cartões
+              // #050505 arredondados sobre o papel, Poppins, kickers em
+              // amarelo/45%, valores brancos, negativo #f87171, saldo em
+              // green-400, minicards rgba(255,255,255,.07) e totais #fed417.
+              w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(`Dossiê de fechamento — ${event.name}`)}</title>
+              <link rel="preconnect" href="https://fonts.googleapis.com">
+              <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+              <style>
+                @page { margin: 10mm 9mm; }
+                * { -webkit-print-color-adjust: exact; print-color-adjust: exact; box-sizing: border-box; }
+                body { font-family: 'Poppins', -apple-system, 'Segoe UI', Arial, sans-serif; margin: 0 auto; max-width: 730px; padding: 0 4px; }
+                .faixa { height: 6px; background: linear-gradient(135deg, #fed417 0%, #ffe985 100%); border-radius: 0 0 8px 8px; margin-bottom: 12px; }
+                .card { background: #050505; color: #fff; border-radius: 22px; padding: 22px 26px; margin-bottom: 12px;
+                        background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.035) 1px, transparent 0); background-size: 18px 18px;
+                        -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+                .head { display: flex; gap: 16px; align-items: center; }
+                .flyer { width: 74px; height: 74px; object-fit: cover; border-radius: 16px; flex-shrink: 0; }
+                .kicker { font-size: 10px; font-weight: 700; letter-spacing: 2.5px; color: rgba(255,255,255,.45); margin: 0 0 3px; text-transform: uppercase; }
+                .kicker .mel { color: #fed417; }
+                h1 { font-size: 21px; font-weight: 800; margin: 0 0 4px; color: #fff; letter-spacing: .2px; }
+                .meta { font-size: 11.5px; color: rgba(255,255,255,.5); margin: 1px 0; }
+                .chip { display: inline-block; font-size: 10px; font-weight: 700; background: linear-gradient(135deg, #fed417 0%, #ffe985 100%); color: #050505; padding: 3px 11px; border-radius: 99px; margin-top: 6px; }
+                .divisor { border: 0; border-top: 1px solid rgba(255,255,255,.1); margin: 16px 0 6px; }
+                .kicker2 { font-size: 10px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; color: rgba(254,212,23,.8); margin: 0 0 8px; }
                 table { width: 100%; border-collapse: collapse; }
-                .conta td { padding: 8px 4px; border-bottom: 1px solid #eee; font-size: 13px; }
-                .k { color: #666; } .v { font-weight: 600; text-align: right; white-space: nowrap; } .neg { color: #b91c1c; }
-                .saldo { display: flex; justify-content: space-between; align-items: baseline; border-top: 2px solid #221f1a; margin-top: 4px; padding-top: 10px; }
-                .saldo span { font-weight: 700; } .saldo strong { font-size: 22px; }
-                .grade th { font-size: 9px; text-transform: uppercase; letter-spacing: .5px; color: #999; text-align: left; padding: 6px 6px; border-bottom: 1.5px solid #ddd; }
-                .grade td { font-size: 11px; padding: 6px 6px; border-bottom: 1px solid #f0ede4; vertical-align: top; }
-                .grade tbody tr:nth-child(even) td { background: #faf8f2; }
-                .grade tfoot td { font-weight: 800; border-top: 1.5px solid #221f1a; border-bottom: 0; padding-top: 8px; }
+                .conta td { padding: 8px 2px; border-bottom: 1px solid rgba(255,255,255,.08); font-size: 12.5px; }
+                .k { color: rgba(255,255,255,.7); } .v { font-weight: 600; text-align: right; white-space: nowrap; color: #fff; } .neg { color: #f87171; }
+                .saldo { display: flex; justify-content: space-between; align-items: baseline; border-top: 1px solid rgba(255,255,255,.15); margin-top: 6px; padding-top: 13px; }
+                .saldo span { font-weight: 700; font-size: 13.5px; color: #fff; } .saldo strong { font-size: 24px; font-weight: 800; letter-spacing: .3px; }
+                .minis { display: flex; gap: 10px; margin-top: 15px; }
+                .mini { flex: 1; background: rgba(255,255,255,.07); border-radius: 14px; padding: 10px 13px; }
+                .mini p { margin: 0 0 2px; font-size: 9.5px; color: rgba(255,255,255,.5); }
+                .mini strong { font-size: 13.5px; color: #fff; } .mini .amarelo { color: #fed417; }
+                .grade th { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: rgba(255,255,255,.4); text-align: left; padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,.15); }
+                .grade td { font-size: 11px; color: rgba(255,255,255,.85); padding: 6.5px 8px; border-bottom: 1px solid rgba(255,255,255,.06); vertical-align: top; }
+                .grade td strong { color: #fff; }
+                .grade tbody tr:nth-child(even) td { background: rgba(255,255,255,.04); }
+                .grade tfoot td { font-weight: 800; color: #fed417; border-top: 1.5px solid rgba(254,212,23,.55); border-bottom: 0; padding-top: 9px; }
                 .grade tr { page-break-inside: avoid; }
                 .num { text-align: right; white-space: nowrap; }
-                .obs { font-size: 10px; color: #999; margin-top: 2px; }
-                .vazio { font-size: 11px; color: #aaa; padding: 6px 2px; }
-                .foot { font-size: 9px; color: #aaa; margin-top: 28px; border-top: 1px solid #eee; padding-top: 8px; }
+                .obs { font-size: 10px; color: rgba(255,255,255,.4); margin-top: 2px; font-weight: 400; }
+                .vazio { font-size: 11px; color: rgba(255,255,255,.4); margin: 2px 0 0; }
+                .foot { font-size: 9px; color: #a1a1aa; margin: 16px 4px 0; }
               </style></head><body>
                 <div class="faixa"></div>
-                <div class="head">
-                  ${event.flyer_url ? `<img class="flyer" src="${esc(event.flyer_url)}" alt="">` : ''}
-                  <div>
-                    <p class="kicker">🐝 BEETZ · DOSSIÊ DE FECHAMENTO</p>
-                    <h1>${esc(event.name)}</h1>
-                    ${meta ? `<p class="meta">${esc(meta)}</p>` : ''}
-                    ${endereco ? `<p class="meta">${esc(endereco)}</p>` : ''}
-                    <span class="chip">${esc(event.status)}</span>
+
+                <div class="card">
+                  <div class="head">
+                    ${event.flyer_url ? `<img class="flyer" src="${esc(event.flyer_url)}" alt="">` : ''}
+                    <div>
+                      <p class="kicker"><span class="mel">🐝 Beetz</span> · Dossiê de fechamento</p>
+                      <h1>${esc(event.name)}</h1>
+                      ${meta ? `<p class="meta">${esc(meta)}</p>` : ''}
+                      ${endereco ? `<p class="meta">📍 ${esc(endereco)}</p>` : ''}
+                      <span class="chip">${esc(event.status)}</span>
+                    </div>
+                  </div>
+                  <hr class="divisor">
+                  <table class="conta">
+                    ${linha(`Vendas (${vendasFonte})`, currency(vendasBase))}
+                    ${linha('Percentual do produtor', `${pctProdutor}%`)}
+                    ${linha(`Valor a receber (${pctProdutor}% de ${currency(vendasBase)})`, currency(valorAReceber))}
+                    ${linha('Créditos ou bonificações', currency(summary.creditosOuBonificacoes))}
+                    ${linha('Consumo da produção', `− ${currency(summary.consumoProducao)}`, true)}
+                    ${linha('Repasses já pagos', `− ${currency(summary.repasses)}`, true)}
+                  </table>
+                  <div class="saldo"><span>Saldo a receber</span><strong style="color:${saldoAReceber >= 0 ? '#4ade80' : '#f87171'}">${esc(currency(saldoAReceber))}</strong></div>
+                  <div class="minis">
+                    <div class="mini"><p>Arrecadado pelos caixas</p><strong>${esc(currency(summary.recebimentos))}</strong></div>
+                    <div class="mini"><p>Comissões da equipe</p><strong class="amarelo">${esc(currency(recebCom))}</strong></div>
+                    <div class="mini"><p>Já repassado</p><strong class="amarelo">${esc(currency(summary.repasses))}</strong></div>
                   </div>
                 </div>
 
-                <h2>Conta do fechamento</h2>
-                <table class="conta">
-                  ${linha(`Vendas (${vendasFonte})`, currency(vendasBase))}
-                  ${linha('Percentual do produtor', `${pctProdutor}%`)}
-                  ${linha('Valor a receber do produtor', currency(valorAReceber))}
-                  ${linha('Créditos ou bonificações', currency(summary.creditosOuBonificacoes))}
-                  ${linha('Consumo da produção', `− ${currency(summary.consumoProducao)}`, true)}
-                  ${linha('Repasses já pagos', `− ${currency(summary.repasses)}`, true)}
-                </table>
-                <div class="saldo"><span>Saldo a receber do produtor</span><strong style="color:${saldoAReceber >= 0 ? '#15803d' : '#b91c1c'}">${esc(currency(saldoAReceber))}</strong></div>
-
-                <h2>Cardápio do evento</h2>${cardapioHtml}
-                <h2>Equipe escalada (${d.equipe.length})</h2>${equipeHtml}
-                <h2>Recebimentos da equipe (${d.recebimentos.length})</h2>${recebHtml}
-                <h2>Consumo da produção</h2>${consumoHtml}
-                <h2>Transferências solicitadas pela produção</h2>${transfHtml}
+                <div class="card"><p class="kicker2">Cardápio do evento</p>${cardapioHtml}</div>
+                <div class="card"><p class="kicker2">Equipe escalada · ${d.equipe.length}</p>${equipeHtml}</div>
+                <div class="card"><p class="kicker2">Recebimentos da equipe · ${d.recebimentos.length}</p>${recebHtml}</div>
+                <div class="card"><p class="kicker2">Consumo da produção</p>${consumoHtml}</div>
+                <div class="card"><p class="kicker2">Transferências da produção</p>${transfHtml}</div>
 
                 <p class="foot">Documento interno da Beetz — contém dados pessoais da equipe. Gerado pela Colmeia em ${new Date().toLocaleString('pt-BR')}${geradoPor ? ` por ${esc(geradoPor)}` : ''}.</p>
               </body></html>`)
               w.document.close()
               w.focus()
-              setTimeout(() => w.print(), 450)
+              // Poppins e flyer precisam carregar antes do print — senão a
+              // folha sai com fonte trocada ou foto em branco. fonts.ready
+              // cobre a fonte; o timeout de segurança dispara mesmo offline.
+              let disparado = false
+              const disparar = () => {
+                if (disparado) return
+                disparado = true
+                try { w.focus(); w.print() } catch { /* janela já fechada */ }
+              }
+              try { w.document.fonts.ready.then(() => setTimeout(disparar, 400)) } catch { /* sem suporte */ }
+              setTimeout(disparar, 1800)
             } catch {
               alert('Não deu pra montar o dossiê agora — tenta de novo em instantes.')
             } finally {
