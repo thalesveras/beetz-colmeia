@@ -176,6 +176,12 @@ export function canViewFinancialSummary(role: AccessRole) {
   return permsOf(role).can_view_financial_summary
 }
 
+// Agrupar recebimentos por colaborador (facilita a rodada de transferências).
+// Perfis antigos sem a coluna: só Diretoria (o fallback conservador da casa).
+export function canGroupReceipts(role: AccessRole) {
+  return permsOf(role).can_group_receipts ?? permsOf(role).can_manage_users
+}
+
 export function canApproveUsers(role: AccessRole) {
   return permsOf(role).can_approve_users
 }

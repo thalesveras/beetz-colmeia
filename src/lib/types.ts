@@ -858,6 +858,9 @@ export interface RolePermissions {
   // Medalha de perfil completo: parabéns pessoal, uma vez na vida. Opcional
   // porque defaults antigos não conhecem o campo (fallback: ligado).
   can_receive_alert_profile_complete?: boolean
+  // Agrupar recebimentos por colaborador (folha de transferências).
+  // Opcional: defaults antigos não conhecem — fallback: só Diretoria.
+  can_group_receipts?: boolean
   // (regras do /cadastro moram em SignupFieldRule, tabela própria)
   // Barra inferior do celular: até 4 chaves do catálogo (navigation.ts).
   // null/ausente = padrão do sistema pro cargo. Editável em Configurações.

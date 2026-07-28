@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { listAllCashierSettlements, listAllSettlementInternals, listEvents, listProfilesLite, listProfilesPixLite } from '../lib/dataService'
 import type { ProfilePixLite } from '../lib/dataService'
 import type { CashierRoleType, CashierSettlement, CashierSettlementInternal, CashierStatus, EventItem, Profile } from '../lib/types'
-import { canMoveSettlementEvent, canReviewCashier, canViewFinancialSummary } from '../lib/permissions'
+import { canGroupReceipts, canMoveSettlementEvent, canReviewCashier, canViewFinancialSummary } from '../lib/permissions'
 import EditSettlementModal from './events/EditSettlementModal'
 
 const selectClass = 'rounded-xl border border-beetz-dark/15 text-sm px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-beetz-yellow bg-white'
@@ -62,6 +62,9 @@ export default function Receipts() {
   // Pix do perfil de cada colaborador (relacionado pelo profile_id).
   const [pixByProfile, setPixByProfile] = useState<Map<string, ProfilePixLite>>(new Map())
   const [folhaCopiada, setFolhaCopiada] = useState(false)
+  // Agrupar por colaborador: uma linha por PESSOA somando o recorte —
+  // menos transferências. Gated pela flag can_group_receipts (matriz).
+  const [agrupar, setAgrupar] = useState(false)
   const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
 
   // Visibilidade das colunas — padrão: todas; lembrada por aparelho.
@@ -168,6 +171,32 @@ export default function Receipts() {
   }, [filtered, pixByProfile, profiles])
   const folhaSemChave = folhaPix.filter((p) => !p.pix?.pix_key?.trim()).length
 
+  // ---- Modo agrupado: uma linha por colaborador, somando o recorte. ----
+  const agrupados = useMemo(() => {
+    const m = new Map<string, {
+      profileId: string; nome: string; lancamentos: number; eventos: Set<string>
+      dinheiro: number; debito: number; credito: number; pix: number; total: number; comissao: number
+    }>()
+    for (const s of filtered) {
+      const key = s.profile_id ?? 'sem-perfil'
+      const g = m.get(key) ?? {
+        profileId: key, nome: profileName(s.profile_id), lancamentos: 0, eventos: new Set<string>(),
+        dinheiro: 0, debito: 0, credito: 0, pix: 0, total: 0, comissao: 0
+      }
+      g.lancamentos++
+      g.eventos.add(s.event_id)
+      g.dinheiro += s.cash_amount
+      g.debito += s.debit_amount
+      g.credito += s.credit_amount
+      g.pix += s.pix_amount
+      g.total += s.total
+      g.comissao += s.commission_amount
+      m.set(key, g)
+    }
+    return [...m.values()].sort((a, b) => b.total - a.total)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtered, profiles])
+
   async function copiarFolhaPix() {
     const evento = eventFilter ? (eventsById.get(eventFilter)?.name ?? 'evento') : 'todos os eventos'
     const totalFolha = folhaPix.reduce((s, p) => s + p.valor, 0)
@@ -266,6 +295,17 @@ export default function Receipts() {
           >
             Só quem tá devendo
           </button>
+          {canGroupReceipts(accessRole) && (
+            <button
+              onClick={() => setAgrupar((v) => !v)}
+              title="Uma linha por pessoa, somando o recorte filtrado — menos transferências pra fazer"
+              className={`text-xs font-bold px-3 py-2.5 rounded-xl border transition-colors ${
+                agrupar ? 'bg-beetz-dark text-white border-beetz-dark' : 'bg-white text-beetz-dark/60 border-beetz-dark/12 hover:border-beetz-dark/30'
+              }`}
+            >
+              👥 Agrupar por colaborador
+            </button>
+          )}
           {(search.trim() || statusFilter || roleFilter || onlyDevendo || eventFilter) && (
             <button
               onClick={() => { setSearch(''); setStatusFilter(''); setRoleFilter(''); setOnlyDevendo(false); setEventFilter('') }}
@@ -379,6 +419,82 @@ export default function Receipts() {
           {filtered.length === 0 ? (
             <div className="bg-white rounded-2xl p-8 shadow-soft border border-beetz-dark/5 text-center text-beetz-dark/50 text-sm">
               Nenhum recebimento encontrado com esses filtros.
+            </div>
+          ) : agrupar ? (
+            /* ---- MODO AGRUPADO: uma linha por pessoa, recorte somado.
+                 É a folha de transferências em forma de tabela. ---- */
+            <div className="bg-white rounded-2xl shadow-soft border border-beetz-dark/5 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-beetz-dark/10 text-left">
+                    <th className="p-3">Colaborador(a)</th>
+                    <th className="p-3 text-right">Lanç.</th>
+                    <th className="p-3 text-right">Eventos</th>
+                    {col('dinheiro') && <th className="p-3 text-right">Dinheiro</th>}
+                    {col('debito') && <th className="p-3 text-right">Débito</th>}
+                    {col('credito') && <th className="p-3 text-right">Crédito</th>}
+                    {col('pix') && <th className="p-3 text-right">Pix</th>}
+                    {col('total') && <th className="p-3 text-right">Total</th>}
+                    {col('comissao') && <th className="p-3 text-right">Comissão</th>}
+                    {col('chavepix') && <th className="p-3">Chave Pix</th>}
+                    {col('titularpix') && <th className="p-3">Titular Pix</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {agrupados.map((g) => {
+                    const px = g.profileId !== 'sem-perfil' ? pixByProfile.get(g.profileId) : null
+                    return (
+                      <tr key={g.profileId} className="border-b border-beetz-dark/5 last:border-0">
+                        <td className="p-3 font-semibold">{g.nome}</td>
+                        <td className="p-3 text-right text-beetz-dark/60">{g.lancamentos}</td>
+                        <td className="p-3 text-right text-beetz-dark/60">{g.eventos.size}</td>
+                        {col('dinheiro') && <td className="p-3 text-right whitespace-nowrap">{currency(g.dinheiro)}</td>}
+                        {col('debito') && <td className="p-3 text-right whitespace-nowrap">{currency(g.debito)}</td>}
+                        {col('credito') && <td className="p-3 text-right whitespace-nowrap">{currency(g.credito)}</td>}
+                        {col('pix') && <td className="p-3 text-right whitespace-nowrap">{currency(g.pix)}</td>}
+                        {col('total') && <td className="p-3 text-right font-bold whitespace-nowrap">{currency(g.total)}</td>}
+                        {col('comissao') && (
+                          <td className="p-3 text-right whitespace-nowrap font-semibold">
+                            {g.comissao > 0 ? currency(g.comissao) : '—'}
+                          </td>
+                        )}
+                        {col('chavepix') && (
+                          <td className="p-3 text-xs whitespace-nowrap">
+                            {px?.pix_key?.trim() ? (
+                              <span className="inline-flex items-center gap-1.5 max-w-[220px]">
+                                <span className="truncate font-medium" title={px.pix_key}>{px.pix_key}</span>
+                                {px.pix_key_type && <span className="text-beetz-dark/40 shrink-0">({px.pix_key_type})</span>}
+                              </span>
+                            ) : (
+                              <span className="text-amber-600 font-semibold">sem chave ⚠️</span>
+                            )}
+                          </td>
+                        )}
+                        {col('titularpix') && (
+                          <td className="p-3 text-xs text-beetz-dark/60 whitespace-nowrap max-w-[180px] truncate">
+                            {px?.pix_owner_name?.trim() || '—'}
+                          </td>
+                        )}
+                      </tr>
+                    )
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-beetz-dark/10 font-extrabold bg-beetz-gray/40">
+                    <td className="p-3">{agrupados.length} pessoa(s)</td>
+                    <td className="p-3 text-right">{filtered.length}</td>
+                    <td className="p-3" />
+                    {col('dinheiro') && <td className="p-3 text-right whitespace-nowrap">{currency(agrupados.reduce((s, g) => s + g.dinheiro, 0))}</td>}
+                    {col('debito') && <td className="p-3 text-right whitespace-nowrap">{currency(agrupados.reduce((s, g) => s + g.debito, 0))}</td>}
+                    {col('credito') && <td className="p-3 text-right whitespace-nowrap">{currency(agrupados.reduce((s, g) => s + g.credito, 0))}</td>}
+                    {col('pix') && <td className="p-3 text-right whitespace-nowrap">{currency(agrupados.reduce((s, g) => s + g.pix, 0))}</td>}
+                    {col('total') && <td className="p-3 text-right whitespace-nowrap">{currency(total)}</td>}
+                    {col('comissao') && <td className="p-3 text-right whitespace-nowrap">{currency(totalCommission)}</td>}
+                    {col('chavepix') && <td className="p-3" />}
+                    {col('titularpix') && <td className="p-3" />}
+                  </tr>
+                </tfoot>
+              </table>
             </div>
           ) : (
             <div className="bg-white rounded-2xl shadow-soft border border-beetz-dark/5 overflow-x-auto">

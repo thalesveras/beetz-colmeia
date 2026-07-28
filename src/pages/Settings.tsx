@@ -55,7 +55,8 @@ const PERMISSION_GROUPS: { title: string; fields: { key: PermissionKey; label: s
     fields: [
       { key: 'can_add_cashier', label: 'Lançar fechamento de caixa', description: 'Registrar dinheiro, débito, crédito e Pix apurados em um evento.' },
       { key: 'can_review_cashier', label: 'Aprovar fechamento de caixa', description: 'Mudar o status entre Pendente, Aprovado e Rejeitado.' },
-      { key: 'can_move_settlement_event', label: 'Trocar o evento de um recebimento', description: 'Mover um fechamento lançado no evento errado — o valor sai do apurado de um e entra no outro.' }
+      { key: 'can_move_settlement_event', label: 'Trocar o evento de um recebimento', description: 'Mover um fechamento lançado no evento errado — o valor sai do apurado de um e entra no outro.' },
+      { key: 'can_group_receipts', label: 'Agrupar recebimentos por colaborador', description: 'Liga o interruptor "Agrupar por colaborador" na tela de Recebimentos — soma os valores de cada pessoa pra reduzir o número de transferências.' }
     ]
   },
   {
