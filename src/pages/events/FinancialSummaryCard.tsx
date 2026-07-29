@@ -355,14 +355,9 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
                   img: s.receipt_data
                 })
               }
-              for (const r of repasses) {
-                if (!r.receipt_data) continue
-                comprovantes.push({
-                  titulo: `Repasse · ${dateBR(r.paid_at)}`,
-                  sub: `${currency(r.amount)}${r.notes ? ` · ${r.notes}` : ''}`,
-                  img: r.receipt_data
-                })
-              }
+              // Repasses NÃO se misturam com os extratos de maquininha: eles
+              // ganham seção própria mais abaixo, com tabela + comprovantes,
+              // justificando a linha "Repasses já pagos" da conta.
               const w = window.open('', '_blank')
               if (!w) { alert('O navegador bloqueou a janela do PDF. Libere pop-ups pra este site e tente de novo.'); return }
               const cpfFmt = (c: string | null) => {
@@ -406,6 +401,24 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
               const transfHtml = d.transferencias.length ? `<table class="grade">
                 <thead><tr><th>Produto</th><th class="num">Qtd</th><th class="num">Devolvido</th><th>Status</th></tr></thead>
                 <tbody>${d.transferencias.map((t) => `<tr><td>${esc(t.produto)}</td><td class="num">${t.qtd}</td><td class="num">${t.devolvido ?? '—'}</td><td>${esc(t.status)}</td></tr>`).join('')}</tbody></table>` : vazio
+
+              // Repasses já pagos: a prova da linha da conta — cada acerto
+              // com data, observação e valor, total batendo com o desconto,
+              // e os comprovantes logo embaixo em cards legíveis.
+              const repTotal = repasses.reduce((s, r) => s + r.amount, 0)
+              const cardComp = (c: { titulo: string; sub: string; img: string }) =>
+                `<div class="ccard"><div class="chead"><b>${esc(c.titulo)}</b><span>${esc(c.sub)}</span></div><img src="${esc(c.img)}" alt=""></div>`
+              const repComprovantes = repasses.filter((r) => r.receipt_data).map((r) => cardComp({
+                titulo: `Comprovante · ${dateBR(r.paid_at)}`,
+                sub: `${currency(r.amount)}${r.notes ? ` · ${r.notes}` : ''}`,
+                img: r.receipt_data as string
+              }))
+              const repassesHtml = repasses.length ? `<table class="grade">
+                <thead><tr><th>Data</th><th>Observação</th><th class="num">Valor</th></tr></thead>
+                <tbody>${repasses.map((r) => `<tr><td>${esc(dateBR(r.paid_at))}</td><td>${esc(r.notes ?? '—')}</td><td class="num"><strong>${esc(currency(r.amount))}</strong></td></tr>`).join('')}</tbody>
+                <tfoot><tr><td colspan="2">Total repassado</td><td class="num">${esc(currency(repTotal))}</td></tr></tfoot></table>
+                <p class="obs" style="margin-top:6px">É esta soma que desconta como “Repasses já pagos” na conta do fechamento.</p>
+                ${repComprovantes.length ? `<div class="cgrid" style="margin-top:12px">${repComprovantes.join('')}</div>` : ''}` : vazio
 
               const geradoPor = profile ? `${profile.first_name ?? ''} ${profile.last_name ?? ''}`.trim() : ''
               // Identidade visual: herói = cartão preto com o FLYER AO FUNDO
@@ -494,9 +507,10 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
                 <div class="card"><p class="kicker2">Equipe escalada · ${d.equipe.length}</p>${equipeHtml}</div>
                 <div class="card"><p class="kicker2">Recebimentos da equipe · ${d.recebimentos.length}</p>${recebHtml}</div>
                 <div class="card"><p class="kicker2">Consumo da produção</p>${consumoHtml}</div>
-                <div class="card"><p class="kicker2">Transferências da produção</p>${transfHtml}</div>
-                ${comprovantes.length > 0 ? `<div class="card"><p class="kicker2">Comprovantes anexados · ${comprovantes.length}</p>
-                <div class="cgrid">${comprovantes.map((c) => `<div class="ccard"><div class="chead"><b>${esc(c.titulo)}</b><span>${esc(c.sub)}</span></div><img src="${esc(c.img)}" alt=""></div>`).join('')}</div></div>` : ''}
+                <div class="card"><p class="kicker2">Repasses já pagos · ${repasses.length}</p>${repassesHtml}</div>
+                ${d.transferencias.length > 0 ? `<div class="card"><p class="kicker2">Transferências da produção</p>${transfHtml}</div>` : ''}
+                ${comprovantes.length > 0 ? `<div class="card"><p class="kicker2">Comprovantes dos recebimentos · ${comprovantes.length}</p>
+                <div class="cgrid">${comprovantes.map(cardComp).join('')}</div></div>` : ''}
 
                 <p class="foot">Documento interno da Beetz — contém dados pessoais da equipe. Gerado pela Colmeia em ${new Date().toLocaleString('pt-BR')}${geradoPor ? ` por ${esc(geradoPor)}` : ''}.</p>
               </body></html>`)
