@@ -3399,24 +3399,27 @@ export async function previewScalePayments(eventId: string): Promise<ScalePaymen
     salesByProfile.set(st.profile_id, (salesByProfile.get(st.profile_id) ?? 0) + (st.total ?? 0))
   }
 
-  // ACERTO INTERNO: com o controle interno em 'Acertado' ou 'Devendo', a
-  // comissão JÁ SAIU do dinheiro físico da noite (é a conta do Devendo).
-  // Somamos o dinheiro dessas conferências por pessoa — é o teto do que foi
-  // retido em espécie, e essa parte NÃO pode virar pagamento de novo.
-  // 'Em aberto' ou sem registro = ninguém conferiu = comportamento antigo.
-  const cashConferidoByProfile = new Map<string, number>()
+  // ACERTO INTERNO: o modelo da casa é "a comissão cobre o Devendo" — a
+  // pessoa entrega o caixa e, se ficou faltando X ('Devendo', pending
+  // amount), esse X é DESCONTADO da comissão na hora de pagar (o próprio
+  // modal mostra: "pague R$ 407,65 em vez de R$ 417,65"). Somamos o que
+  // falta acertar por pessoa: essa parte vira despesa Paga em Dinheiro
+  // (reposição do caixa) e NÃO pode ser paga de novo via Pix.
+  // 'Acertado' (entregou tudo) e 'Em aberto' = comissão cheia, como sempre.
+  const devendoByProfile = new Map<string, number>()
   if (stRows.length > 0) {
     const { data: internos, error: intErr } = await supabase
       .from('cashier_settlement_internal')
-      .select('settlement_id, status')
+      .select('settlement_id, status, pending_amount')
       .in('settlement_id', stRows.map((s) => s.id))
     if (intErr) throw intErr
-    const conferidos = new Set(((internos ?? []) as { settlement_id: string; status: string }[])
-      .filter((i) => i.status === 'Acertado' || i.status === 'Devendo')
-      .map((i) => i.settlement_id))
+    const pendentePorSettlement = new Map(((internos ?? []) as { settlement_id: string; status: string; pending_amount: number | null }[])
+      .filter((i) => i.status === 'Devendo' && (i.pending_amount ?? 0) > 0)
+      .map((i) => [i.settlement_id, i.pending_amount ?? 0]))
     for (const st of stRows) {
-      if (!st.profile_id || st.status === 'Rejeitado' || !conferidos.has(st.id)) continue
-      cashConferidoByProfile.set(st.profile_id, (cashConferidoByProfile.get(st.profile_id) ?? 0) + (st.cash_amount ?? 0))
+      if (!st.profile_id || st.status === 'Rejeitado') continue
+      const p = pendentePorSettlement.get(st.id) ?? 0
+      if (p > 0) devendoByProfile.set(st.profile_id, (devendoByProfile.get(st.profile_id) ?? 0) + p)
     }
   }
 
@@ -3461,9 +3464,10 @@ export async function previewScalePayments(eventId: string): Promise<ScalePaymen
       const base = Math.round((sales / 1.1) * 100) / 100
       const comissao = Math.round(base * pct) / 100
       item.detalhe = ` (${pct}% de ${base.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} — vendas sem a taxa)`
-      // Parte já retida em DINHEIRO na noite: limitada pela comissão E pelo
-      // dinheiro que a pessoa de fato arrecadou em acertos conferidos.
-      item.dinheiro = Math.round(Math.min(comissao, cashConferidoByProfile.get(app.profile_id) ?? 0) * 100) / 100
+      // Parte que a comissão COBRE do Devendo (reposição do caixa): limitada
+      // pela própria comissão. Se o devendo excede a comissão, o excedente
+      // segue no fluxo "a receber" do controle interno — não é assunto daqui.
+      item.dinheiro = Math.round(Math.min(comissao, devendoByProfile.get(app.profile_id) ?? 0) * 100) / 100
       item.pendente = Math.round((comissao - item.dinheiro) * 100) / 100
       plano.push(item)
       continue
@@ -3516,7 +3520,7 @@ export async function generateScalePayments(eventId: string, createdBy: string |
         status: 'Pago',
         category: 'Comissão (serviço)',
         payment_method: 'Dinheiro',
-        description: `Escala — ${item.funcao}: ${item.nome} — comissão acertada em dinheiro no caixa (controle interno)${item.detalhe}`,
+        description: `Escala — ${item.funcao}: ${item.nome} — comissão compensada com o caixa: repõe o que faltava entregar (controle interno)${item.detalhe}`,
         unit_value: item.dinheiro
       })
       createdCash++
@@ -3531,7 +3535,7 @@ export async function generateScalePayments(eventId: string, createdBy: string |
         category: item.tipo === 'comissao' ? 'Comissão (serviço)' : 'Equipe',
         payment_method: null,
         description: item.tipo === 'comissao'
-          ? `Escala — ${item.funcao}: ${item.nome}${item.dinheiro > 0.009 ? ' — restante da comissão (parte já saiu em dinheiro no caixa)' : ''}${item.detalhe}`
+          ? `Escala — ${item.funcao}: ${item.nome}${item.dinheiro > 0.009 ? ` — restante da comissão (${item.dinheiro.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} compensados com o caixa)` : ''}${item.detalhe}`
           : `Escala — ${item.funcao}: ${item.nome}`,
         unit_value: item.pendente
       })

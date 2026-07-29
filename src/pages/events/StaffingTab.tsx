@@ -213,7 +213,7 @@ export default function StaffingTab({ eventId, canManage, canFinance = false, on
       const res = await generateScalePayments(eventId, userId ?? null)
       const parts: string[] = []
       if (res.created > 0) parts.push(`${res.created} pagamento${res.created > 1 ? 's' : ''} criado${res.created > 1 ? 's' : ''} como despesa Pendente (a pagar)`)
-      if (res.createdCash > 0) parts.push(`${res.createdCash} comiss${res.createdCash > 1 ? 'ões' : 'ão'} já acertada${res.createdCash > 1 ? 's' : ''} em dinheiro no caixa → despesa separada, Paga em Dinheiro`)
+      if (res.createdCash > 0) parts.push(`${res.createdCash} reposiç${res.createdCash > 1 ? 'ões' : 'ão'} do caixa (comissão cobre o Devendo) → despesa separada, Paga em Dinheiro`)
       if (res.created === 0 && res.createdCash === 0) parts.push('Nenhum pagamento novo pra criar')
       if (res.skippedExisting > 0) parts.push(`${res.skippedExisting} já tinha${res.skippedExisting > 1 ? 'm' : ''} despesa`)
       if (res.skippedNoValue > 0) parts.push(`${res.skippedNoValue} sem valor definido (pulado${res.skippedNoValue > 1 ? 's' : ''})`)
@@ -339,7 +339,7 @@ export default function StaffingTab({ eventId, canManage, canFinance = false, on
               Custo da escala · {confirmedApps.length} confirmado{confirmedApps.length > 1 ? 's' : ''}
               {percentCount > 0 && (
                 estimatedCommissions > 0
-                  ? ` · comissões calculadas sobre os Recebimentos já lançados — a parte já acertada em dinheiro no caixa (controle interno) sai como despesa separada, Paga em Dinheiro`
+                  ? ` · comissões calculadas sobre os Recebimentos já lançados — o que a comissão cobre do Devendo do caixa (controle interno) sai como despesa separada, Paga em Dinheiro`
                   : ` · ${percentCount} comissionado${percentCount > 1 ? 's' : ''}: a despesa nasce dos Recebimentos, lançados no fim do evento`
               )}
             </p>
@@ -391,9 +391,9 @@ export default function StaffingTab({ eventId, canManage, canFinance = false, on
                         {!it.pulo && it.dinheiro > 0 && (
                           <span
                             className={`text-xs font-bold ${it.jaTemDinheiro ? 'text-white/35 line-through' : 'text-beetz-yellow'}`}
-                            title={`Já retido do dinheiro do caixa (controle interno)${it.detalhe}`}
+                            title={`A comissão cobre o que faltava entregar do caixa (Devendo do controle interno)${it.detalhe}`}
                           >
-                            💵 {brl(it.dinheiro)} em dinheiro
+                            💵 {brl(it.dinheiro)} repõe o caixa
                           </span>
                         )}
                         {!it.pulo && it.pendente > 0 && (
@@ -409,7 +409,7 @@ export default function StaffingTab({ eventId, canManage, canFinance = false, on
                   </div>
                   <p className="text-xs text-white/60 mt-2.5 font-semibold">
                     Vai criar: <span className="text-beetz-yellow">{brl(plan.reduce((s, i) => s + (!i.pulo && !i.jaTemDinheiro ? i.dinheiro : 0), 0))}</span> em
-                    despesas Pagas em Dinheiro (acerto do caixa) + <span className="text-white">{brl(plan.reduce((s, i) => s + (!i.pulo && !i.jaTemPendente ? i.pendente : 0), 0))}</span> em
+                    despesas Pagas em Dinheiro (reposição do caixa — a comissão cobre o Devendo) + <span className="text-white">{brl(plan.reduce((s, i) => s + (!i.pulo && !i.jaTemPendente ? i.pendente : 0), 0))}</span> em
                     despesas Pendentes (a pagar). Riscado = já lançado antes.
                   </p>
                 </>
