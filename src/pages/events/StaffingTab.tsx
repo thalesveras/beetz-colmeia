@@ -4,9 +4,10 @@ import { Check, Pencil, Users, Wallet, X } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import {
   applyToStaffingSlot, generateScalePayments, getEventById, listCashierSettlementsForEvent, listEventStaffingApplications,
-  listEventStaffingRequirements, listProfilesLite, listStaffingRoles, updateEvent, updateStaffingApplicationPercent,
+  listEventStaffingRequirements, listProfilesLite, listStaffingRoles, previewScalePayments, updateEvent, updateStaffingApplicationPercent,
   updateStaffingApplicationStatus, updateStaffingApplicationValue
 } from '../../lib/dataService'
+import type { ScalePaymentPlanItem } from '../../lib/dataService'
 
 function brl(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -190,6 +191,20 @@ export default function StaffingTab({ eventId, canManage, canFinance = false, on
     }
   }
 
+  // Prévia do "Gerar pagamentos": mesma conta do botão, sem gravar nada —
+  // o painel mostra pessoa a pessoa o que vai virar despesa (e o que será
+  // pulado) ANTES de qualquer lançamento.
+  const [showPlan, setShowPlan] = useState(false)
+  const [plan, setPlan] = useState<ScalePaymentPlanItem[]>([])
+  const [planLoading, setPlanLoading] = useState(false)
+
+  async function togglePlano() {
+    if (showPlan) { setShowPlan(false); return }
+    setShowPlan(true)
+    setPlanLoading(true)
+    try { setPlan(await previewScalePayments(eventId)) } catch { setPlan([]) } finally { setPlanLoading(false) }
+  }
+
   async function handleGeneratePayments() {
     setGenerating(true)
     setPayMessage(null)
@@ -204,6 +219,8 @@ export default function StaffingTab({ eventId, canManage, canFinance = false, on
       if (res.skippedNoValue > 0) parts.push(`${res.skippedNoValue} sem valor definido (pulado${res.skippedNoValue > 1 ? 's' : ''})`)
       if (res.skippedNoSales > 0) parts.push(`${res.skippedNoSales} comissionado${res.skippedNoSales > 1 ? 's' : ''} sem acerto em Recebimentos ainda (pulado${res.skippedNoSales > 1 ? 's' : ''} — lance o acerto e gere de novo)`)
       setPayMessage(parts.join(' · '))
+      // Painel aberto acompanha: os itens lançados viram "já lançado ✓".
+      if (showPlan) { try { setPlan(await previewScalePayments(eventId)) } catch { /* prévia é cosmética */ } }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao gerar os pagamentos.')
     } finally {
@@ -328,16 +345,77 @@ export default function StaffingTab({ eventId, canManage, canFinance = false, on
             </p>
           </div>
           {canManage && (
-            <button
-              onClick={handleGeneratePayments}
-              disabled={generating}
-              className="honey-gradient text-beetz-dark font-bold px-4 py-2.5 rounded-xl text-sm disabled:opacity-60"
-              title="Cria uma despesa Pendente por pessoa confirmada, com o valor combinado — sem duplicar quem já tem."
-            >
-              {generating ? 'Gerando...' : 'Gerar pagamentos'}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={togglePlano}
+                className={`font-semibold px-4 py-2.5 rounded-xl text-sm border transition-colors ${
+                  showPlan ? 'bg-white/10 border-white/30 text-white' : 'border-white/20 text-white/70 hover:text-white hover:border-white/40'
+                }`}
+                title="Prévia: exatamente o que o botão vai lançar em Despesas, pessoa a pessoa — sem gravar nada."
+              >
+                {showPlan ? 'Esconder detalhes' : 'Detalhes'}
+              </button>
+              <button
+                onClick={handleGeneratePayments}
+                disabled={generating}
+                className="honey-gradient text-beetz-dark font-bold px-4 py-2.5 rounded-xl text-sm disabled:opacity-60"
+                title="Cria as despesas do plano — sem duplicar quem já tem."
+              >
+                {generating ? 'Gerando...' : 'Gerar pagamentos'}
+              </button>
+            </div>
           )}
           {payMessage && <p className="w-full text-xs text-beetz-yellow/90">{payMessage}</p>}
+
+          {/* Painel de prévia: espelho fiel do que o botão insere. */}
+          {showPlan && (
+            <div className="w-full pt-3 border-t border-white/10">
+              {planLoading ? (
+                <p className="text-xs text-white/50">Calculando a prévia...</p>
+              ) : plan.length === 0 ? (
+                <p className="text-xs text-white/50">Nada pra lançar por aqui.</p>
+              ) : (
+                <>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-beetz-yellow/70 mb-2">
+                    O que o botão vai lançar em Despesas
+                  </p>
+                  <div className="space-y-1 max-h-72 overflow-y-auto pr-1">
+                    {plan.map((it) => (
+                      <div key={it.appId} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-sm bg-white/5 rounded-lg px-3 py-2">
+                        <span className="flex-1 min-w-[150px] font-semibold truncate">
+                          {it.nome} <span className="text-white/40 font-normal">· {it.funcao}</span>
+                        </span>
+                        {it.pulo === 'ja-lancado' && <span className="text-xs text-white/40">já lançado ✓</span>}
+                        {it.pulo === 'sem-valor' && <span className="text-xs text-red-300">sem valor definido — pulado</span>}
+                        {it.pulo === 'sem-acerto' && <span className="text-xs text-amber-300">sem acerto em Recebimentos — pulado</span>}
+                        {!it.pulo && it.dinheiro > 0 && (
+                          <span
+                            className={`text-xs font-bold ${it.jaTemDinheiro ? 'text-white/35 line-through' : 'text-beetz-yellow'}`}
+                            title={`Já retido do dinheiro do caixa (controle interno)${it.detalhe}`}
+                          >
+                            💵 {brl(it.dinheiro)} em dinheiro
+                          </span>
+                        )}
+                        {!it.pulo && it.pendente > 0 && (
+                          <span
+                            className={`text-xs font-bold ${it.jaTemPendente ? 'text-white/35 line-through' : 'text-white'}`}
+                            title={`Vira despesa Pendente${it.detalhe}`}
+                          >
+                            {brl(it.pendente)} a pagar
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-white/60 mt-2.5 font-semibold">
+                    Vai criar: <span className="text-beetz-yellow">{brl(plan.reduce((s, i) => s + (!i.pulo && !i.jaTemDinheiro ? i.dinheiro : 0), 0))}</span> em
+                    despesas Pagas em Dinheiro (acerto do caixa) + <span className="text-white">{brl(plan.reduce((s, i) => s + (!i.pulo && !i.jaTemPendente ? i.pendente : 0), 0))}</span> em
+                    despesas Pendentes (a pagar). Riscado = já lançado antes.
+                  </p>
+                </>
+              )}
+            </div>
+          )}
         </div>
       )}
 

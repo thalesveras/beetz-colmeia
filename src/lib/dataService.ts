@@ -3342,16 +3342,28 @@ export async function updateStaffingApplicationPercent(id: string, agreedPercent
   if (error) throw error
 }
 
-// Botão "gerar pagamentos": despesas por pessoa CONFIRMADA na escala, com o
-// valor resolvido na cadeia pessoa → vaga → função. NOVO: comissionados com
-// ACERTO INTERNO conferido ('Acertado'/'Devendo') já retiveram a comissão do
-// dinheiro físico da noite — essa parte sai como despesa SEPARADA, Paga e em
-// Dinheiro; só o restante vira Pendente. Índices únicos parciais no banco
-// seguram clique duplo em cada tipo. Pessoa sem valor é pulada.
-export async function generateScalePayments(eventId: string, createdBy: string | null): Promise<{
-  created: number; createdCash: number; skippedExisting: number; skippedNoValue: number; skippedNoSales: number
-}> {
-  if (isDemoMode) return { created: 0, createdCash: 0, skippedExisting: 0, skippedNoValue: 0, skippedNoSales: 0 }
+// PLANO de pagamentos da escala: a mesma conta do botão "Gerar pagamentos",
+// item a item, SEM gravar nada — alimenta o painel "Detalhes" e é a única
+// fonte do que o botão insere (prévia e execução nunca divergem).
+export interface ScalePaymentPlanItem {
+  appId: string
+  profileId: string
+  nome: string
+  funcao: string
+  tipo: 'fixo' | 'comissao'
+  // Ex.: " (10% de R$ 1.000,00 — vendas sem a taxa)"
+  detalhe: string
+  // O que o botão vai criar: parte já acertada em DINHEIRO na noite
+  // (vira despesa Paga) e parte Pendente (a pagar depois).
+  dinheiro: number
+  pendente: number
+  jaTemDinheiro: boolean
+  jaTemPendente: boolean
+  pulo: null | 'ja-lancado' | 'sem-valor' | 'sem-acerto'
+}
+
+export async function previewScalePayments(eventId: string): Promise<ScalePaymentPlanItem[]> {
+  if (isDemoMode) return []
   const [appsRes, reqsRes] = await Promise.all([
     supabase.from('event_staffing_applications').select('*').eq('event_id', eventId).eq('status', 'Confirmado'),
     supabase.from('event_staffing_requirements').select('*').eq('event_id', eventId)
@@ -3360,7 +3372,7 @@ export async function generateScalePayments(eventId: string, createdBy: string |
   if (reqsRes.error) throw reqsRes.error
   const apps = (appsRes.data ?? []) as EventStaffingApplication[]
   const reqs = (reqsRes.data ?? []) as EventStaffingRequirement[]
-  if (apps.length === 0) return { created: 0, createdCash: 0, skippedExisting: 0, skippedNoValue: 0, skippedNoSales: 0 }
+  if (apps.length === 0) return []
 
   const roleIds = reqs.map((r) => r.role_id).filter((x): x is string => !!x)
   const [rolesRes, existingRes, profilesRes, settlementsRes] = await Promise.all([
@@ -3420,93 +3432,117 @@ export async function generateScalePayments(eventId: string, createdBy: string |
   const personById = new Map(((profilesRes.data ?? []) as { id: string; first_name: string; last_name: string }[])
     .map((pr) => [pr.id, `${pr.first_name} ${pr.last_name}`.trim()]))
 
-  let skippedExisting = 0
-  let skippedNoValue = 0
-  let skippedNoSales = 0
-  let createdCash = 0
-  const toInsert: NewExpenseInput[] = []
-  const baseDespesa = (app: EventStaffingApplication) => ({
-    event_id: eventId,
-    quantity: 1,
-    dex_fee: 0,
-    receipt_data: null, signature_data: null, repasse_data: null,
-    created_by: createdBy,
-    team_member_id: app.profile_id,
-    pending_team_member_id: null,
-    supplier_id: null,
-    stock_movement_id: null,
-    staffing_application_id: app.id
-  })
+  const plano: ScalePaymentPlanItem[] = []
   for (const app of apps) {
     const req = reqById.get(app.requirement_id)
     const role = req?.role_id ? roleById.get(req.role_id) : undefined
     const nome = personById.get(app.profile_id) ?? 'colaborador(a)'
+    const funcao = req?.role_label ?? 'Função'
+    const jaTemDinheiro = paidCashIds.has(app.id)
+    const jaTemPendente = paidRegularIds.has(app.id)
+    const item: ScalePaymentPlanItem = {
+      appId: app.id, profileId: app.profile_id, nome, funcao,
+      tipo: role?.pay_type === 'percent' ? 'comissao' : 'fixo',
+      detalhe: '', dinheiro: 0, pendente: 0, jaTemDinheiro, jaTemPendente, pulo: null
+    }
 
     if (role?.pay_type === 'percent') {
       // Comissão: % combinado (pessoa → função) sobre o que a pessoa
       // registrou em Recebimentos neste evento. Sem acerto lançado, não há
-      // base — pulamos e contamos à parte pra mensagem explicar o porquê.
-      const jaTemCash = paidCashIds.has(app.id)
-      const jaTemRegular = paidRegularIds.has(app.id)
-      if (jaTemCash && jaTemRegular) { skippedExisting++; continue }
+      // base — o plano marca o porquê e o botão pula.
+      if (jaTemDinheiro && jaTemPendente) { item.pulo = 'ja-lancado'; plano.push(item); continue }
       const pct = app.agreed_percent ?? role.default_percent ?? 0
       const sales = salesByProfile.get(app.profile_id) ?? 0
-      if (!(pct > 0)) { skippedNoValue++; continue }
-      if (!(sales > 0)) { skippedNoSales++; continue }
+      if (!(pct > 0)) { item.pulo = 'sem-valor'; plano.push(item); continue }
+      if (!(sales > 0)) { item.pulo = 'sem-acerto'; plano.push(item); continue }
       // "% das suas vendas" = sobre a base SEM a taxa de serviço embutida
       // (arrecadado ÷ 1,1). Decisão da Diretoria em 23/07 — assim o 10%
       // padrão equivale exatamente ao ÷ 11 da comissão de garçom.
       const base = Math.round((sales / 1.1) * 100) / 100
       const comissao = Math.round(base * pct) / 100
-      const detail = ` (${pct}% de ${base.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} — vendas sem a taxa)`
+      item.detalhe = ` (${pct}% de ${base.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} — vendas sem a taxa)`
       // Parte já retida em DINHEIRO na noite: limitada pela comissão E pelo
       // dinheiro que a pessoa de fato arrecadou em acertos conferidos.
-      const retida = Math.round(Math.min(comissao, cashConferidoByProfile.get(app.profile_id) ?? 0) * 100) / 100
-      const resto = Math.round((comissao - retida) * 100) / 100
-      if (retida > 0.009 && !jaTemCash) {
-        toInsert.push({
-          ...baseDespesa(app),
-          status: 'Pago',
-          category: 'Comissão (serviço)',
-          payment_method: 'Dinheiro',
-          description: `Escala — ${req?.role_label ?? 'Função'}: ${nome} — comissão acertada em dinheiro no caixa (controle interno)${detail}`,
-          unit_value: retida
-        })
-        createdCash++
-      }
-      if (resto > 0.009 && !jaTemRegular) {
-        toInsert.push({
-          ...baseDespesa(app),
-          status: 'Pendente',
-          // Comissão % é a TAXA DE SERVIÇO (os 10% que o cliente paga por
-          // fora): categoria própria pra ficar FORA do lucro no fechamento.
-          category: 'Comissão (serviço)',
-          payment_method: null,
-          description: `Escala — ${req?.role_label ?? 'Função'}: ${nome}${retida > 0.009 ? ' — restante da comissão (parte já saiu em dinheiro no caixa)' : ''}${detail}`,
-          unit_value: resto
-        })
-      }
+      item.dinheiro = Math.round(Math.min(comissao, cashConferidoByProfile.get(app.profile_id) ?? 0) * 100) / 100
+      item.pendente = Math.round((comissao - item.dinheiro) * 100) / 100
+      plano.push(item)
       continue
     }
 
     // Valor fixo de escala: custo da casa de verdade, fluxo original.
-    if (paidRegularIds.has(app.id) || paidCashIds.has(app.id)) { skippedExisting++; continue }
+    if (jaTemPendente || jaTemDinheiro) { item.pulo = 'ja-lancado'; plano.push(item); continue }
     const value = app.agreed_value ?? req?.unit_cost ?? role?.default_value ?? 0
-    if (!(value > 0)) { skippedNoValue++; continue }
-    toInsert.push({
-      ...baseDespesa(app),
-      status: 'Pendente',
-      category: 'Equipe',
-      payment_method: null,
-      description: `Escala — ${req?.role_label ?? 'Função'}: ${nome}`,
-      unit_value: value
-    })
+    if (!(value > 0)) { item.pulo = 'sem-valor'; plano.push(item); continue }
+    item.pendente = value
+    plano.push(item)
+  }
+  return plano
+}
+
+// Botão "gerar pagamentos": consome o MESMO plano da prévia. Comissão já
+// acertada em DINHEIRO no caixa (controle interno 'Acertado'/'Devendo')
+// vira despesa separada Paga em Dinheiro; o restante vira Pendente.
+// Índices únicos parciais no banco seguram clique duplo em cada tipo.
+export async function generateScalePayments(eventId: string, createdBy: string | null): Promise<{
+  created: number; createdCash: number; skippedExisting: number; skippedNoValue: number; skippedNoSales: number
+}> {
+  if (isDemoMode) return { created: 0, createdCash: 0, skippedExisting: 0, skippedNoValue: 0, skippedNoSales: 0 }
+  const plano = await previewScalePayments(eventId)
+  let created = 0
+  let createdCash = 0
+  let skippedExisting = 0
+  let skippedNoValue = 0
+  let skippedNoSales = 0
+  const toInsert: NewExpenseInput[] = []
+  const baseDespesa = (item: ScalePaymentPlanItem) => ({
+    event_id: eventId,
+    quantity: 1,
+    dex_fee: 0,
+    receipt_data: null, signature_data: null, repasse_data: null,
+    created_by: createdBy,
+    team_member_id: item.profileId,
+    pending_team_member_id: null,
+    supplier_id: null,
+    stock_movement_id: null,
+    staffing_application_id: item.appId
+  })
+  for (const item of plano) {
+    if (item.pulo === 'ja-lancado') { skippedExisting++; continue }
+    if (item.pulo === 'sem-valor') { skippedNoValue++; continue }
+    if (item.pulo === 'sem-acerto') { skippedNoSales++; continue }
+    if (item.dinheiro > 0.009 && !item.jaTemDinheiro) {
+      toInsert.push({
+        ...baseDespesa(item),
+        status: 'Pago',
+        category: 'Comissão (serviço)',
+        payment_method: 'Dinheiro',
+        description: `Escala — ${item.funcao}: ${item.nome} — comissão acertada em dinheiro no caixa (controle interno)${item.detalhe}`,
+        unit_value: item.dinheiro
+      })
+      createdCash++
+    }
+    if (item.pendente > 0.009 && !item.jaTemPendente) {
+      toInsert.push({
+        ...baseDespesa(item),
+        status: 'Pendente',
+        // Comissão % é a TAXA DE SERVIÇO (os 10% que o cliente paga por
+        // fora): categoria própria pra ficar FORA do lucro no fechamento.
+        // Valor fixo de escala é custo da casa e segue como 'Equipe'.
+        category: item.tipo === 'comissao' ? 'Comissão (serviço)' : 'Equipe',
+        payment_method: null,
+        description: item.tipo === 'comissao'
+          ? `Escala — ${item.funcao}: ${item.nome}${item.dinheiro > 0.009 ? ' — restante da comissão (parte já saiu em dinheiro no caixa)' : ''}${item.detalhe}`
+          : `Escala — ${item.funcao}: ${item.nome}`,
+        unit_value: item.pendente
+      })
+      created++
+    }
   }
   if (toInsert.length > 0) {
     const { error } = await supabase.from('expenses').insert(toInsert)
     if (error) throw error
   }
-  return { created: toInsert.length - createdCash, createdCash, skippedExisting, skippedNoValue, skippedNoSales }
+  return { created, createdCash, skippedExisting, skippedNoValue, skippedNoSales }
 }
 
 // ---------- Contrato via ZapSign ----------
