@@ -3342,15 +3342,16 @@ export async function updateStaffingApplicationPercent(id: string, agreedPercent
   if (error) throw error
 }
 
-// Botão "gerar pagamentos": UMA despesa Pendente por pessoa CONFIRMADA na
-// escala do evento, com o valor resolvido na cadeia pessoa → vaga → função.
-// Quem já tem despesa vinculada é pulado (e o índice único no banco segura
-// qualquer corrida de clique duplo). Pessoa sem valor em elo nenhum também é
-// pulada — pagamento de R$ 0 é erro esperando pra ser pago.
+// Botão "gerar pagamentos": despesas por pessoa CONFIRMADA na escala, com o
+// valor resolvido na cadeia pessoa → vaga → função. NOVO: comissionados com
+// ACERTO INTERNO conferido ('Acertado'/'Devendo') já retiveram a comissão do
+// dinheiro físico da noite — essa parte sai como despesa SEPARADA, Paga e em
+// Dinheiro; só o restante vira Pendente. Índices únicos parciais no banco
+// seguram clique duplo em cada tipo. Pessoa sem valor é pulada.
 export async function generateScalePayments(eventId: string, createdBy: string | null): Promise<{
-  created: number; skippedExisting: number; skippedNoValue: number; skippedNoSales: number
+  created: number; createdCash: number; skippedExisting: number; skippedNoValue: number; skippedNoSales: number
 }> {
-  if (isDemoMode) return { created: 0, skippedExisting: 0, skippedNoValue: 0, skippedNoSales: 0 }
+  if (isDemoMode) return { created: 0, createdCash: 0, skippedExisting: 0, skippedNoValue: 0, skippedNoSales: 0 }
   const [appsRes, reqsRes] = await Promise.all([
     supabase.from('event_staffing_applications').select('*').eq('event_id', eventId).eq('status', 'Confirmado'),
     supabase.from('event_staffing_requirements').select('*').eq('event_id', eventId)
@@ -3359,33 +3360,62 @@ export async function generateScalePayments(eventId: string, createdBy: string |
   if (reqsRes.error) throw reqsRes.error
   const apps = (appsRes.data ?? []) as EventStaffingApplication[]
   const reqs = (reqsRes.data ?? []) as EventStaffingRequirement[]
-  if (apps.length === 0) return { created: 0, skippedExisting: 0, skippedNoValue: 0, skippedNoSales: 0 }
+  if (apps.length === 0) return { created: 0, createdCash: 0, skippedExisting: 0, skippedNoValue: 0, skippedNoSales: 0 }
 
   const roleIds = reqs.map((r) => r.role_id).filter((x): x is string => !!x)
   const [rolesRes, existingRes, profilesRes, settlementsRes] = await Promise.all([
     roleIds.length > 0
       ? supabase.from('staffing_roles').select('*').in('id', roleIds)
       : Promise.resolve({ data: [], error: null } as { data: StaffingRole[]; error: null }),
-    supabase.from('expenses').select('staffing_application_id').in('staffing_application_id', apps.map((a) => a.id)),
+    supabase.from('expenses').select('staffing_application_id, payment_method').in('staffing_application_id', apps.map((a) => a.id)),
     supabase.from('profiles').select('id, first_name, last_name').in('id', apps.map((a) => a.profile_id)),
     // Base das funções comissionadas: os recebimentos que a própria pessoa
-    // registrou neste evento (rejeitado não conta).
-    supabase.from('cashier_settlements').select('profile_id, total, status').eq('event_id', eventId)
+    // registrou neste evento (rejeitado não conta). id + dinheiro vêm junto
+    // pro cruzamento com o controle interno (comissão retida em espécie).
+    supabase.from('cashier_settlements').select('id, profile_id, total, cash_amount, status').eq('event_id', eventId)
   ])
   if (rolesRes.error) throw rolesRes.error
   if (existingRes.error) throw existingRes.error
   if (profilesRes.error) throw profilesRes.error
   if (settlementsRes.error) throw settlementsRes.error
 
+  type StRow = { id: string; profile_id: string | null; total: number; cash_amount: number; status: string }
+  const stRows = (settlementsRes.data ?? []) as StRow[]
   const salesByProfile = new Map<string, number>()
-  for (const st of (settlementsRes.data ?? []) as { profile_id: string | null; total: number; status: string }[]) {
+  for (const st of stRows) {
     if (!st.profile_id || st.status === 'Rejeitado') continue
     salesByProfile.set(st.profile_id, (salesByProfile.get(st.profile_id) ?? 0) + (st.total ?? 0))
   }
 
+  // ACERTO INTERNO: com o controle interno em 'Acertado' ou 'Devendo', a
+  // comissão JÁ SAIU do dinheiro físico da noite (é a conta do Devendo).
+  // Somamos o dinheiro dessas conferências por pessoa — é o teto do que foi
+  // retido em espécie, e essa parte NÃO pode virar pagamento de novo.
+  // 'Em aberto' ou sem registro = ninguém conferiu = comportamento antigo.
+  const cashConferidoByProfile = new Map<string, number>()
+  if (stRows.length > 0) {
+    const { data: internos, error: intErr } = await supabase
+      .from('cashier_settlement_internal')
+      .select('settlement_id, status')
+      .in('settlement_id', stRows.map((s) => s.id))
+    if (intErr) throw intErr
+    const conferidos = new Set(((internos ?? []) as { settlement_id: string; status: string }[])
+      .filter((i) => i.status === 'Acertado' || i.status === 'Devendo')
+      .map((i) => i.settlement_id))
+    for (const st of stRows) {
+      if (!st.profile_id || st.status === 'Rejeitado' || !conferidos.has(st.id)) continue
+      cashConferidoByProfile.set(st.profile_id, (cashConferidoByProfile.get(st.profile_id) ?? 0) + (st.cash_amount ?? 0))
+    }
+  }
+
   const roleById = new Map(((rolesRes.data ?? []) as StaffingRole[]).map((r) => [r.id, r]))
   const reqById = new Map(reqs.map((r) => [r.id, r]))
-  const paidAppIds = new Set(((existingRes.data ?? []) as { staffing_application_id: string | null }[])
+  // Existentes SEPARADOS por tipo: a de Dinheiro (acerto interno) e a normal
+  // (a pagar) convivem na mesma candidatura sem se atropelar.
+  const existRows = (existingRes.data ?? []) as { staffing_application_id: string | null; payment_method: string | null }[]
+  const paidCashIds = new Set(existRows.filter((e) => e.payment_method === 'Dinheiro')
+    .map((e) => e.staffing_application_id).filter((x): x is string => !!x))
+  const paidRegularIds = new Set(existRows.filter((e) => e.payment_method !== 'Dinheiro')
     .map((e) => e.staffing_application_id).filter((x): x is string => !!x))
   const personById = new Map(((profilesRes.data ?? []) as { id: string; first_name: string; last_name: string }[])
     .map((pr) => [pr.id, `${pr.first_name} ${pr.last_name}`.trim()]))
@@ -3393,18 +3423,32 @@ export async function generateScalePayments(eventId: string, createdBy: string |
   let skippedExisting = 0
   let skippedNoValue = 0
   let skippedNoSales = 0
+  let createdCash = 0
   const toInsert: NewExpenseInput[] = []
+  const baseDespesa = (app: EventStaffingApplication) => ({
+    event_id: eventId,
+    quantity: 1,
+    dex_fee: 0,
+    receipt_data: null, signature_data: null, repasse_data: null,
+    created_by: createdBy,
+    team_member_id: app.profile_id,
+    pending_team_member_id: null,
+    supplier_id: null,
+    stock_movement_id: null,
+    staffing_application_id: app.id
+  })
   for (const app of apps) {
-    if (paidAppIds.has(app.id)) { skippedExisting++; continue }
     const req = reqById.get(app.requirement_id)
     const role = req?.role_id ? roleById.get(req.role_id) : undefined
+    const nome = personById.get(app.profile_id) ?? 'colaborador(a)'
 
-    let value: number
-    let detail = ''
     if (role?.pay_type === 'percent') {
       // Comissão: % combinado (pessoa → função) sobre o que a pessoa
       // registrou em Recebimentos neste evento. Sem acerto lançado, não há
       // base — pulamos e contamos à parte pra mensagem explicar o porquê.
+      const jaTemCash = paidCashIds.has(app.id)
+      const jaTemRegular = paidRegularIds.has(app.id)
+      if (jaTemCash && jaTemRegular) { skippedExisting++; continue }
       const pct = app.agreed_percent ?? role.default_percent ?? 0
       const sales = salesByProfile.get(app.profile_id) ?? 0
       if (!(pct > 0)) { skippedNoValue++; continue }
@@ -3413,39 +3457,56 @@ export async function generateScalePayments(eventId: string, createdBy: string |
       // (arrecadado ÷ 1,1). Decisão da Diretoria em 23/07 — assim o 10%
       // padrão equivale exatamente ao ÷ 11 da comissão de garçom.
       const base = Math.round((sales / 1.1) * 100) / 100
-      value = Math.round(base * pct) / 100
-      detail = ` (${pct}% de ${base.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} — vendas sem a taxa)`
-    } else {
-      value = app.agreed_value ?? req?.unit_cost ?? role?.default_value ?? 0
-      if (!(value > 0)) { skippedNoValue++; continue }
+      const comissao = Math.round(base * pct) / 100
+      const detail = ` (${pct}% de ${base.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} — vendas sem a taxa)`
+      // Parte já retida em DINHEIRO na noite: limitada pela comissão E pelo
+      // dinheiro que a pessoa de fato arrecadou em acertos conferidos.
+      const retida = Math.round(Math.min(comissao, cashConferidoByProfile.get(app.profile_id) ?? 0) * 100) / 100
+      const resto = Math.round((comissao - retida) * 100) / 100
+      if (retida > 0.009 && !jaTemCash) {
+        toInsert.push({
+          ...baseDespesa(app),
+          status: 'Pago',
+          category: 'Comissão (serviço)',
+          payment_method: 'Dinheiro',
+          description: `Escala — ${req?.role_label ?? 'Função'}: ${nome} — comissão acertada em dinheiro no caixa (controle interno)${detail}`,
+          unit_value: retida
+        })
+        createdCash++
+      }
+      if (resto > 0.009 && !jaTemRegular) {
+        toInsert.push({
+          ...baseDespesa(app),
+          status: 'Pendente',
+          // Comissão % é a TAXA DE SERVIÇO (os 10% que o cliente paga por
+          // fora): categoria própria pra ficar FORA do lucro no fechamento.
+          category: 'Comissão (serviço)',
+          payment_method: null,
+          description: `Escala — ${req?.role_label ?? 'Função'}: ${nome}${retida > 0.009 ? ' — restante da comissão (parte já saiu em dinheiro no caixa)' : ''}${detail}`,
+          unit_value: resto
+        })
+      }
+      continue
     }
+
+    // Valor fixo de escala: custo da casa de verdade, fluxo original.
+    if (paidRegularIds.has(app.id) || paidCashIds.has(app.id)) { skippedExisting++; continue }
+    const value = app.agreed_value ?? req?.unit_cost ?? role?.default_value ?? 0
+    if (!(value > 0)) { skippedNoValue++; continue }
     toInsert.push({
-      event_id: eventId,
+      ...baseDespesa(app),
       status: 'Pendente',
-      // Comissão % é a TAXA DE SERVIÇO (os 10% que o cliente paga por fora):
-      // categoria própria pra ficar FORA do lucro no fechamento — as vendas
-      // já entram sem essa verba ("Total faturado" do PDV). Valor fixo de
-      // escala é custo da casa de verdade e segue como 'Equipe'.
-      category: role?.pay_type === 'percent' ? 'Comissão (serviço)' : 'Equipe',
+      category: 'Equipe',
       payment_method: null,
-      description: `Escala — ${req?.role_label ?? 'Função'}: ${personById.get(app.profile_id) ?? 'colaborador(a)'}${detail}`,
-      quantity: 1,
-      unit_value: value,
-      dex_fee: 0,
-      receipt_data: null, signature_data: null, repasse_data: null,
-      created_by: createdBy,
-      team_member_id: app.profile_id,
-      pending_team_member_id: null,
-      supplier_id: null,
-      stock_movement_id: null,
-      staffing_application_id: app.id
+      description: `Escala — ${req?.role_label ?? 'Função'}: ${nome}`,
+      unit_value: value
     })
   }
   if (toInsert.length > 0) {
     const { error } = await supabase.from('expenses').insert(toInsert)
     if (error) throw error
   }
-  return { created: toInsert.length, skippedExisting, skippedNoValue, skippedNoSales }
+  return { created: toInsert.length - createdCash, createdCash, skippedExisting, skippedNoValue, skippedNoSales }
 }
 
 // ---------- Contrato via ZapSign ----------

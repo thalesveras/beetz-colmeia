@@ -197,9 +197,9 @@ export default function StaffingTab({ eventId, canManage, canFinance = false, on
     try {
       const res = await generateScalePayments(eventId, userId ?? null)
       const parts: string[] = []
-      parts.push(res.created > 0
-        ? `${res.created} pagamento${res.created > 1 ? 's' : ''} criado${res.created > 1 ? 's' : ''} como despesa Pendente`
-        : 'Nenhum pagamento novo pra criar')
+      if (res.created > 0) parts.push(`${res.created} pagamento${res.created > 1 ? 's' : ''} criado${res.created > 1 ? 's' : ''} como despesa Pendente (a pagar)`)
+      if (res.createdCash > 0) parts.push(`${res.createdCash} comiss${res.createdCash > 1 ? 'ões' : 'ão'} já acertada${res.createdCash > 1 ? 's' : ''} em dinheiro no caixa → despesa separada, Paga em Dinheiro`)
+      if (res.created === 0 && res.createdCash === 0) parts.push('Nenhum pagamento novo pra criar')
       if (res.skippedExisting > 0) parts.push(`${res.skippedExisting} já tinha${res.skippedExisting > 1 ? 'm' : ''} despesa`)
       if (res.skippedNoValue > 0) parts.push(`${res.skippedNoValue} sem valor definido (pulado${res.skippedNoValue > 1 ? 's' : ''})`)
       if (res.skippedNoSales > 0) parts.push(`${res.skippedNoSales} comissionado${res.skippedNoSales > 1 ? 's' : ''} sem acerto em Recebimentos ainda (pulado${res.skippedNoSales > 1 ? 's' : ''} — lance o acerto e gere de novo)`)
@@ -322,7 +322,7 @@ export default function StaffingTab({ eventId, canManage, canFinance = false, on
               Custo da escala · {confirmedApps.length} confirmado{confirmedApps.length > 1 ? 's' : ''}
               {percentCount > 0 && (
                 estimatedCommissions > 0
-                  ? ` · comissões calculadas sobre os Recebimentos já lançados`
+                  ? ` · comissões calculadas sobre os Recebimentos já lançados — a parte já acertada em dinheiro no caixa (controle interno) sai como despesa separada, Paga em Dinheiro`
                   : ` · ${percentCount} comissionado${percentCount > 1 ? 's' : ''}: a despesa nasce dos Recebimentos, lançados no fim do evento`
               )}
             </p>
