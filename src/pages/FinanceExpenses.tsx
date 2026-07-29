@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import {
-  deleteExpense, listAllExpenses, listEvents, listExpenseCategories, listPaymentMethods,
+  deleteExpense, listAllExpenses, listEvents, listExpenseCategories, listExpensePaymentTotals, listPaymentMethods,
   listPendingProfilesForPicker, listProfiles, listSuppliers
 } from '../lib/dataService'
 import type {
@@ -46,6 +46,9 @@ export default function FinanceExpenses() {
   const { accessRole, userId } = useAuth()
   const [loading, setLoading] = useState(true)
   const [expenses, setExpenses] = useState<Expense[]>([])
+  // Soma dos pagamentos parciais por despesa (view leve, sem comprovantes):
+  // alimenta o chip "falta R$ X" de quem já começou a ser paga.
+  const [payTotals, setPayTotals] = useState<{ expense_id: string; total_pago: number }[]>([])
   const [events, setEvents] = useState<EventItem[]>([])
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [pendingProfiles, setPendingProfiles] = useState<PendingProfilePickerItem[]>([])
@@ -126,11 +129,14 @@ export default function FinanceExpenses() {
 
   async function load() {
     setLoading(true)
-    const [exp, evs, profs, pend, sups, cats, methods] = await Promise.all([
+    const [exp, evs, profs, pend, sups, cats, methods, pagos] = await Promise.all([
       listAllExpenses(), listEvents(), listProfiles(), listPendingProfilesForPicker(), listSuppliers(),
-      listExpenseCategories(), listPaymentMethods()
+      listExpenseCategories(), listPaymentMethods(),
+      // Se a view falhar, a página vive sem os chips — nunca derruba a lista.
+      listExpensePaymentTotals().catch(() => [])
     ])
     setExpenses(exp)
+    setPayTotals(pagos)
     setEvents(evs)
     setProfiles(profs)
     setPendingProfiles(pend)
@@ -141,6 +147,19 @@ export default function FinanceExpenses() {
   }
 
   useEffect(() => { load() }, [])
+
+  const pagoPorDespesa = useMemo(() => new Map(payTotals.map((t) => [t.expense_id, t.total_pago])), [payTotals])
+  // Chip de pagamento parcial: só aparece quando a despesa já recebeu algum
+  // pagamento e ainda não está Paga — "falta R$ X" direto na lista.
+  const chipParcial = (e2: { id: string; status: ExpenseStatus; total: number }) => {
+    const pago = pagoPorDespesa.get(e2.id) ?? 0
+    if (pago <= 0 || e2.status === 'Pago') return null
+    return (
+      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0 bg-amber-100 text-amber-700" title={`Já pago: ${currency(pago)}`}>
+        falta {currency(Math.max(0, e2.total - pago))}
+      </span>
+    )
+  }
 
   const eventsById = useMemo(() => {
     const map = new Map<string, EventItem>()
@@ -307,6 +326,7 @@ export default function FinanceExpenses() {
                     <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${statusColors[exp.status]}`}>
                       {exp.status}
                     </span>
+                    {chipParcial(exp)}
                     <p className="font-semibold text-sm truncate">{exp.category || 'Sem categoria'}</p>
                   </div>
                   <span className="font-bold text-sm whitespace-nowrap">{currency(exp.total)}</span>
@@ -571,7 +591,10 @@ export default function FinanceExpenses() {
                           <input type="checkbox" checked={isSelected} onChange={() => toggleSelected(exp.id)} className="w-4 h-4 accent-beetz-yellow" />
                         </td>
                         <td className="p-3">
-                          <span className={`text-xs font-semibold px-2 py-1 rounded-full ${statusColors[exp.status]}`}>{exp.status}</span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className={`text-xs font-semibold px-2 py-1 rounded-full ${statusColors[exp.status]}`}>{exp.status}</span>
+                            {chipParcial(exp)}
+                          </div>
                         </td>
                         <td className="p-3">
                           <p className="font-semibold">{exp.category || 'Sem categoria'}</p>

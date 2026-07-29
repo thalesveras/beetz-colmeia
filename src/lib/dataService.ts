@@ -1687,6 +1687,69 @@ export async function getClosingDossier(eventId: string): Promise<ClosingDossier
   return data as ClosingDossier
 }
 
+// ---------- Despesas: pagamentos parciais (Diretoria) ----------
+// Cada comprovante vira uma linha em expense_payments (tabela própria —
+// a despesa em si nunca é reescrita). O saldo é total − soma dos
+// pagamentos; quem quita/rebaixa o status é o trigger no banco.
+export interface ExpensePayment {
+  id: string
+  expense_id: string
+  amount: number
+  paid_at: string
+  receipt_data: string | null
+  notes: string | null
+  created_by: string | null
+  created_at: string
+}
+
+// Soma por despesa SEM o comprovante: a lista global carrega leve, a
+// imagem só viaja quando a despesa é aberta no modal.
+export interface ExpensePaymentTotal {
+  expense_id: string
+  total_pago: number
+  pagamentos: number
+  ultimo_pagamento: string | null
+}
+
+export async function listExpensePayments(expenseId: string): Promise<ExpensePayment[]> {
+  if (isDemoMode) return []
+  const { data, error } = await supabase
+    .from('expense_payments')
+    .select('*')
+    .eq('expense_id', expenseId)
+    .order('paid_at', { ascending: true })
+    .order('created_at', { ascending: true })
+  if (error) throw error
+  return (data ?? []).map((p) => ({ ...p, amount: Number(p.amount) })) as ExpensePayment[]
+}
+
+export async function addExpensePayment(input: {
+  expense_id: string
+  amount: number
+  paid_at: string
+  receipt_data: string | null
+  notes: string | null
+  created_by: string | null
+}): Promise<ExpensePayment> {
+  if (isDemoMode) throw new Error('Pagamentos ficam de fora do modo demonstração.')
+  const { data, error } = await supabase.from('expense_payments').insert(input).select().single()
+  if (error) throw error
+  return { ...data, amount: Number(data.amount) } as ExpensePayment
+}
+
+export async function deleteExpensePayment(id: string): Promise<void> {
+  if (isDemoMode) return
+  const { error } = await supabase.from('expense_payments').delete().eq('id', id)
+  if (error) throw error
+}
+
+export async function listExpensePaymentTotals(): Promise<ExpensePaymentTotal[]> {
+  if (isDemoMode) return []
+  const { data, error } = await supabase.from('expense_payment_totals').select('*')
+  if (error) throw error
+  return (data ?? []).map((t) => ({ ...t, total_pago: Number(t.total_pago), pagamentos: Number(t.pagamentos) })) as ExpensePaymentTotal[]
+}
+
 // ---------- Financeiro: dados de Pix pra folha de pagamento ----------
 // Só os 4 campos de Pix dos perfis (leve). Usado nos Recebimentos pra
 // relacionar comissão → chave e montar a folha de pagamentos.
