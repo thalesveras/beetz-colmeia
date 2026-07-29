@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Building2, Copy, Printer, Save, ShieldCheck, UserRound } from 'lucide-react'
-import { getClosingDossier, getEventFinancialSummary, listEventRepasses, updateEvent } from '../../lib/dataService'
+import { getClosingDossier, getEventFinancialSummary, listCashierSettlementsForEvent, listEventRepasses, listProfilesLite, updateEvent } from '../../lib/dataService'
 import type { EventFinancialSummary, EventItem, EventRepasse } from '../../lib/types'
 import { useAuth } from '../../contexts/AuthContext'
 import { canExportClosingPdf } from '../../lib/permissions'
@@ -337,7 +337,32 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
             if (!summary) return
             setDossieBusy(true)
             try {
-              const d = await getClosingDossier(event.id)
+              // Comprovantes anexados: prints da maquininha (recebimentos) e
+              // dos repasses já pagos. Falha neles não derruba o dossiê.
+              const [d, acertos, perfisLite] = await Promise.all([
+                getClosingDossier(event.id),
+                listCashierSettlementsForEvent(event.id).catch(() => []),
+                listProfilesLite().catch(() => [])
+              ])
+              const nomeLite = new Map<string, string>(perfisLite.map((p) => [p.id, `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim()] as [string, string]))
+              const comprovantes: { titulo: string; sub: string; img: string }[] = []
+              for (const s of acertos) {
+                if (!s.receipt_data || s.status === 'Rejeitado') continue
+                const apurado = s.cash_amount + s.debit_amount + s.credit_amount + s.pix_amount
+                comprovantes.push({
+                  titulo: (s.profile_id ? nomeLite.get(s.profile_id) : '') || s.role_type,
+                  sub: `${s.role_type} · apurado ${currency(apurado)}`,
+                  img: s.receipt_data
+                })
+              }
+              for (const r of repasses) {
+                if (!r.receipt_data) continue
+                comprovantes.push({
+                  titulo: `Repasse · ${dateBR(r.paid_at)}`,
+                  sub: `${currency(r.amount)}${r.notes ? ` · ${r.notes}` : ''}`,
+                  img: r.receipt_data
+                })
+              }
               const w = window.open('', '_blank')
               if (!w) { alert('O navegador bloqueou a janela do PDF. Libere pop-ups pra este site e tente de novo.'); return }
               const cpfFmt = (c: string | null) => {
@@ -429,6 +454,12 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
                 .num { text-align: right; white-space: nowrap; }
                 .obs { font-size: 10px; color: #9c9c9c; margin-top: 2px; font-weight: 400; }
                 .vazio { font-size: 11px; color: #a1a1aa; margin: 2px 0 0; }
+                .cgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+                .ccard { border: 1.5px solid #ececee; border-radius: 14px; overflow: hidden; page-break-inside: avoid; background: #fff; }
+                .ccard .chead { padding: 8px 12px; border-bottom: 2px solid #fed417; }
+                .ccard .chead b { font-size: 11.5px; display: block; }
+                .ccard .chead span { font-size: 10px; color: #9c9c9c; }
+                .ccard img { display: block; width: 100%; height: auto; }
                 .foot { font-size: 9px; color: #a1a1aa; margin: 16px 4px 0; }
               </style></head><body>
                 <div class="faixa"></div>
@@ -464,6 +495,8 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
                 <div class="card"><p class="kicker2">Recebimentos da equipe · ${d.recebimentos.length}</p>${recebHtml}</div>
                 <div class="card"><p class="kicker2">Consumo da produção</p>${consumoHtml}</div>
                 <div class="card"><p class="kicker2">Transferências da produção</p>${transfHtml}</div>
+                ${comprovantes.length > 0 ? `<div class="card"><p class="kicker2">Comprovantes anexados · ${comprovantes.length}</p>
+                <div class="cgrid">${comprovantes.map((c) => `<div class="ccard"><div class="chead"><b>${esc(c.titulo)}</b><span>${esc(c.sub)}</span></div><img src="${esc(c.img)}" alt=""></div>`).join('')}</div></div>` : ''}
 
                 <p class="foot">Documento interno da Beetz — contém dados pessoais da equipe. Gerado pela Colmeia em ${new Date().toLocaleString('pt-BR')}${geradoPor ? ` por ${esc(geradoPor)}` : ''}.</p>
               </body></html>`)
