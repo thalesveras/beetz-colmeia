@@ -360,9 +360,12 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
               // justificando a linha "Repasses já pagos" da conta.
               const w = window.open('', '_blank')
               if (!w) { alert('O navegador bloqueou a janela do PDF. Libere pop-ups pra este site e tente de novo.'); return }
+              // LGPD: o CPF nunca sai completo no papel — máscara no padrão
+              // gov.br (***.XXX.XXX-**): identifica a pessoa internamente sem
+              // expor o documento se o PDF vazar. Malformado vira travessão.
               const cpfFmt = (c: string | null) => {
                 const n = (c ?? '').replace(/\D/g, '')
-                return n.length === 11 ? `${n.slice(0, 3)}.${n.slice(3, 6)}.${n.slice(6, 9)}-${n.slice(9)}` : (c ?? '—')
+                return n.length === 11 ? `***.${n.slice(3, 6)}.${n.slice(6, 9)}-**` : '—'
               }
               const linha = (k: string, v: string, neg = false) =>
                 `<tr><td class="k">${esc(k)}</td><td class="v${neg ? ' neg' : ''}">${esc(v)}</td></tr>`
@@ -455,7 +458,7 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
                 .card { background: #fff; color: #050505; border: 1.5px solid #ececee; border-radius: 22px; padding: 20px 24px; margin-bottom: 12px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
                 .kicker2 { font-size: 10px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; color: #050505; border-left: 4px solid #fed417; padding-left: 9px; margin: 0 0 10px; }
                 .grade th { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: #9c9c9c; text-align: left; padding: 6px 8px; border-bottom: 2px solid #050505; }
-                .grade td { font-size: 11px; color: #050505; padding: 6.5px 8px; border-bottom: 1px solid #f0f0f2; vertical-align: top; }
+                .grade td { font-size: 11px; color: #050505; padding: 6.5px 8px; border-bottom: 1px solid #f0f0f2; vertical-align: top; text-transform: uppercase; }
                 .grade tbody tr:nth-child(even) td { background: #f7f7f8; }
                 .grade tfoot td { font-weight: 800; color: #050505; border-top: 2px solid #fed417; border-bottom: 0; padding-top: 9px; }
                 .grade tr { page-break-inside: avoid; }
@@ -465,12 +468,12 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
                 .ava { object-fit: cover; display: block; }
                 .avaini { display: flex; align-items: center; justify-content: center; background: #fed417; color: #050505; font-weight: 800; font-size: 9px; letter-spacing: .3px; }
                 .num { text-align: right; white-space: nowrap; }
-                .obs { font-size: 10px; color: #9c9c9c; margin-top: 2px; font-weight: 400; }
+                .obs { font-size: 10px; color: #9c9c9c; margin-top: 2px; font-weight: 400; text-transform: none; }
                 .vazio { font-size: 11px; color: #a1a1aa; margin: 2px 0 0; }
                 .cgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
                 .ccard { border: 1.5px solid #ececee; border-radius: 14px; overflow: hidden; page-break-inside: avoid; background: #fff; }
                 .ccard .chead { padding: 8px 12px; border-bottom: 2px solid #fed417; }
-                .ccard .chead b { font-size: 11.5px; display: block; }
+                .ccard .chead b { font-size: 11.5px; display: block; text-transform: uppercase; }
                 .ccard .chead span { font-size: 10px; color: #9c9c9c; }
                 .ccard img { display: block; width: 100%; height: auto; }
                 .foot { font-size: 9px; color: #a1a1aa; margin: 16px 4px 0; }
