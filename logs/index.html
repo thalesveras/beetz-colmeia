@@ -23,9 +23,15 @@
   .center { max-width: 420px; margin: 12vh auto 0; text-align: center; }
   .center h1 { font-size: 22px; margin: 14px 0 6px; }
   .center p { color: #888; font-size: 14px; margin-bottom: 20px; line-height: 1.5; }
-  .tabs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 14px; }
-  .tab { flex-shrink: 0; background: #1c1c1c; color: #999; font-weight: 700; font-size: 13px; padding: 9px 14px; border-radius: 10px; border: 1px solid #2a2a2a; }
-  .tab.on { background: #FED417; color: #0b0b0b; border-color: #FED417; }
+  /* Menu de abas: gruda no topo ao rolar (a referência nunca some), rola de
+     lado sem quebrar linha e sem barra de rolagem aparente, e a aba ativa
+     ganha peso. O ::after é um respiro de fade na borda direita no mobile. */
+  .tabs-wrap { position: sticky; top: 0; z-index: 40; background: linear-gradient(#0b0b0b 78%, rgba(11,11,11,0)); padding: 10px 0 12px; margin: -10px 0 8px; }
+  .tabs { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { flex-shrink: 0; background: #1c1c1c; color: #999; font-weight: 700; font-size: 13px; padding: 9px 14px; border-radius: 99px; border: 1px solid #2a2a2a; transition: color .15s, border-color .15s; }
+  .tab:hover { color: #eee; border-color: #444; }
+  .tab.on { background: linear-gradient(135deg, #FED417, #f5b700); color: #0b0b0b; border-color: #FED417; }
   .bar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
   input[type=search] { flex: 1; min-width: 180px; background: #1a1a1a; border: 1px solid #2a2a2a; color: #eee; padding: 10px 12px; border-radius: 10px; font-size: 13px; outline: none; }
   input[type=search]:focus { border-color: #FED417; }
@@ -90,7 +96,7 @@
       <div class="who"><span id="who-email"></span><button class="btn-ghost" id="btn-sair">Sair</button></div>
     </header>
 
-    <div class="tabs" id="tabs"></div>
+    <div class="tabs-wrap"><div class="tabs" id="tabs"></div></div>
 
     <div class="card">
       <div class="bar">
@@ -127,10 +133,11 @@ const nomeDe = (id) => nomes.get(id) ?? '—'
 const ABAS = [
   { key: 'dashboard', label: '📊 Dashboard' },
   { key: 'cadastros', label: '🧑 Cadastros' },
+  { key: 'perfis', label: '✏️ Perfis' },
   { key: 'acessos', label: '🔑 Acessos' },
   { key: 'avisos', label: '🔔 Avisos' },
   { key: 'emails', label: '✉️ E-mails' },
-  { key: 'eventos', label: '📅 Alterações de eventos' },
+  { key: 'eventos', label: '📅 Eventos' },
   { key: 'dns', label: '🌐 Subdomínios' }
 ]
 // O dashboard é a página inicial do painel (e atende em /dashboard).
@@ -290,6 +297,44 @@ const CARREGADORES = {
       brutos: data ?? []
     }
   },
+  async perfis() {
+    // Auditoria de perfis: cada linha é um UPDATE em profiles, com o diff
+    // campo a campo (trigger profiles_log_changes). "própria" = a pessoa
+    // mexeu no próprio perfil (conta pro limite semanal); "diretoria" =
+    // alguém editou o perfil de outra pessoa; "sistema" = manutenção/script.
+    const { data, error } = await supabase.from('profile_change_log')
+      .select('profile_id, changed_by, changed_at, campos')
+      .order('changed_at', { ascending: false }).limit(200)
+    if (error) throw error
+    const ROTULO = {
+      first_name: 'Nome', last_name: 'Sobrenome', birth_date: 'Nascimento', cpf: 'CPF', phone: 'Telefone',
+      email: 'E-mail', city: 'Cidade', state: 'UF', mother_name: 'Mãe', father_name: 'Pai',
+      emergency_contact_name: 'Contato de emergência', emergency_contact_phone: 'Tel. de emergência',
+      department_id: 'Departamento', role: 'Cargo', experience_level: 'Experiência', entry_date: 'Entrada',
+      work_location: 'Local de trabalho', skills: 'Habilidades', health_conditions: 'Saúde', allergies: 'Alergias',
+      important_notes: 'Notas', about_me: 'Sobre mim', fun_fact: 'Curiosidade', favorite_events: 'Eventos favoritos',
+      instagram: 'Instagram', personal_quote: 'Frase', avatar_url: 'Foto de perfil', cover_url: 'Foto de capa',
+      approval_status: 'Situação', pix_key: 'Chave Pix', pix_key_type: 'Tipo de Pix', pix_owner_name: 'Titular do Pix'
+    }
+    const rotulo = (k) => ROTULO[k] ?? k
+    const curto = (v) => { const s = String(v ?? '∅'); return s.length > 60 ? s.slice(0, 60) + '…' : s }
+    const autor = (r) => r.changed_by == null
+      ? '<span class="tag">sistema</span>'
+      : r.changed_by === r.profile_id
+        ? '<span class="tag mel">própria</span>'
+        : `<span class="tag ok">${esc(nomeDe(r.changed_by))}</span>`
+    return {
+      colunas: ['Quando', 'Perfil', 'Quem mudou', 'O que mudou'],
+      linhas: (data ?? []).map((r) => `<tr>
+        <td>${quando(r.changed_at)}</td>
+        <td><strong>${esc(nomeDe(r.profile_id))}</strong></td>
+        <td>${autor(r)}</td>
+        <td>${(r.campos ?? []).map((c) => `<div><span class="tag">${esc(rotulo(c.campo))}</span> ${esc(curto(c.de))} → <strong>${esc(curto(c.para))}</strong></div>`).join('')}</td>
+      </tr>`),
+      texto: (r) => `${nomeDe(r.profile_id)} ${nomeDe(r.changed_by)} ${(r.campos ?? []).map((c) => `${rotulo(c.campo)} ${c.de ?? ''} ${c.para ?? ''}`).join(' ')}`,
+      brutos: data ?? []
+    }
+  },
   async acessos() {
     const { data, error } = await supabase.from('notifications')
       .select('profile_id, alert_key, title, created_at')
@@ -396,6 +441,9 @@ function aplicarBusca() {
 function montarTabs() {
   $('tabs').innerHTML = ABAS.map((a) => `<button class="tab ${a.key === abaAtual ? 'on' : ''}" data-k="${a.key}">${a.label}</button>`).join('')
   $('tabs').querySelectorAll('.tab').forEach((el) => el.addEventListener('click', () => { abaAtual = el.dataset.k; montarTabs(); carregarAba() }))
+  // A aba ativa sempre à vista: no celular, trocar pra uma aba da ponta
+  // rolava o trilho e a seleção sumia da tela.
+  $('tabs').querySelector('.tab.on')?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' })
 }
 
 function mostrar(tela) {

@@ -12,7 +12,7 @@ import { ACCESS_ROLE_LABELS, canManageUsers, departmentToAccessRole, type Access
 import { ALERT_TYPES } from '../lib/alerts'
 import {
   createExpenseCategory, createPaymentMethod, createServiceModality, deleteExpenseCategory,
-  deletePaymentMethod, deleteServiceModality, getZohoPendingProfilesStats, importPendingPhotosBatch,
+  deletePaymentMethod, deleteServiceModality, getAppSettings, getZohoPendingProfilesStats, importPendingPhotosBatch,
   authorizeZohoWithCode, createDepartment, createRolePermission, deleteDepartment, deleteRolePermission,
   importZohoPendingProfiles, inspectZohoCreatorFields, listBadgeDefsConfig, listDepartments,
   listExpenseCategories, listEmailLog, listHiveLevelsConfig, listPaymentMethods, listRolePermissions,
@@ -180,12 +180,37 @@ function SignupRulesSection() {
   const [rules, setRules] = useState<SignupFieldRule[]>([])
   const [loading, setLoading] = useState(true)
   const [savingKey, setSavingKey] = useState<string | null>(null)
+  // Limite semanal de alterações de perfil (trigger no banco faz a trava;
+  // aqui só se configura o número). '' = sem limite.
+  const [limite, setLimite] = useState('')
+  const [limiteBusy, setLimiteBusy] = useState(false)
+  const [limiteOk, setLimiteOk] = useState(false)
 
   async function load() {
     setLoading(true)
-    try { setRules(await listSignupFieldRules()) } finally { setLoading(false) }
+    try {
+      const [regras, config] = await Promise.all([listSignupFieldRules(), getAppSettings()])
+      setRules(regras)
+      setLimite(config.profile_edit_weekly_limit ? String(config.profile_edit_weekly_limit) : '')
+    } finally { setLoading(false) }
   }
   useEffect(() => { load() }, [])
+
+  async function salvarLimite() {
+    setLimiteBusy(true)
+    setLimiteOk(false)
+    try {
+      const n = Math.max(0, Math.floor(Number(limite) || 0))
+      await updateAppSettings({ profile_edit_weekly_limit: n > 0 ? n : null })
+      setLimite(n > 0 ? String(n) : '')
+      setLimiteOk(true)
+      setTimeout(() => setLimiteOk(false), 2500)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Não deu pra salvar o limite.')
+    } finally {
+      setLimiteBusy(false)
+    }
+  }
 
   async function toggleRule(rule: SignupFieldRule, campo: 'required' | 'is_unique') {
     setSavingKey(rule.field_key + campo)
@@ -208,6 +233,34 @@ function SignupRulesSection() {
         cadastrando, e <strong>Único</strong> impede valor repetido só em cadastros novos — perfis e duplicatas
         antigas ficam exatamente como estão.
       </p>
+
+      {/* Freio de mudanças: cada alteração de perfil fica registrada (quem,
+          quando, de → para — visível em logs.beetz.bar) e o número abaixo
+          limita quantas a própria pessoa pode fazer por semana. */}
+      <div className="bg-beetz-gray/60 border border-beetz-dark/5 rounded-xl px-4 py-3.5 mb-5">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <div className="flex-1 min-w-[180px]">
+            <p className="text-sm font-bold">Alterações de perfil por semana</p>
+            <p className="text-xs text-beetz-dark/50 mt-0.5">
+              Toda mudança fica no histórico (logs.beetz.bar → Perfis). Vazio ou 0 = sem limite.
+              Diretoria é isenta e o cadastro inicial não conta.
+            </p>
+          </div>
+          <input
+            type="number" min={0} step={1} inputMode="numeric" placeholder="Sem limite"
+            className="w-28 min-w-0 border border-beetz-dark/15 rounded-xl px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-beetz-yellow"
+            value={limite}
+            onChange={(e) => setLimite(e.target.value)}
+          />
+          <button
+            onClick={salvarLimite}
+            disabled={limiteBusy}
+            className="shrink-0 text-xs font-bold px-4 py-2.5 rounded-xl bg-beetz-dark text-white hover:bg-black transition-colors disabled:opacity-50"
+          >
+            {limiteBusy ? 'Salvando...' : limiteOk ? 'Salvo ✓' : 'Salvar'}
+          </button>
+        </div>
+      </div>
 
       {loading ? (
         <p className="text-sm text-beetz-dark/50">Carregando...</p>

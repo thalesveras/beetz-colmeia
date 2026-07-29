@@ -972,6 +972,10 @@ export interface AppSettings {
   // Alíquota padrão de imposto sobre a RECEITA da Beetz (comissão + créditos)
   // no fechamento dos eventos. Cada evento pode sobrescrever (tax_percentage).
   default_tax_percentage: number
+  // Trava do cadastro: quantas alterações de perfil a PRÓPRIA pessoa pode
+  // fazer por semana (janela móvel de 7 dias, aplicada por trigger no banco).
+  // null/0 = sem limite. Diretoria é isenta; o wizard inicial não conta.
+  profile_edit_weekly_limit?: number | null
   updated_at: string
 }
 
