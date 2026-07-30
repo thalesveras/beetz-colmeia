@@ -3,10 +3,10 @@ import { useAuth } from '../../contexts/AuthContext'
 import {
   addExpensePayment, deleteExpense,
   createExpense, createSupplier, listEventMembers, listExpenseCategories, listExpensePaymentTotals, listExpensesForEvent,
-  listPaymentMethods, listPendingProfilesForPicker, listProfilesLite, listSuppliers, updateExpense,
+  listPaymentMethods, listPendingProfilesForPicker, listProfilesLite, listProfilesPixLite, listSuppliers, updateExpense,
   updateExpenseStatus
 } from '../../lib/dataService'
-import type { ExpensePaymentTotal } from '../../lib/dataService'
+import type { ExpensePaymentTotal, ProfilePixLite } from '../../lib/dataService'
 import type {
   Expense, ExpenseCategory, ExpenseStatus, PaymentMethod, PaymentMethodOption, PendingProfilePickerItem,
   Profile, Supplier
@@ -104,6 +104,31 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
   // marca Pago sozinho. Nada é sobrescrito: é sempre um pagamento NOVO.
   const [dragOverId, setDragOverId] = useState<string | null>(null)
   const [quitandoId, setQuitandoId] = useState<string | null>(null)
+
+  // ---- Pix na lista: pra onde vai o dinheiro, sem abrir nada. Fornecedor
+  // manda (a despesa é dele); sem fornecedor, vale a chave do colaborador.
+  const [pixLite, setPixLite] = useState<Map<string, ProfilePixLite>>(new Map())
+  const [pixCopiadoId, setPixCopiadoId] = useState<string | null>(null)
+  function pixDaDespesa(exp: Expense): { rotulo: string; chave: string; extra: string } | null {
+    if (exp.supplier_id) {
+      const s = suppliers.find((x) => x.id === exp.supplier_id)
+      return s?.pix_key ? { rotulo: `Pix do fornecedor`, chave: s.pix_key, extra: [s.pix_key_type, s.name].filter(Boolean).join(' · ') } : null
+    }
+    if (exp.team_member_id) {
+      const p = pixLite.get(exp.team_member_id)
+      if (p?.pix_key) return { rotulo: 'Pix do colaborador', chave: p.pix_key, extra: [p.pix_key_type, p.pix_owner_name].filter(Boolean).join(' · ') }
+    }
+    return null
+  }
+  async function copiarPix(id: string, chave: string) {
+    try {
+      await navigator.clipboard.writeText(chave)
+      setPixCopiadoId(id)
+      setTimeout(() => setPixCopiadoId((cur) => (cur === id ? null : cur)), 2000)
+    } catch {
+      window.alert(`Chave Pix: ${chave}`)
+    }
+  }
   const podeQuitar = (exp: Expense) =>
     canReviewExpense(accessRole) && exp.status !== 'Pago' && exp.status !== 'Cancelado' && exp.status !== 'Rejeitado'
 
@@ -158,9 +183,13 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
   }
 
   async function loadFormOptions() {
-    const [members, allProfiles, supplierList, pending] = await Promise.all([
-      listEventMembers(eventId), listProfilesLite(), listSuppliers(), listPendingProfilesForPicker()
+    const [members, allProfiles, supplierList, pending, pixes] = await Promise.all([
+      listEventMembers(eventId), listProfilesLite(), listSuppliers(), listPendingProfilesForPicker(),
+      // Chaves Pix dos perfis (4 campos, leve): cruzam com team_member_id
+      // pra mostrar a chave direto no card. Falhou? Lista vive sem Pix.
+      listProfilesPixLite().catch(() => [] as ProfilePixLite[])
     ])
+    setPixLite(new Map(pixes.map((p) => [p.id, p])))
     const memberIds = new Set(members.map((m) => m.profile_id))
     setTeamMembers(allProfiles.filter((p) => memberIds.has(p.id)))
     setSuppliers(supplierList)
@@ -603,6 +632,26 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
                   {exp.supplier_id ? ` · Fornecedor: ${suppliers.find((s) => s.id === exp.supplier_id)?.name ?? '—'}` : ''}
                 </p>
               </button>
+
+              {/* Pra onde vai o dinheiro: chave Pix copiável, sem abrir nada.
+                  Some quando a despesa já está resolvida. */}
+              {(() => {
+                const px = pixDaDespesa(exp)
+                if (!px || exp.status === 'Pago' || exp.status === 'Cancelado' || exp.status === 'Rejeitado') return null
+                return (
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-[11px]">
+                    <span className="text-beetz-dark/40 font-medium">🔑 {px.rotulo}:</span>
+                    <code className="font-semibold bg-beetz-gray px-1.5 py-0.5 rounded break-all">{px.chave}</code>
+                    {px.extra && <span className="text-beetz-dark/35">{px.extra}</span>}
+                    <button
+                      onClick={() => copiarPix(exp.id, px.chave)}
+                      className={`font-bold underline shrink-0 ${pixCopiadoId === exp.id ? 'text-green-600' : 'text-beetz-dark/50 hover:text-beetz-dark'}`}
+                    >
+                      {pixCopiadoId === exp.id ? 'copiado ✓' : 'copiar'}
+                    </button>
+                  </div>
+                )
+              })()}
 
               {/* Progresso dos pagamentos parciais: só aparece quando já
                   entrou algum pagamento e ainda falta. */}
