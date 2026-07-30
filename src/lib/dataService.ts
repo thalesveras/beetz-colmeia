@@ -1750,6 +1750,19 @@ export async function listExpensePaymentTotals(): Promise<ExpensePaymentTotal[]>
   return (data ?? []).map((t) => ({ ...t, total_pago: Number(t.total_pago), pagamentos: Number(t.pagamentos) })) as ExpensePaymentTotal[]
 }
 
+// Bolinha da aba Despesas do evento: quantas Pendentes existem (count leve
+// no banco, sem carregar comprovante nenhum). RLS decide o que cada um vê.
+export async function countPendingExpenses(eventId: string): Promise<number> {
+  if (isDemoMode) return 0
+  const { count, error } = await supabase
+    .from('expenses')
+    .select('id', { count: 'exact', head: true })
+    .eq('event_id', eventId)
+    .eq('status', 'Pendente')
+  if (error) throw error
+  return count ?? 0
+}
+
 // ---------- Financeiro: dados de Pix pra folha de pagamento ----------
 // Só os 4 campos de Pix dos perfis (leve). Usado nos Recebimentos pra
 // relacionar comissão → chave e montar a folha de pagamentos.

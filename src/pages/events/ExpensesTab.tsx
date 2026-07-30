@@ -150,6 +150,8 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
       for (const e2 of alvos) {
         const restante = Math.round((e2.total - pagoDe(e2.id)) * 100) / 100
         try {
+          // Meio Repasse quando estava vazio — nunca sobrescreve o que existe.
+          if (!e2.payment_method) await updateExpense(e2.id, { payment_method: 'Repasse' })
           await addExpensePayment({
             expense_id: e2.id,
             amount: restante,
@@ -208,6 +210,11 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
     setQuitandoId(exp.id)
     try {
       const img = await encolherComprovante(file)
+      // Quitação rápida = comprovante de transferência → o meio é Repasse.
+      // Só preenche quando está VAZIO: meio já informado nunca é mexido
+      // (senão o sumário mostra "Sem meio informado" pra dinheiro que
+      // claramente saiu por repasse).
+      if (!exp.payment_method) await updateExpense(exp.id, { payment_method: 'Repasse' })
       await addExpensePayment({
         expense_id: exp.id,
         amount: restante,

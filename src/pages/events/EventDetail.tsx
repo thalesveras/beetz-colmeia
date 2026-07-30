@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import {
-  addEventMember, getEventById, listEventMembers,
+  addEventMember, countPendingExpenses, getEventById, listEventMembers,
   listEventStaffingApplications, listEventStaffingRequirements, listProfilesLite,
   requestEventParticipation, updateEventMemberStatus
 } from '../../lib/dataService'
@@ -62,6 +62,7 @@ export default function EventDetail() {
   const [requesting, setRequesting] = useState(false)
   const [activeTab, setActiveTab] = useState<TabKey>('resumo')
   const [pendingStaffing, setPendingStaffing] = useState(0)
+  const [pendingExpenses, setPendingExpenses] = useState(0)
   // Se o evento tem vagas, o caminho é se candidatar a uma delas; o campo de
   // interesse em texto livre só aparece quando não há vaga nenhuma.
   const [hasRequirements, setHasRequirements] = useState(false)
@@ -75,7 +76,7 @@ export default function EventDetail() {
     // cheio (7,8 MB) → vagas → candidaturas. Abrir um evento custava ~10 MB
     // e dezenas de idas ao banco em série. Agora: 5 chamadas paralelas, e
     // líder + membros + seletor bebem da MESMA lista leve.
-    const [ev, rawMembers, all, reqs, apps] = await Promise.all([
+    const [ev, rawMembers, all, reqs, apps, pendExp] = await Promise.all([
       getEventById(id),
       listEventMembers(id),
       listProfilesLite(),
@@ -84,7 +85,12 @@ export default function EventDetail() {
       // aprova — pro resto seria alarme sem botão. Falha vira lista vazia.
       canApproveEventRequests(accessRole)
         ? listEventStaffingApplications(id).catch(() => [])
-        : Promise.resolve([])
+        : Promise.resolve([]),
+      // Bolinha da aba Despesas: quantas Pendentes (count leve). Só pra
+      // quem enxerga a aba — e falha vira zero, nunca derruba a página.
+      canViewExpensesTab(accessRole)
+        ? countPendingExpenses(id).catch(() => 0)
+        : Promise.resolve(0)
     ])
     setEvent(ev)
     const byId = new Map(all.map((p) => [p.id, p]))
@@ -93,6 +99,7 @@ export default function EventDetail() {
     setAllProfiles(all)
     setHasRequirements(reqs.length > 0)
     setPendingStaffing(apps.filter((a) => a.status === 'Candidatado').length)
+    setPendingExpenses(pendExp)
     setLoading(false)
   }
 
@@ -180,6 +187,12 @@ export default function EventDetail() {
               {t.key === 'equipe' && pendingStaffing > 0 && (
                 <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold min-w-[17px] h-[17px] px-1 rounded-full flex items-center justify-center">
                   {pendingStaffing > 9 ? '9+' : pendingStaffing}
+                </span>
+              )}
+              {/* Bolinha vermelha: despesas Pendentes esperando pagamento. */}
+              {t.key === 'despesas' && pendingExpenses > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold min-w-[17px] h-[17px] px-1 rounded-full flex items-center justify-center">
+                  {pendingExpenses > 9 ? '9+' : pendingExpenses}
                 </span>
               )}
             </button>
