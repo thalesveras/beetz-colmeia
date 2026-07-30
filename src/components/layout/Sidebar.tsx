@@ -23,9 +23,10 @@ export default function Sidebar() {
       <nav className="flex-1 space-y-1 overflow-y-auto -mr-2 pr-2">
         <TopLevelLink item={HOME_LINK} />
 
+        {/* caminho + busca juntos: os subitens do Estoque moram em ?aba=... */}
         <div className="pt-2 mt-1 space-y-0.5">
           {groups.map((group) => (
-            <NavGroupBlock key={group.key} group={group} currentPath={location.pathname} />
+            <NavGroupBlock key={group.key} group={group} currentPath={location.pathname + location.search} />
           ))}
         </div>
 

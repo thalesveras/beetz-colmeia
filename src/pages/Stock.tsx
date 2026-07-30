@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
 import {
   Plus, Pencil, Ban, RotateCcw, Check, X, Trash2, ChevronDown, ChevronUp, Package, Warehouse, AlertTriangle,
@@ -71,6 +71,15 @@ export default function Stock() {
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<StockTabKey>('resumo')
+  // Submenu do Estoque na sidebar: /estoque?aba=... abre direto na aba
+  // certa (e trocar de subitem com a tela aberta também troca a aba).
+  const [searchParams] = useSearchParams()
+  useEffect(() => {
+    const aba = searchParams.get('aba')
+    const validas: StockTabKey[] = ['resumo', 'movimentacoes', 'transferencias', 'reservas', 'inventario', 'cadastros']
+    if (aba && (validas as string[]).includes(aba)) setTab(aba as StockTabKey)
+    else if (!aba) setTab('resumo')
+  }, [searchParams])
   const [showMovementForm, setShowMovementForm] = useState(false)
   const [showBulkEntry, setShowBulkEntry] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)

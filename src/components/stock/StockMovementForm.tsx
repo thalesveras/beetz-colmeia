@@ -84,23 +84,43 @@ export default function StockMovementForm({ fixedEventId, onSaved }: Props) {
   const nomeProduto = (id: string) => products.find((p) => p.id === id)?.name ?? 'produto'
   const parseCost = (c: string) => Number(c.replace(',', '.')) || 0
 
-  // Busca doma o dropdown gigante: digitou "vodka", o select só mostra vodkas.
-  // O produto já escolhido nunca some das opções — senão o select mentiria.
+  // Busca doma o dropdown gigante: digitou "vodka" acha as vodkas, e BIPOU o
+  // código de barras (leitor ou dedo) acha o produto na hora. O produto já
+  // escolhido nunca some das opções — senão o select mentiria.
   const produtosFiltrados = useMemo(() => {
     const q = busca.trim().toLowerCase()
-    const base = q ? products.filter((p) => p.name.toLowerCase().includes(q)) : products
+    const base = q
+      ? products.filter((p) => p.name.toLowerCase().includes(q) || (p.barcode ?? '').includes(busca.trim()))
+      : products
     const selecionado = productId ? products.find((p) => p.id === productId) : null
     return selecionado && !base.some((p) => p.id === selecionado.id) ? [selecionado, ...base] : base
   }, [products, busca, productId])
+
+  // MODO FARDO: produto com units_per_pack cadastrado pode ser lançado em
+  // fardos — o sistema DESMEMBRA na hora (3 fardos × 12 = 36 unidades) e,
+  // na Compra, divide o preço do fardo pelo pack (custo médio fica por
+  // unidade, como o estoque inteiro conta).
+  const [emFardos, setEmFardos] = useState(false)
+  const produtoAtual = products.find((p) => p.id === productId)
+  const upp = produtoAtual?.units_per_pack ?? 0
+  const fatorFardo = emFardos && upp > 1 ? upp : 1
+  const itemAtualEfetivo = (): ItemCesta => ({
+    productId,
+    quantity: Math.round(quantity * fatorFardo * 100) / 100,
+    unitCost: emFardos && upp > 1 && unitCost.trim()
+      ? String(Math.round((parseCost(unitCost) / upp) * 10000) / 10000)
+      : unitCost
+  })
 
   const itemAtualValido = !!productId && quantity > 0
   // A sessão soma a cesta + o que está preenchido agora ("esqueci de apertar
   // adicionar" não pode engolir o último item na hora de registrar).
   const itensDaSessao = useMemo(() => {
     const lista = [...cesta]
-    if (itemAtualValido) lista.push({ productId, quantity, unitCost })
+    if (itemAtualValido) lista.push(itemAtualEfetivo())
     return lista
-  }, [cesta, productId, quantity, unitCost, itemAtualValido])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cesta, productId, quantity, unitCost, itemAtualValido, emFardos])
 
   // Aviso não-bloqueante de saldo negativo, agora somando a SESSÃO inteira:
   // 3 itens do mesmo produto na cesta contam juntos contra o saldo. Não
@@ -124,17 +144,20 @@ export default function StockMovementForm({ fixedEventId, onSaved }: Props) {
 
   function adicionarItem() {
     if (!itemAtualValido) return
+    // Cesta guarda SEMPRE unidades e custo por unidade — o fardo já foi
+    // desmembrado aqui.
+    const efetivo = itemAtualEfetivo()
     setCesta((prev) => {
       // Mesmo produto com o mesmo preço? Soma na linha que já existe.
-      const ix = prev.findIndex((i) => i.productId === productId && i.unitCost.trim() === unitCost.trim())
+      const ix = prev.findIndex((i) => i.productId === efetivo.productId && i.unitCost.trim() === efetivo.unitCost.trim())
       if (ix >= 0) {
         const copia = [...prev]
-        copia[ix] = { ...copia[ix], quantity: copia[ix].quantity + quantity }
+        copia[ix] = { ...copia[ix], quantity: copia[ix].quantity + efetivo.quantity }
         return copia
       }
-      return [...prev, { productId, quantity, unitCost }]
+      return [...prev, efetivo]
     })
-    setProductId(''); setQuantity(1); setUnitCost(''); setBusca('')
+    setProductId(''); setQuantity(1); setUnitCost(''); setBusca(''); setEmFardos(false)
     buscaRef.current?.focus()
   }
 
@@ -320,14 +343,39 @@ export default function StockMovementForm({ fixedEventId, onSaved }: Props) {
             onChange={(e) => setBusca(e.target.value)}
           />
         </div>
-        <select required={cesta.length === 0} className={inputClass + ' min-w-0'} value={productId} onChange={(e) => setProductId(e.target.value)}>
+        <select required={cesta.length === 0} className={inputClass + ' min-w-0'} value={productId} onChange={(e) => { setProductId(e.target.value); setEmFardos(false) }}>
           <option value="">{busca.trim() ? `Selecionar (${produtosFiltrados.length} na busca)...` : 'Selecionar produto...'}</option>
           {produtosFiltrados.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.unit})</option>)}
         </select>
 
+        {/* Fardo cadastrado no produto → dá pra lançar em fardos, com a
+            conversão explícita na tela (nada de conta de cabeça na carga). */}
+        {upp > 1 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex rounded-lg border border-beetz-dark/15 overflow-hidden text-xs">
+              <button type="button" onClick={() => setEmFardos(false)}
+                className={`px-3 py-1.5 font-bold ${!emFardos ? 'bg-beetz-dark text-white' : 'text-beetz-dark/50'}`}>
+                Unidades
+              </button>
+              <button type="button" onClick={() => setEmFardos(true)}
+                className={`px-3 py-1.5 font-bold ${emFardos ? 'bg-beetz-dark text-white' : 'text-beetz-dark/50'}`}>
+                Fardos de {upp}
+              </button>
+            </div>
+            {emFardos && quantity > 0 && (
+              <span className="text-xs font-semibold text-beetz-dark/60">
+                = {Math.round(quantity * upp * 100) / 100} unidades
+                {movementType === 'Compra' && unitCost.trim()
+                  ? ` · ${(parseCost(unitCost) / upp).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/un`
+                  : ''}
+              </span>
+            )}
+          </div>
+        )}
+
         <div className={movementType === 'Compra' ? 'grid grid-cols-2 gap-3' : ''}>
           <div>
-            <label className="text-xs font-medium text-beetz-dark/60 block mb-1">Quantidade</label>
+            <label className="text-xs font-medium text-beetz-dark/60 block mb-1">{emFardos && upp > 1 ? 'Fardos' : 'Quantidade'}</label>
             <div className="flex items-stretch gap-1.5">
               <button type="button" onClick={() => setQuantity((q) => Math.max(1, Math.round(q - 1)))}
                 className="px-3 rounded-xl border border-beetz-dark/15 bg-beetz-gray text-beetz-dark shrink-0 active:scale-95 transition">
@@ -344,7 +392,7 @@ export default function StockMovementForm({ fixedEventId, onSaved }: Props) {
           </div>
           {movementType === 'Compra' && (
             <div>
-              <label className="text-xs font-medium text-beetz-dark/60 block mb-1">Preço unitário (R$)</label>
+              <label className="text-xs font-medium text-beetz-dark/60 block mb-1">{emFardos && upp > 1 ? 'Preço do fardo (R$)' : 'Preço unitário (R$)'}</label>
               <input type="text" inputMode="decimal" placeholder="Ex: 4,50" className={inputClass + ' min-w-0'}
                 value={unitCost} onChange={(e) => setUnitCost(e.target.value)} />
             </div>

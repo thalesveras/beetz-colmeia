@@ -109,24 +109,26 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
   // manda (a despesa é dele); sem fornecedor, vale a chave do colaborador.
   const [pixLite, setPixLite] = useState<Map<string, ProfilePixLite>>(new Map())
   const [pixCopiadoId, setPixCopiadoId] = useState<string | null>(null)
-  function pixDaDespesa(exp: Expense): { rotulo: string; chave: string; extra: string } | null {
+  function pixDaDespesa(exp: Expense): { rotulo: string; chave: string; tipo: string | null; titular: string | null } | null {
     if (exp.supplier_id) {
       const s = suppliers.find((x) => x.id === exp.supplier_id)
-      return s?.pix_key ? { rotulo: `Pix do fornecedor`, chave: s.pix_key, extra: [s.pix_key_type, s.name].filter(Boolean).join(' · ') } : null
+      return s?.pix_key ? { rotulo: 'Pix do fornecedor', chave: s.pix_key, tipo: s.pix_key_type ?? null, titular: s.name } : null
     }
     if (exp.team_member_id) {
       const p = pixLite.get(exp.team_member_id)
-      if (p?.pix_key) return { rotulo: 'Pix do colaborador', chave: p.pix_key, extra: [p.pix_key_type, p.pix_owner_name].filter(Boolean).join(' · ') }
+      if (p?.pix_key) return { rotulo: 'Pix do colaborador', chave: p.pix_key, tipo: p.pix_key_type ?? null, titular: p.pix_owner_name ?? null }
     }
     return null
   }
-  async function copiarPix(id: string, chave: string) {
+  // Copiadinho genérico: chave, nome do titular OU valor — a key composta
+  // (despesa:campo) faz o "copiado ✓" acender só no botão certo.
+  async function copiarTexto(key: string, texto: string) {
     try {
-      await navigator.clipboard.writeText(chave)
-      setPixCopiadoId(id)
-      setTimeout(() => setPixCopiadoId((cur) => (cur === id ? null : cur)), 2000)
+      await navigator.clipboard.writeText(texto)
+      setPixCopiadoId(key)
+      setTimeout(() => setPixCopiadoId((cur) => (cur === key ? null : cur)), 2000)
     } catch {
-      window.alert(`Chave Pix: ${chave}`)
+      window.alert(texto)
     }
   }
 
@@ -670,7 +672,20 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
                   )}
                   <p className="font-semibold text-sm truncate">{exp.category || 'Sem categoria'}</p>
                 </div>
-                <span className="font-bold text-sm whitespace-nowrap">{currency(exp.total)}</span>
+                <span className="flex items-center gap-1.5 shrink-0">
+                  <span className="font-bold text-sm whitespace-nowrap">{currency(exp.total)}</span>
+                  {/* Copia o valor A PAGAR (total com a taxa Dex, menos o que
+                      já entrou de parcial) no formato do app do banco. */}
+                  {podeQuitar(exp) && (
+                    <button
+                      onClick={() => copiarTexto(`${exp.id}:valor`, Math.max(0, exp.total - pagoDe(exp.id)).toFixed(2).replace('.', ','))}
+                      title="Copiar o valor a pagar (já com a taxa Dex) pra colar no banco"
+                      className={`text-xs leading-none p-1 rounded hover:bg-beetz-gray ${pixCopiadoId === `${exp.id}:valor` ? 'text-green-600' : 'text-beetz-dark/40'}`}
+                    >
+                      {pixCopiadoId === `${exp.id}:valor` ? '✓' : '📋'}
+                    </button>
+                  )}
+                </span>
               </div>
 
               <button onClick={() => setDetail(exp)} className="w-full text-left mt-1">
@@ -691,13 +706,25 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-[11px]">
                     <span className="text-beetz-dark/40 font-medium">🔑 {px.rotulo}:</span>
                     <code className="font-semibold bg-beetz-gray px-1.5 py-0.5 rounded break-all">{px.chave}</code>
-                    {px.extra && <span className="text-beetz-dark/35">{px.extra}</span>}
                     <button
-                      onClick={() => copiarPix(exp.id, px.chave)}
-                      className={`font-bold underline shrink-0 ${pixCopiadoId === exp.id ? 'text-green-600' : 'text-beetz-dark/50 hover:text-beetz-dark'}`}
+                      onClick={() => copiarTexto(`${exp.id}:chave`, px.chave)}
+                      className={`font-bold underline shrink-0 ${pixCopiadoId === `${exp.id}:chave` ? 'text-green-600' : 'text-beetz-dark/50 hover:text-beetz-dark'}`}
                     >
-                      {pixCopiadoId === exp.id ? 'copiado ✓' : 'copiar'}
+                      {pixCopiadoId === `${exp.id}:chave` ? 'copiado ✓' : 'copiar'}
                     </button>
+                    {px.tipo && <span className="text-beetz-dark/35">{px.tipo}</span>}
+                    {px.titular && (
+                      <>
+                        <span className="text-beetz-dark/50">· {px.titular}</span>
+                        <button
+                          onClick={() => copiarTexto(`${exp.id}:nome`, px.titular!)}
+                          title="Copiar o nome do titular (pra conferir no app do banco)"
+                          className={`font-bold underline shrink-0 ${pixCopiadoId === `${exp.id}:nome` ? 'text-green-600' : 'text-beetz-dark/50 hover:text-beetz-dark'}`}
+                        >
+                          {pixCopiadoId === `${exp.id}:nome` ? 'copiado ✓' : 'copiar nome'}
+                        </button>
+                      </>
+                    )}
                   </div>
                 )
               })()}

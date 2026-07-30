@@ -1,6 +1,7 @@
 import {
-  BarChart3, Bell, Building2, Cake, CalendarDays, ClipboardList, HandCoins, Heart, Hexagon, Home, Info,
-  Package, Receipt, ShieldCheck, Settings, Trophy, Truck, UserCircle, Users, Wallet
+  ArrowLeftRight, BarChart3, Bell, Boxes, Building2, Cake, CalendarDays, ClipboardList, Clock3, HandCoins,
+  Heart, Hexagon, Home, Info, ListChecks, Package, Receipt, ShieldCheck, Settings, Trophy, Truck,
+  UserCircle, Users, Wallet
 } from 'lucide-react'
 import {
   canApproveUsers, canManageUsers, canViewBirthdays, canViewFinancialSummary, canViewHiveMap,
@@ -58,7 +59,6 @@ export function navGroupsFor(role: AccessRole): NavGroup[] {
       icon: CalendarDays,
       items: [
         { to: '/escala', label: 'Escala', icon: ClipboardList },
-        ...(canViewStockTab(role) ? [{ to: '/estoque', label: 'Estoque', icon: Package }] : []),
         { to: '/eventos', label: 'Eventos', icon: CalendarDays },
         // Produtoras carrega faturamento, repasses e notas internas da Diretoria:
         // enquanto não existe flag própria, anda junto do resumo financeiro —
@@ -66,6 +66,23 @@ export function navGroupsFor(role: AccessRole): NavGroup[] {
         ...(canViewFinancialSummary(role) ? [{ to: '/produtoras', label: 'Produtoras', icon: Building2 }] : [])
       ]
     },
+    // Estoque promovido a menu principal: cada aba da tela vira um subitem
+    // (a URL ?aba=... abre a tela já na aba certa).
+    ...(canViewStockTab(role)
+      ? [{
+          key: 'estoque',
+          label: 'Estoque',
+          icon: Package,
+          items: [
+            { to: '/estoque', label: 'Resumo', icon: Package },
+            { to: '/estoque?aba=movimentacoes', label: 'Movimentações', icon: Clock3 },
+            { to: '/estoque?aba=transferencias', label: 'Transferências', icon: ArrowLeftRight },
+            { to: '/estoque?aba=reservas', label: 'Reservas', icon: CalendarDays },
+            { to: '/estoque?aba=inventario', label: 'Inventário', icon: ListChecks },
+            { to: '/estoque?aba=cadastros', label: 'Produtos & Estoques', icon: Boxes }
+          ]
+        }]
+      : []),
     ...(canViewFinancialSummary(role)
       ? [{
           key: 'financeiro',
@@ -169,7 +186,14 @@ export function mobileNavFor(role: AccessRole): NavItem[] {
 // comparação fosse startsWith, acendendo dois itens ao mesmo tempo. Ganha o
 // prefixo mais longo — ou seja, o mais específico.
 export function isItemActive(item: NavItem, pathname: string, siblings: NavItem[]) {
-  const matches = (to: string) => pathname === to || pathname.startsWith(`${to}/`)
+  // Itens com query (?aba=...) casam pelo endereço COMPLETO (caminho+busca);
+  // itens sem query casam só pelo caminho, ignorando qualquer busca — assim
+  // /estoque?aba=reservas acende "Reservas" e /estoque puro acende "Resumo".
+  const [purePath] = pathname.split('?')
+  const matches = (to: string) => {
+    if (to.includes('?')) return pathname === to
+    return purePath === to || purePath.startsWith(`${to}/`)
+  }
   if (!matches(item.to)) return false
   return !siblings.some((other) => other.to !== item.to && other.to.length > item.to.length && matches(other.to))
 }

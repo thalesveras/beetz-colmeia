@@ -731,6 +731,14 @@ export interface Product {
   // tela de Estoque (5). Cada produto tem sua própria noção de "pouco":
   // cerveja em latas e guardanapo em pacotes não deveriam alertar no mesmo número.
   low_stock_threshold: number | null
+  // Código de barras (EAN do rótulo/fardo). Obrigatório no formulário pra
+  // cadastros NOVOS; produtos antigos ficam null até alguém completar.
+  // Único quando preenchido (índice no banco) e entra nas buscas — bipou
+  // com leitor, achou. Opcional no tipo pra não quebrar mocks antigos.
+  barcode?: string | null
+  // Quantas UNIDADES tem um fardo. O estoque conta SEMPRE em unidades:
+  // quem desmembra é a entrada (5 fardos × 12 = 60 un gravadas).
+  units_per_pack?: number | null
 }
 
 // 'Entrada'/'Saída' seguem válidos como legado (dados antigos e lançamentos

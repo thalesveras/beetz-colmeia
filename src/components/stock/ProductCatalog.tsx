@@ -41,12 +41,19 @@ export default function ProductCatalog({
   const [customUnit, setCustomUnit] = useState('')
   const [category, setCategory] = useState('')
   const [threshold, setThreshold] = useState('')
+  // Código de barras: OBRIGATÓRIO pra produto novo (identidade única do
+  // catálogo — e a busca acha por ele: bipou com leitor, achou). Fardo:
+  // quantas unidades vêm num pack — a entrada em fardos desmembra sozinha.
+  const [barcode, setBarcode] = useState('')
+  const [pack, setPack] = useState('')
 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [eName, setEName] = useState('')
   const [eUnit, setEUnit] = useState('')
   const [eCategory, setECategory] = useState('')
   const [eThreshold, setEThreshold] = useState('')
+  const [eBarcode, setEBarcode] = useState('')
+  const [ePack, setEPack] = useState('')
 
   // Sugestões = o que já existe no catálogo + os padrões, sem repetir.
   const categoryOptions = useMemo(() => {
@@ -65,7 +72,7 @@ export default function ProductCatalog({
   const grouped = useMemo(() => {
     const q = search.trim().toLowerCase()
     const filtered = q
-      ? products.filter((p) => p.name.toLowerCase().includes(q) || (p.category ?? '').toLowerCase().includes(q))
+      ? products.filter((p) => p.name.toLowerCase().includes(q) || (p.category ?? '').toLowerCase().includes(q) || (p.barcode ?? '').includes(search.trim()))
       : products
     const map = new Map<string, Product[]>()
     for (const p of filtered) {
@@ -84,19 +91,25 @@ export default function ProductCatalog({
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault()
     if (!name.trim()) return
+    // Lei do catálogo daqui pra frente: produto novo só entra com código de
+    // barras. Produtos ANTIGOS ficam como estão (regra nunca toca dado velho).
+    if (!barcode.trim()) { setError('Código de barras é obrigatório: bipe ou digite o código do rótulo/fardo.'); return }
     setSaving(true); setError(null)
     try {
       await createProduct(
         name.trim(),
         unit === 'outro' ? (customUnit.trim() || 'un') : unit,
         category.trim() || null,
-        threshold.trim() ? Number(threshold) : null
+        threshold.trim() ? Number(threshold) : null,
+        barcode.trim(),
+        pack.trim() ? Math.max(1, Math.floor(Number(pack))) : null
       )
-      setName(''); setUnit('un'); setCustomUnit(''); setThreshold('')
+      setName(''); setUnit('un'); setCustomUnit(''); setThreshold(''); setBarcode(''); setPack('')
       // Categoria NÃO limpa: cadastrar 5 cervejas seguidas é o caso comum.
       onChanged()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao cadastrar produto.')
+      const msg = err instanceof Error ? err.message : 'Erro ao cadastrar produto.'
+      setError(msg.includes('products_barcode_unique') ? 'Já existe um produto com este código de barras.' : msg)
     } finally { setSaving(false) }
   }
 
@@ -104,6 +117,8 @@ export default function ProductCatalog({
     setEditingId(p.id); setEName(p.name); setEUnit(p.unit)
     setECategory(p.category ?? '')
     setEThreshold(p.low_stock_threshold != null ? String(p.low_stock_threshold) : '')
+    setEBarcode(p.barcode ?? '')
+    setEPack(p.units_per_pack != null ? String(p.units_per_pack) : '')
     setError(null)
   }
 
@@ -114,12 +129,15 @@ export default function ProductCatalog({
       await updateProduct(id, {
         name: eName.trim(), unit: eUnit.trim() || 'un',
         category: eCategory.trim() || null,
-        low_stock_threshold: eThreshold.trim() ? Number(eThreshold) : null
+        low_stock_threshold: eThreshold.trim() ? Number(eThreshold) : null,
+        barcode: eBarcode.trim() || null,
+        units_per_pack: ePack.trim() ? Math.max(1, Math.floor(Number(ePack))) : null
       })
       setEditingId(null)
       onChanged()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao salvar.')
+      const msg = err instanceof Error ? err.message : 'Erro ao salvar.'
+      setError(msg.includes('products_barcode_unique') ? 'Já existe um produto com este código de barras.' : msg)
     } finally { setSaving(false) }
   }
 
@@ -168,8 +186,20 @@ export default function ProductCatalog({
               placeholder={`Alerta (padrão ${defaultThreshold})`} value={threshold} onChange={(e) => setThreshold(e.target.value)}
             />
           </div>
+          <div className="grid grid-cols-2 gap-2">
+            <input
+              inputMode="numeric" className={`${inputClass} w-full min-w-0`} placeholder="Código de barras *"
+              value={barcode} onChange={(e) => setBarcode(e.target.value)}
+              title="Obrigatório: o código do rótulo/fardo — a busca acha por ele (dá pra bipar com leitor)"
+            />
+            <input
+              type="number" min={1} step="1" className={`${inputClass} w-full min-w-0`}
+              placeholder="Un. por fardo (ex: 12)" value={pack} onChange={(e) => setPack(e.target.value)}
+              title="Quantas unidades vêm num fardo — a entrada em fardos desmembra sozinha em unidades"
+            />
+          </div>
           <button
-            disabled={saving || !name.trim()}
+            disabled={saving || !name.trim() || !barcode.trim()}
             className="w-full bg-beetz-dark text-white text-sm font-semibold py-2.5 rounded-xl disabled:opacity-50 hover:bg-black transition-colors"
           >
             {saving ? 'Salvando...' : 'Adicionar produto'}
@@ -235,6 +265,16 @@ export default function ProductCatalog({
                         <input type="number" min={0} className={`${inputClass} w-full min-w-0`} placeholder="Alerta"
                           value={eThreshold} onChange={(e) => setEThreshold(e.target.value)} />
                       </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          inputMode="numeric" placeholder="Código de barras"
+                          className={`${inputClass} w-full min-w-0 ${!eBarcode.trim() ? 'border-amber-400' : ''}`}
+                          value={eBarcode} onChange={(e) => setEBarcode(e.target.value)}
+                          title="Produto antigo sem código: complete aqui quando tiver o rótulo em mãos"
+                        />
+                        <input type="number" min={1} className={`${inputClass} w-full min-w-0`} placeholder="Un. por fardo"
+                          value={ePack} onChange={(e) => setEPack(e.target.value)} />
+                      </div>
                       <div className="flex justify-end gap-2">
                         <button onClick={() => setEditingId(null)}
                           className="text-beetz-dark/50 text-xs font-semibold px-3 py-1.5 rounded-xl hover:bg-white flex items-center gap-1"><X size={13} /> Cancelar</button>
@@ -250,6 +290,12 @@ export default function ProductCatalog({
                       >
                         <span className="text-xs font-medium">{p.name}</span>
                         <span className="text-beetz-dark/35 text-xs"> ({p.unit})</span>
+                        {p.units_per_pack && p.units_per_pack > 1 ? (
+                          <span className="text-beetz-dark/35 text-xs"> · fardo c/ {p.units_per_pack}</span>
+                        ) : null}
+                        {!p.barcode?.trim() && (
+                          <span className="text-amber-600 text-xs ml-1.5" title="Complete no lápis quando tiver o rótulo em mãos">sem código</span>
+                        )}
                         <span className={`text-xs ml-2 font-semibold ${low ? 'text-red-600' : 'text-beetz-dark/45'}`}>
                           {total} em estoque
                         </span>
