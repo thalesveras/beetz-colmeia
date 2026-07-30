@@ -727,7 +727,25 @@ export default function FinanceExpenses() {
               <p className="text-white/60 text-xs uppercase tracking-wide font-semibold">Total no filtro aplicado</p>
               <p className="text-2xl font-extrabold">{currency(total)}</p>
             </div>
-            <p className="text-white/60 text-sm">{filtered.length} despesa(s)</p>
+            <div className="flex items-center gap-3">
+              <p className="text-white/60 text-sm">{filtered.length} despesa(s)</p>
+              {/* Seleciona TUDO que o filtro mostra (e a barra de seleção
+                  assume: somar, quitar com 1 comprovante...). Se já está
+                  tudo marcado, o mesmo botão desmarca. */}
+              {filtered.length > 0 && (() => {
+                const todasMarcadas = filtered.every((e2) => selected.has(e2.id))
+                return (
+                  <button
+                    onClick={() => setSelected(todasMarcadas
+                      ? new Set()
+                      : new Set(filtered.map((e2) => e2.id)))}
+                    className="text-xs font-bold bg-white/10 hover:bg-white/20 px-3.5 py-2 rounded-xl transition-colors"
+                  >
+                    {todasMarcadas ? 'Desmarcar todas' : `✓ Selecionar todas (${filtered.length})`}
+                  </button>
+                )
+              })()}
+            </div>
           </div>
 
           {filtered.length === 0 ? (
