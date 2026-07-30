@@ -129,6 +129,48 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
       window.alert(`Chave Pix: ${chave}`)
     }
   }
+
+  // ---- Quitação em LOTE com UM comprovante: a pessoa fez um Pix só pras
+  // 3 despesas do Felipe — seleciona as 3, sobe o comprovante, e ele entra
+  // como pagamento do restante em CADA uma (a mesma imagem anexada em
+  // todas). O trigger marca Pago uma a uma. Falha não desfaz as que já
+  // entraram — meio caminho vale mais que recomeçar.
+  async function handleBulkQuitar(file: File) {
+    const alvos = filteredExpenses.filter((e2) => selected.has(e2.id) && podeQuitar(e2) && (e2.total - pagoDe(e2.id)) > 0.009)
+    if (alvos.length === 0) { window.alert('Nenhuma das selecionadas está em aberto pra quitar.'); return }
+    const totalRestante = alvos.reduce((s, e2) => s + Math.max(0, e2.total - pagoDe(e2.id)), 0)
+    const puladas = selected.size - alvos.length
+    if (!window.confirm(
+      `Quitar ${alvos.length} despesa${alvos.length > 1 ? 's' : ''} (${currency(totalRestante)} no total) com ESTE comprovante? Ele fica anexado em cada uma.${puladas > 0 ? ` ${puladas} selecionada${puladas > 1 ? 's' : ''} já resolvida${puladas > 1 ? 's' : ''} fica${puladas > 1 ? 'm' : ''} de fora.` : ''}`
+    )) return
+    setBulkBusy(true)
+    try {
+      const img = await encolherComprovante(file)
+      const falhas: string[] = []
+      for (const e2 of alvos) {
+        const restante = Math.round((e2.total - pagoDe(e2.id)) * 100) / 100
+        try {
+          await addExpensePayment({
+            expense_id: e2.id,
+            amount: restante,
+            paid_at: hojePagISO(),
+            receipt_data: img,
+            notes: `Comprovante único — quitação em lote de ${alvos.length} despesa${alvos.length > 1 ? 's' : ''}`,
+            created_by: userId ?? null
+          })
+        } catch {
+          falhas.push(e2.description || e2.category || 'despesa')
+        }
+      }
+      if (falhas.length > 0) window.alert(`Não consegui quitar: ${falhas.join('; ')} — o resto entrou.`)
+      setSelected(new Set())
+      await load()
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Não deu pra ler o comprovante.')
+    } finally {
+      setBulkBusy(false)
+    }
+  }
   const podeQuitar = (exp: Expense) =>
     canReviewExpense(accessRole) && exp.status !== 'Pago' && exp.status !== 'Cancelado' && exp.status !== 'Rejeitado'
 
@@ -757,6 +799,19 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
               <option value="" className="text-beetz-dark">Meio: manter</option>
               {paymentMethods.map((p) => <option key={p.id} value={p.name} className="text-beetz-dark">{p.name}</option>)}
             </select>
+            {/* Um Pix só pra várias despesas da mesma pessoa: o comprovante
+                entra como pagamento em CADA selecionada e quita todas. */}
+            {canReviewExpense(accessRole) && (
+              <label className={`cursor-pointer bg-white/10 hover:bg-white/20 text-white font-bold px-4 py-2 rounded-xl text-sm transition-colors ${bulkBusy ? 'opacity-50 pointer-events-none' : ''}`}>
+                💸 Quitar com 1 comprovante
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleBulkQuitar(f) }}
+                />
+              </label>
+            )}
             <button
               onClick={applyBulk}
               disabled={bulkBusy || (!bulkStatus && !bulkMeio)}
