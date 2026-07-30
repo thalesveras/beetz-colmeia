@@ -13,6 +13,7 @@ import type {
 import { canEditExpense, canReviewExpense } from '../../lib/permissions'
 import FileField from '../../components/ui/FileField'
 import SignaturePad from '../../components/ui/SignaturePad'
+import EditExpenseModal from '../../components/finance/EditExpenseModal'
 import { Check, Filter, Pencil, Plus, Trash2, X } from 'lucide-react'
 
 const statuses: ExpenseStatus[] = ['Pendente', 'Aprovado', 'Pago', 'Rejeitado', 'Cancelado']
@@ -218,22 +219,12 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
     setTeamMemberId(''); setSupplierId(''); setEditingId(null)
   }
 
+  // Editar usa o MODAL ÚNICO das despesas (o mesmo do /financeiro/despesas,
+  // com status, anexos e a régua de Pagamentos) — aqui com o evento travado.
+  // O formulário inline desta aba segue vivo só pra CRIAR despesa nova.
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
   function handleEdit(exp: Expense) {
-    setEditingId(exp.id)
-    setCategory(exp.category ?? '')
-    setReceiptData(exp.receipt_data)
-    setPaymentMethod(exp.payment_method ?? '')
-    setDescription(exp.description ?? '')
-    setQuantity(exp.quantity)
-    setUnitValue(exp.unit_value)
-    setDexFee(exp.dex_fee)
-    setSignatureData(exp.signature_data)
-    setRepasseData(exp.repasse_data)
-    // teamMemberId guarda "p:<id>" (perfil de verdade) ou "z:<id>"
-    // (pré-cadastro do Zoho) — ver seletor "Adicionar equipe" abaixo.
-    setTeamMemberId(exp.team_member_id ? `p:${exp.team_member_id}` : exp.pending_team_member_id ? `z:${exp.pending_team_member_id}` : '')
-    setSupplierId(exp.supplier_id ?? '')
-    setShowForm(true)
+    setEditingExpense(exp)
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -694,6 +685,21 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
             )}
           </div>
         </div>
+      )}
+
+      {editingExpense && (
+        <EditExpenseModal
+          expense={editingExpense}
+          events={[]}
+          lockEvent
+          categories={categories}
+          paymentMethods={paymentMethods}
+          profiles={teamMembers}
+          pendingProfiles={pendingProfiles}
+          suppliers={suppliers}
+          onClose={() => setEditingExpense(null)}
+          onSaved={load}
+        />
       )}
     </div>
   )

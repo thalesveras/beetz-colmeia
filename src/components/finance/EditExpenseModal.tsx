@@ -8,6 +8,7 @@ import {
 import type { ExpensePayment } from '../../lib/dataService'
 import SmartReceiptField from '../ui/SmartReceiptField'
 import type { ExtractedReceipt } from '../ui/SmartReceiptField'
+import SignaturePad from '../ui/SignaturePad'
 import type {
   EventItem, Expense, ExpenseCategory, ExpenseStatus, PaymentMethodOption, PendingProfilePickerItem,
   Profile, Supplier
@@ -44,12 +45,15 @@ interface Props {
   profiles: Profile[]
   pendingProfiles: PendingProfilePickerItem[]
   suppliers: Supplier[]
+  // MODAL ÚNICO das duas portas: /financeiro/despesas (macro, troca evento)
+  // e evento → Despesas (lockEvent: o evento é o da tela, sem select).
+  lockEvent?: boolean
   onClose: () => void
   onSaved: () => void
 }
 
 export default function EditExpenseModal({
-  expense, events, categories, paymentMethods, profiles, pendingProfiles, suppliers, onClose, onSaved
+  expense, events, categories, paymentMethods, profiles, pendingProfiles, suppliers, lockEvent = false, onClose, onSaved
 }: Props) {
   const [eventId, setEventId] = useState(expense.event_id)
   const [status, setStatus] = useState(expense.status)
@@ -63,6 +67,12 @@ export default function EditExpenseModal({
     expense.team_member_id ? `p:${expense.team_member_id}` : expense.pending_team_member_id ? `z:${expense.pending_team_member_id}` : ''
   )
   const [supplierId, setSupplierId] = useState(expense.supplier_id ?? '')
+  // Anexos DA DESPESA (paridade com o modal do evento): comprovante da
+  // compra, assinatura e comprovante de devolução do repasse. Nascem com os
+  // valores atuais — salvar sem mexer regrava o que já existia, nada some.
+  const [receiptData, setReceiptData] = useState<string | null>(expense.receipt_data)
+  const [signatureData, setSignatureData] = useState<string | null>(expense.signature_data)
+  const [repasseData, setRepasseData] = useState<string | null>(expense.repasse_data)
   const [newSupplierName, setNewSupplierName] = useState('')
   const [supplierList, setSupplierList] = useState(suppliers)
   const [addingSupplier, setAddingSupplier] = useState(false)
@@ -172,7 +182,10 @@ export default function EditExpenseModal({
         dex_fee: dexFee,
         team_member_id: teamKind === 'p' ? teamId : null,
         pending_team_member_id: teamKind === 'z' ? teamId : null,
-        supplier_id: supplierId || null
+        supplier_id: supplierId || null,
+        receipt_data: receiptData,
+        signature_data: signatureData,
+        repasse_data: repasseData
       })
       if (eventChanged) {
         await moveExpenseToEvent(expense.id, eventId)
@@ -197,12 +210,16 @@ export default function EditExpenseModal({
         <div className="p-5 space-y-4">
           {error && <div className="bg-red-50 border border-red-100 text-red-700 text-sm rounded-xl p-3">{error}</div>}
 
-          <Field label="Evento">
-            <select className={inputClass} value={eventId} onChange={(e) => setEventId(e.target.value)}>
-              {events.map((ev) => <option key={ev.id} value={ev.id}>{ev.name} · {ev.event_date}</option>)}
-            </select>
-            {eventChanged && <p className="text-xs text-beetz-yellow-700 mt-1 text-amber-600">Essa despesa vai mudar de evento ao salvar.</p>}
-          </Field>
+          {/* Só a porta do /financeiro/despesas (macro) troca o evento;
+              dentro do evento, ele é o da tela — sem select. */}
+          {!lockEvent && (
+            <Field label="Evento">
+              <select className={inputClass} value={eventId} onChange={(e) => setEventId(e.target.value)}>
+                {events.map((ev) => <option key={ev.id} value={ev.id}>{ev.name} · {ev.event_date}</option>)}
+              </select>
+              {eventChanged && <p className="text-xs text-beetz-yellow-700 mt-1 text-amber-600">Essa despesa vai mudar de evento ao salvar.</p>}
+            </Field>
+          )}
 
           <div className="grid sm:grid-cols-2 gap-3">
             <Field label="Status">
@@ -277,6 +294,20 @@ export default function EditExpenseModal({
             <span className="text-sm font-medium text-beetz-dark/60">Total</span>
             <span className="font-bold">{currency(formTotal)}</span>
           </div>
+
+          {/* ---- Anexos DA DESPESA (não confundir com os comprovantes de
+                  pagamento da régua abaixo) ---- */}
+          <Field label="Comprovante da despesa (nota/print da compra)">
+            <SmartReceiptField value={receiptData} onChange={setReceiptData} onExtracted={() => { /* despesa já tem valor: não sobrescrever */ }} />
+          </Field>
+
+          <Field label="Assinatura">
+            <SignaturePad value={signatureData} onChange={setSignatureData} />
+          </Field>
+
+          <Field label="Repasse (comprovante de devolução, se houver)">
+            <SmartReceiptField value={repasseData} onChange={setRepasseData} onExtracted={() => { /* idem */ }} />
+          </Field>
 
           {/* ---- Pagamentos: vários comprovantes até quitar ---- */}
           <div className="border border-beetz-dark/10 rounded-xl p-4 space-y-3">
