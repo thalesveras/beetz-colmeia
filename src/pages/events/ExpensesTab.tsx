@@ -109,14 +109,16 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
   // manda (a despesa é dele); sem fornecedor, vale a chave do colaborador.
   const [pixLite, setPixLite] = useState<Map<string, ProfilePixLite>>(new Map())
   const [pixCopiadoId, setPixCopiadoId] = useState<string | null>(null)
-  function pixDaDespesa(exp: Expense): { rotulo: string; chave: string; tipo: string | null; titular: string | null } | null {
+  function pixDaDespesa(exp: Expense): { rotulo: string; chave: string; tipo: string | null; titular: string | null; colaborador: string | null } | null {
     if (exp.supplier_id) {
       const s = suppliers.find((x) => x.id === exp.supplier_id)
-      return s?.pix_key ? { rotulo: 'Pix do fornecedor', chave: s.pix_key, tipo: s.pix_key_type ?? null, titular: s.name } : null
+      return s?.pix_key ? { rotulo: 'Pix do fornecedor', chave: s.pix_key, tipo: s.pix_key_type ?? null, titular: s.name, colaborador: null } : null
     }
     if (exp.team_member_id) {
       const p = pixLite.get(exp.team_member_id)
-      if (p?.pix_key) return { rotulo: 'Pix do colaborador', chave: p.pix_key, tipo: p.pix_key_type ?? null, titular: p.pix_owner_name ?? null }
+      const m = teamMembers.find((x) => x.id === exp.team_member_id)
+      const nomeColab = m ? `${m.first_name ?? ''} ${m.last_name ?? ''}`.trim() || null : null
+      if (p?.pix_key) return { rotulo: 'Pix do colaborador', chave: p.pix_key, tipo: p.pix_key_type ?? null, titular: p.pix_owner_name ?? null, colaborador: nomeColab }
     }
     return null
   }
@@ -715,13 +717,25 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
                     {px.tipo && <span className="text-beetz-dark/35">{px.tipo}</span>}
                     {px.titular && (
                       <>
-                        <span className="text-beetz-dark/50">· {px.titular}</span>
+                        <span className="text-beetz-dark/50">· favorecido: {px.titular}</span>
                         <button
                           onClick={() => copiarTexto(`${exp.id}:nome`, px.titular!)}
-                          title="Copiar o nome do titular (pra conferir no app do banco)"
+                          title="Copiar o nome do favorecido do Pix (pra conferir no app do banco)"
                           className={`font-bold underline shrink-0 ${pixCopiadoId === `${exp.id}:nome` ? 'text-green-600' : 'text-beetz-dark/50 hover:text-beetz-dark'}`}
                         >
-                          {pixCopiadoId === `${exp.id}:nome` ? 'copiado ✓' : 'copiar nome'}
+                          {pixCopiadoId === `${exp.id}:nome` ? 'copiado ✓' : 'copiar'}
+                        </button>
+                      </>
+                    )}
+                    {px.colaborador && px.colaborador !== px.titular && (
+                      <>
+                        <span className="text-beetz-dark/50">· colaborador: {px.colaborador}</span>
+                        <button
+                          onClick={() => copiarTexto(`${exp.id}:colab`, px.colaborador!)}
+                          title="Copiar o nome do colaborador"
+                          className={`font-bold underline shrink-0 ${pixCopiadoId === `${exp.id}:colab` ? 'text-green-600' : 'text-beetz-dark/50 hover:text-beetz-dark'}`}
+                        >
+                          {pixCopiadoId === `${exp.id}:colab` ? 'copiado ✓' : 'copiar'}
                         </button>
                       </>
                     )}

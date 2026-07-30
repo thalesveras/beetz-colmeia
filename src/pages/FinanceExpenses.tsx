@@ -234,6 +234,38 @@ export default function FinanceExpenses() {
     )
   }
 
+  // Pagamento sem fricção, igual à aba Despesas do evento: chave Pix,
+  // favorecido, nome do colaborador e valor — tudo copiável do card.
+  const [copiadoKey, setCopiadoKey] = useState<string | null>(null)
+  async function copiarTexto(key: string, texto: string) {
+    try {
+      await navigator.clipboard.writeText(texto)
+      setCopiadoKey(key)
+      setTimeout(() => setCopiadoKey((cur) => (cur === key ? null : cur)), 2000)
+    } catch {
+      window.alert(texto)
+    }
+  }
+  function pagarInfo(exp: Expense): { rotulo: string; chave: string | null; tipo: string | null; favorecido: string | null; colaborador: string | null } | null {
+    if (exp.supplier_id) {
+      const s = suppliers.find((x) => x.id === exp.supplier_id)
+      if (!s) return null
+      return { rotulo: 'Pix do fornecedor', chave: s.pix_key ?? null, tipo: s.pix_key_type ?? null, favorecido: s.pix_key ? s.name : null, colaborador: null }
+    }
+    if (exp.team_member_id) {
+      const p = profiles.find((x) => x.id === exp.team_member_id)
+      if (!p) return null
+      const nome = `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim() || null
+      return { rotulo: 'Pix do colaborador', chave: p.pix_key ?? null, tipo: p.pix_key_type ?? null, favorecido: p.pix_owner_name ?? null, colaborador: nome }
+    }
+    if (exp.pending_team_member_id) {
+      const z = pendingProfiles.find((x) => x.id === exp.pending_team_member_id)
+      const nome = z ? `${z.first_name ?? ''} ${z.last_name ?? ''}`.trim() || null : null
+      return nome ? { rotulo: 'Colaborador (pré-cadastro)', chave: null, tipo: null, favorecido: null, colaborador: nome } : null
+    }
+    return null
+  }
+
   const eventsById = useMemo(() => {
     const map = new Map<string, EventItem>()
     for (const ev of events) map.set(ev.id, ev)
@@ -402,7 +434,20 @@ export default function FinanceExpenses() {
                     {chipParcial(exp)}
                     <p className="font-semibold text-sm truncate">{exp.category || 'Sem categoria'}</p>
                   </div>
-                  <span className="font-bold text-sm whitespace-nowrap">{currency(exp.total)}</span>
+                  <span className="flex items-center gap-1.5 shrink-0">
+                    <span className="font-bold text-sm whitespace-nowrap">{currency(exp.total)}</span>
+                    {/* Copia o valor A PAGAR (total com a taxa Dex, menos
+                        parciais) no formato do app do banco: 610,90 */}
+                    {exp.status !== 'Pago' && exp.status !== 'Cancelado' && exp.status !== 'Rejeitado' && (
+                      <button
+                        onClick={() => copiarTexto(`${exp.id}:valor`, Math.max(0, exp.total - (pagoPorDespesa.get(exp.id) ?? 0)).toFixed(2).replace('.', ','))}
+                        title="Copiar o valor a pagar (já com a taxa Dex) pra colar no banco"
+                        className={`text-xs leading-none p-1 rounded hover:bg-beetz-gray ${copiadoKey === `${exp.id}:valor` ? 'text-green-600' : 'text-beetz-dark/40'}`}
+                      >
+                        {copiadoKey === `${exp.id}:valor` ? '✓' : '📋'}
+                      </button>
+                    )}
+                  </span>
                 </div>
 
                 {(exp.description || exp.payment_method || person || supplier) && (
@@ -412,6 +457,48 @@ export default function FinanceExpenses() {
                     {supplier ? ` · Fornecedor: ${supplier.name}` : ''}
                   </p>
                 )}
+
+                {/* Chave, favorecido do Pix e nome do colaborador — cada um
+                    com o seu copiar (favorecido e colaborador podem diferir). */}
+                {(() => {
+                  const info = pagarInfo(exp)
+                  if (!info || exp.status === 'Pago' || exp.status === 'Cancelado' || exp.status === 'Rejeitado') return null
+                  if (!info.chave && !info.favorecido && !info.colaborador) return null
+                  const botao = (key: string, valor: string, rotulo = 'copiar') => (
+                    <button
+                      onClick={() => copiarTexto(key, valor)}
+                      className={`font-bold underline shrink-0 ${copiadoKey === key ? 'text-green-600' : 'text-beetz-dark/50 hover:text-beetz-dark'}`}
+                    >
+                      {copiadoKey === key ? 'copiado ✓' : rotulo}
+                    </button>
+                  )
+                  return (
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-[11px]">
+                      {info.chave ? (
+                        <>
+                          <span className="text-beetz-dark/40 font-medium">🔑 {info.rotulo}:</span>
+                          <code className="font-semibold bg-beetz-gray px-1.5 py-0.5 rounded break-all">{info.chave}</code>
+                          {botao(`${exp.id}:chave`, info.chave)}
+                          {info.tipo && <span className="text-beetz-dark/35">{info.tipo}</span>}
+                        </>
+                      ) : (
+                        <span className="text-amber-600 font-medium">🔑 sem chave Pix cadastrada</span>
+                      )}
+                      {info.favorecido && (
+                        <>
+                          <span className="text-beetz-dark/50">· favorecido: {info.favorecido}</span>
+                          {botao(`${exp.id}:fav`, info.favorecido)}
+                        </>
+                      )}
+                      {info.colaborador && info.colaborador !== info.favorecido && (
+                        <>
+                          <span className="text-beetz-dark/50">· colaborador: {info.colaborador}</span>
+                          {botao(`${exp.id}:colab`, info.colaborador)}
+                        </>
+                      )}
+                    </div>
+                  )
+                })()}
 
                 <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
                   <div className="min-w-0 text-xs text-beetz-dark/50">
