@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import {
-  deleteExpense, listAllExpenses, listEvents, listExpenseCategories, listExpensePaymentTotals, listPaymentMethods,
+  addExpensePayment, deleteExpense, listAllExpenses, listEvents, listExpenseCategories, listExpensePaymentTotals, listPaymentMethods, updateExpense,
   listPendingProfilesForPicker, listProfiles, listSuppliers
 } from '../lib/dataService'
 import type {
@@ -59,7 +59,9 @@ export default function FinanceExpenses() {
   const [searchFilter, setSearchFilter] = useState('')
   const [monthFilter, setMonthFilter] = useState('')
   const [producerFilter, setProducerFilter] = useState('')
-  const [eventFilter, setEventFilter] = useState('')
+  // VÁRIOS eventos de uma vez: CAMAROTE + PISTA do mesmo dia dividem
+  // despesas em comum — filtra os dois juntos e quita com um comprovante.
+  const [eventFilter, setEventFilter] = useState<string[]>([])
   const [statusFilter, setStatusFilter] = useState('')
 
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards')
@@ -83,7 +85,9 @@ export default function FinanceExpenses() {
     search: string
     month: string
     producer: string
-    event: string
+    // Antigamente 1 evento (string); agora vários. Presets salvos no formato
+    // velho continuam abrindo — a leitura normaliza pra lista.
+    event: string | string[]
     status: string
   }
   const PRESETS_KEY = 'beetz-finance-filter-presets'
@@ -116,7 +120,8 @@ export default function FinanceExpenses() {
 
   function applyPreset(f: FilterPreset) {
     setSearchFilter(f.search); setMonthFilter(f.month); setProducerFilter(f.producer)
-    setEventFilter(f.event); setStatusFilter(f.status)
+    setEventFilter(Array.isArray(f.event) ? f.event : f.event ? [f.event] : [])
+    setStatusFilter(f.status)
   }
 
   function removePreset(name: string) {
@@ -124,7 +129,75 @@ export default function FinanceExpenses() {
   }
 
   function clearFilters() {
-    setSearchFilter(''); setMonthFilter(''); setProducerFilter(''); setEventFilter(''); setStatusFilter('')
+    setSearchFilter(''); setMonthFilter(''); setProducerFilter(''); setEventFilter([]); setStatusFilter('')
+  }
+
+  // ---- Quitação em lote com UM comprovante, CRUZANDO eventos: o mesmo
+  // fluxo da aba do evento, aqui na macro. Cada selecionada em aberto
+  // recebe o pagamento do restante com a mesma imagem; o trigger quita e o
+  // meio vira Repasse quando estava vazio. Falha não desfaz as que entraram.
+  const [quitandoLote, setQuitandoLote] = useState(false)
+  function hojePagISO() {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }
+  function encolherComprovante(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file)
+      const img = new Image()
+      img.onload = () => {
+        const max = 1200
+        const escala = Math.min(1, max / Math.max(img.width, img.height))
+        const c = document.createElement('canvas')
+        c.width = Math.round(img.width * escala)
+        c.height = Math.round(img.height * escala)
+        c.getContext('2d')?.drawImage(img, 0, 0, c.width, c.height)
+        URL.revokeObjectURL(url)
+        resolve(c.toDataURL('image/jpeg', 0.8))
+      }
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Não consegui ler a imagem.')) }
+      img.src = url
+    })
+  }
+  async function handleBulkQuitar(file: File) {
+    const quitavel = (e2: Expense) => e2.status !== 'Pago' && e2.status !== 'Cancelado' && e2.status !== 'Rejeitado'
+    const alvos = expenses.filter((e2) => selected.has(e2.id) && quitavel(e2) && (e2.total - (pagoPorDespesa.get(e2.id) ?? 0)) > 0.009)
+    if (alvos.length === 0) { window.alert('Nenhuma das selecionadas está em aberto pra quitar.'); return }
+    const eventosDosAlvos = new Set(alvos.map((e2) => e2.event_id).filter(Boolean))
+    const totalRestante = alvos.reduce((s, e2) => s + Math.max(0, e2.total - (pagoPorDespesa.get(e2.id) ?? 0)), 0)
+    const puladas = selected.size - alvos.length
+    if (!window.confirm(
+      `Quitar ${alvos.length} despesa${alvos.length > 1 ? 's' : ''} de ${eventosDosAlvos.size} evento${eventosDosAlvos.size > 1 ? 's' : ''} (${currency(totalRestante)} no total) com ESTE comprovante? Ele fica anexado em cada uma.${puladas > 0 ? ` ${puladas} já resolvida${puladas > 1 ? 's' : ''} fica${puladas > 1 ? 'm' : ''} de fora.` : ''}`
+    )) return
+    setQuitandoLote(true)
+    try {
+      const img = await encolherComprovante(file)
+      const falhas: string[] = []
+      for (const e2 of alvos) {
+        const restante = Math.round((e2.total - (pagoPorDespesa.get(e2.id) ?? 0)) * 100) / 100
+        try {
+          // Meio Repasse quando estava vazio — nunca sobrescreve o que existe.
+          if (!e2.payment_method) await updateExpense(e2.id, { payment_method: 'Repasse' })
+          await addExpensePayment({
+            expense_id: e2.id,
+            amount: restante,
+            paid_at: hojePagISO(),
+            receipt_data: img,
+            notes: `Comprovante único — quitação em lote de ${alvos.length} despesa${alvos.length > 1 ? 's' : ''} (${eventosDosAlvos.size} evento${eventosDosAlvos.size > 1 ? 's' : ''})`,
+            created_by: userId ?? null
+          })
+        } catch {
+          falhas.push(e2.description || e2.category || 'despesa')
+        }
+      }
+      if (falhas.length > 0) window.alert(`Não consegui quitar: ${falhas.join('; ')} — o resto entrou.`)
+      clearSelection()
+      await load()
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Não deu pra ler o comprovante.')
+    } finally {
+      setQuitandoLote(false)
+    }
   }
 
   async function load() {
@@ -195,7 +268,7 @@ export default function FinanceExpenses() {
       const refDate = event?.event_date ?? exp.created_at.slice(0, 10)
       if (monthFilter && refDate.slice(0, 7) !== monthFilter) return false
       if (producerFilter && event?.producer_name !== producerFilter) return false
-      if (eventFilter && event?.id !== eventFilter) return false
+      if (eventFilter.length > 0 && (!event || !eventFilter.includes(event.id))) return false
       if (statusFilter && exp.status !== statusFilter) return false
       if (q) {
         const supplier = exp.supplier_id ? suppliers.find((sp) => sp.id === exp.supplier_id) : null
@@ -234,7 +307,7 @@ export default function FinanceExpenses() {
   }, [expenses, eventsById, searchFilter, monthFilter, producerFilter, eventFilter, statusFilter, sortField, sortDir, suppliers, profiles, pendingProfiles])
 
   const total = useMemo(() => filtered.reduce((sum, e) => sum + e.total, 0), [filtered])
-  const hasFilters = !!(searchFilter || monthFilter || producerFilter || eventFilter || statusFilter)
+  const hasFilters = !!(searchFilter || monthFilter || producerFilter || eventFilter.length > 0 || statusFilter)
 
   const selectedTotal = useMemo(
     () => filtered.filter((e) => selected.has(e.id)).reduce((sum, e) => sum + e.total, 0),
@@ -464,20 +537,47 @@ export default function FinanceExpenses() {
           </select>
           <select
             value={producerFilter}
-            onChange={(e) => { setProducerFilter(e.target.value); setEventFilter('') }}
+            onChange={(e) => { setProducerFilter(e.target.value); setEventFilter([]) }}
             className={selectClass}
           >
             <option value="">Todos os produtores</option>
             {producers.map((p) => <option key={p} value={p}>{p}</option>)}
           </select>
-          <select value={eventFilter} onChange={(e) => setEventFilter(e.target.value)} className={selectClass}>
-            <option value="">Todos os eventos</option>
-            {eventOptions.map((ev) => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
+          {/* Acumulador: cada escolha vira um chip embaixo — dá pra somar
+              CAMAROTE + PISTA do mesmo dia e enxergar as despesas em comum. */}
+          <select
+            value=""
+            onChange={(e) => {
+              const v = e.target.value
+              if (v) setEventFilter((cur) => (cur.includes(v) ? cur : [...cur, v]))
+            }}
+            className={selectClass}
+          >
+            <option value="">
+              {eventFilter.length > 0 ? `${eventFilter.length} evento${eventFilter.length > 1 ? 's' : ''} — somar outro...` : 'Todos os eventos'}
+            </option>
+            {eventOptions.filter((ev) => !eventFilter.includes(ev.id)).map((ev) => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
           </select>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={selectClass}>
             <option value="">Todos os status</option>
             {Object.keys(statusColors).map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
+          {eventFilter.length > 0 && (
+            <div className="w-full flex flex-wrap gap-1.5">
+              {eventFilter.map((id) => (
+                <span key={id} className="inline-flex items-center gap-1.5 text-xs font-semibold bg-beetz-yellow/25 border border-beetz-yellow/60 text-beetz-dark px-2.5 py-1 rounded-full">
+                  {eventsById.get(id)?.name ?? 'Evento'}
+                  <button
+                    onClick={() => setEventFilter((cur) => cur.filter((x) => x !== id))}
+                    className="text-beetz-dark/50 hover:text-beetz-dark"
+                    title="Tirar este evento do filtro"
+                  >
+                    <X size={12} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
           {hasFilters && (
             <button
               onClick={clearFilters}
@@ -652,9 +752,23 @@ export default function FinanceExpenses() {
       )}
 
       {selected.size > 0 && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-beetz-dark text-white rounded-2xl shadow-glow px-5 py-3 flex items-center gap-4">
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-beetz-dark text-white rounded-2xl shadow-glow px-5 py-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 max-w-[calc(100vw-2rem)]">
           <span className="text-sm">{selected.size} selecionada(s)</span>
           <span className="font-extrabold text-beetz-yellow">{currency(selectedTotal)}</span>
+          {/* Um comprovante só pra despesas de VÁRIOS eventos: cada
+              selecionada em aberto recebe o pagamento do restante com a
+              mesma imagem — e quita. */}
+          {canReviewExpense(accessRole) && (
+            <label className={`cursor-pointer bg-white/10 hover:bg-white/20 font-bold px-3.5 py-2 rounded-xl text-xs transition-colors ${quitandoLote ? 'opacity-50 pointer-events-none' : ''}`}>
+              {quitandoLote ? 'Quitando...' : '💸 Quitar com 1 comprovante'}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleBulkQuitar(f) }}
+              />
+            </label>
+          )}
           <button onClick={clearSelection} className="text-xs font-semibold text-white/60 hover:text-white flex items-center gap-1">
             <X size={13} /> Limpar
           </button>
