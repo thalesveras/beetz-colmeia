@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import {
-  deleteExpense,
-  createExpense, createSupplier, listEventMembers, listExpenseCategories, listExpensesForEvent,
+  addExpensePayment, deleteExpense,
+  createExpense, createSupplier, listEventMembers, listExpenseCategories, listExpensePaymentTotals, listExpensesForEvent,
   listPaymentMethods, listPendingProfilesForPicker, listProfilesLite, listSuppliers, updateExpense,
   updateExpenseStatus
 } from '../../lib/dataService'
+import type { ExpensePaymentTotal } from '../../lib/dataService'
 import type {
   Expense, ExpenseCategory, ExpenseStatus, PaymentMethod, PaymentMethodOption, PendingProfilePickerItem,
   Profile, Supplier
@@ -80,10 +81,80 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
   const [newSupplierName, setNewSupplierName] = useState('')
   const [addingSupplier, setAddingSupplier] = useState(false)
 
+  // Somas dos pagamentos parciais (view leve): alimenta a barrinha de
+  // progresso do card e o cálculo do "restante" da quitação por arrasto.
+  const [payTotals, setPayTotals] = useState<ExpensePaymentTotal[]>([])
+  const pagoPorDespesa = useMemo(() => new Map(payTotals.map((t) => [t.expense_id, t])), [payTotals])
+  const pagoDe = (id: string) => pagoPorDespesa.get(id)?.total_pago ?? 0
+
   async function load() {
     setLoading(true)
-    setExpenses(await listExpensesForEvent(eventId))
+    const [exps, pagos] = await Promise.all([
+      listExpensesForEvent(eventId),
+      // Sem os totais a lista vive igual — nunca derruba a aba.
+      listExpensePaymentTotals().catch(() => [] as ExpensePaymentTotal[])
+    ])
+    setExpenses(exps)
+    setPayTotals(pagos)
     setLoading(false)
+  }
+
+  // ---- Quitação por arrasto: solta o comprovante NO CARD, confirma, e o
+  // pagamento do restante entra com a imagem anexada — o trigger do banco
+  // marca Pago sozinho. Nada é sobrescrito: é sempre um pagamento NOVO.
+  const [dragOverId, setDragOverId] = useState<string | null>(null)
+  const [quitandoId, setQuitandoId] = useState<string | null>(null)
+  const podeQuitar = (exp: Expense) =>
+    canReviewExpense(accessRole) && exp.status !== 'Pago' && exp.status !== 'Cancelado' && exp.status !== 'Rejeitado'
+
+  function hojePagISO() {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }
+
+  // Encolhe a foto antes de guardar (1200px, jpeg) — comprovante de celular
+  // vem com 5 MB e base64 gigante no banco é praga conhecida da casa.
+  function encolherComprovante(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file)
+      const img = new Image()
+      img.onload = () => {
+        const max = 1200
+        const escala = Math.min(1, max / Math.max(img.width, img.height))
+        const c = document.createElement('canvas')
+        c.width = Math.round(img.width * escala)
+        c.height = Math.round(img.height * escala)
+        c.getContext('2d')?.drawImage(img, 0, 0, c.width, c.height)
+        URL.revokeObjectURL(url)
+        resolve(c.toDataURL('image/jpeg', 0.8))
+      }
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Não consegui ler a imagem.')) }
+      img.src = url
+    })
+  }
+
+  async function handleDropPagamento(exp: Expense, file: File) {
+    const restante = Math.max(0, Math.round((exp.total - pagoDe(exp.id)) * 100) / 100)
+    if (restante <= 0) { window.alert('Essa despesa já está quitada.'); return }
+    const alvo = exp.description || exp.category || 'despesa'
+    if (!window.confirm(`Registrar pagamento de ${currency(restante)} com este comprovante e quitar "${alvo}"?`)) return
+    setQuitandoId(exp.id)
+    try {
+      const img = await encolherComprovante(file)
+      await addExpensePayment({
+        expense_id: exp.id,
+        amount: restante,
+        paid_at: hojePagISO(),
+        receipt_data: img,
+        notes: 'Quitação rápida pela lista',
+        created_by: userId ?? null
+      })
+      await load()
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Não deu pra registrar o pagamento.')
+    } finally {
+      setQuitandoId(null)
+    }
   }
 
   async function loadFormOptions() {
@@ -475,7 +546,23 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
               o miolo é clicável e abre os detalhes completos (comprovante,
               assinatura, quantidade, taxa...); as ações vivem na base. */}
           {filteredExpenses.map((exp) => (
-            <div key={exp.id} className={`bg-white border rounded-xl p-4 ${selected.has(exp.id) ? 'border-beetz-yellow ring-1 ring-beetz-yellow' : 'border-beetz-dark/5'} ${exp.status === 'Cancelado' ? 'opacity-50' : ''}`}>
+            <div
+              key={exp.id}
+              className={`bg-white border rounded-xl p-4 transition-shadow ${
+                dragOverId === exp.id
+                  ? 'border-green-400 ring-2 ring-green-300'
+                  : selected.has(exp.id) ? 'border-beetz-yellow ring-1 ring-beetz-yellow' : 'border-beetz-dark/5'
+              } ${exp.status === 'Cancelado' ? 'opacity-50' : ''}`}
+              onDragOver={(e) => { if (podeQuitar(exp)) { e.preventDefault(); setDragOverId(exp.id) } }}
+              onDragLeave={() => setDragOverId((cur) => (cur === exp.id ? null : cur))}
+              onDrop={(e) => {
+                if (!podeQuitar(exp)) return
+                e.preventDefault()
+                setDragOverId(null)
+                const f = e.dataTransfer.files?.[0]
+                if (f && f.type.startsWith('image/')) handleDropPagamento(exp, f)
+              }}
+            >
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
                   {canBulk && (
@@ -516,6 +603,44 @@ export default function ExpensesTab({ eventId }: { eventId: string }) {
                   {exp.supplier_id ? ` · Fornecedor: ${suppliers.find((s) => s.id === exp.supplier_id)?.name ?? '—'}` : ''}
                 </p>
               </button>
+
+              {/* Progresso dos pagamentos parciais: só aparece quando já
+                  entrou algum pagamento e ainda falta. */}
+              {pagoDe(exp.id) > 0 && exp.status !== 'Pago' && (
+                <div className="mt-2">
+                  <div className="h-1.5 bg-beetz-gray rounded-full overflow-hidden">
+                    <div className="h-full honey-gradient rounded-full" style={{ width: `${Math.min(100, Math.round(100 * pagoDe(exp.id) / Math.max(0.01, exp.total)))}%` }} />
+                  </div>
+                  <p className="text-[11px] font-semibold text-amber-700 mt-1">
+                    Pago {currency(pagoDe(exp.id))} · falta {currency(Math.max(0, exp.total - pagoDe(exp.id)))}
+                  </p>
+                </div>
+              )}
+              {exp.status === 'Pago' && (pagoPorDespesa.get(exp.id)?.pagamentos ?? 0) > 0 && (
+                <p className="text-[11px] text-beetz-dark/35 mt-1.5">
+                  📎 Quitada com {pagoPorDespesa.get(exp.id)!.pagamentos} comprovante{pagoPorDespesa.get(exp.id)!.pagamentos > 1 ? 's' : ''} — abra em Editar pra ver.
+                </p>
+              )}
+
+              {/* Quitação rápida: arrasta o comprovante em cima do card. No
+                  celular (sem drag), o atalho abre o modal na régua. */}
+              {podeQuitar(exp) && (
+                <div className={`mt-2 rounded-lg border border-dashed px-3 py-1.5 text-[11px] font-medium transition-colors ${
+                  dragOverId === exp.id ? 'border-green-400 bg-green-50 text-green-700' : 'border-beetz-dark/15 text-beetz-dark/40'
+                }`}>
+                  {quitandoId === exp.id
+                    ? 'Registrando pagamento...'
+                    : (
+                      <>
+                        💸 Arraste o comprovante aqui pra quitar
+                        {pagoDe(exp.id) > 0 ? ` (falta ${currency(Math.max(0, exp.total - pagoDe(exp.id)))})` : ''} ·{' '}
+                        <button onClick={() => handleEdit(exp)} className="underline font-semibold hover:text-beetz-dark">
+                          ou pague pelo modal
+                        </button>
+                      </>
+                    )}
+                </div>
+              )}
 
               <div className="flex items-center justify-between gap-2 mt-2">
                 <button onClick={() => setDetail(exp)} className="text-xs font-semibold text-beetz-dark/45 hover:text-beetz-dark">
