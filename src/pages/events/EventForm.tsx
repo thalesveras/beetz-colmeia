@@ -58,7 +58,12 @@ export default function EventForm() {
       // Rede caiu ou soluçou: o botão VOLTA e o formulário segue preenchido
       // — nada digitado se perde, é só tentar de novo. (Antes, um erro aqui
       // deixava o "Salvando..." travado pra sempre, sem aviso nenhum.)
-      setError(err instanceof Error ? err.message : 'Não deu pra salvar agora — confira a conexão e tente de novo.')
+      // O supabase-js às vezes rejeita com objeto simples (não-Error) — a
+      // mensagem real ("Failed to fetch" etc.) ajuda no diagnóstico.
+      const msg = err instanceof Error
+        ? err.message
+        : (typeof err === 'object' && err && 'message' in err ? String((err as { message: unknown }).message) : '')
+      setError(msg || 'Não deu pra salvar agora — confira a conexão e tente de novo.')
     } finally {
       setSaving(false)
     }

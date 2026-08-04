@@ -118,7 +118,15 @@ export default function NotificationBell() {
       {open && (
         <div className="absolute right-0 mt-2 w-[320px] max-w-[calc(100vw-2rem)] bg-white text-beetz-dark rounded-2xl shadow-xl border border-beetz-dark/10 z-50 overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-beetz-dark/5">
-            <p className="font-bold text-sm">Avisos</p>
+            {/* O título é a porta pra página completa de avisos — funciona
+                igual no PC, tablet e celular (alvo de toque generoso). */}
+            <button
+              onClick={() => { setOpen(false); navigate('/alertas') }}
+              className="font-bold text-sm hover:text-beetz-yellow transition-colors flex items-center gap-1 -my-1 py-1"
+              title="Abrir a página de avisos"
+            >
+              Avisos <span aria-hidden className="text-beetz-dark/35 text-xs">→</span>
+            </button>
             {unread > 0 && (
               <button onClick={handleMarkAll} className="text-[11px] font-semibold text-beetz-dark/50 hover:text-beetz-dark flex items-center gap-1">
                 <CheckCheck size={12} /> Marcar todos como lidos
