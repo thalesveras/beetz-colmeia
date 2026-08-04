@@ -46,12 +46,22 @@ export default function EventForm() {
     setForm((f) => ({ ...f, [key]: value }))
   }
 
+  const [error, setError] = useState<string | null>(null)
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
-    const created = await createEvent({ ...form, leader_id: form.leader_id || null })
-    setSaving(false)
-    navigate(`/eventos/${created.id}`)
+    setError(null)
+    try {
+      const created = await createEvent({ ...form, leader_id: form.leader_id || null })
+      navigate(`/eventos/${created.id}`)
+    } catch (err) {
+      // Rede caiu ou soluçou: o botão VOLTA e o formulário segue preenchido
+      // — nada digitado se perde, é só tentar de novo. (Antes, um erro aqui
+      // deixava o "Salvando..." travado pra sempre, sem aviso nenhum.)
+      setError(err instanceof Error ? err.message : 'Não deu pra salvar agora — confira a conexão e tente de novo.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -127,6 +137,11 @@ export default function EventForm() {
         >
           {saving ? 'Salvando...' : 'Criar evento'}
         </button>
+        {error && (
+          <p className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+            {error} — o que você digitou continua aqui, é só tentar de novo.
+          </p>
+        )}
       </form>
     </div>
   )
