@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BarChart3, Link2, Sparkles, Trash2, Upload } from 'lucide-react'
 import {
-  createEventSalesImport, deleteEventSalesImport,
+  createEventSalesImport, deleteEventSalesImport, dexListEvents, dexProductsReport, getEventById,
   listEventSalesImports, listEventSalesLines, listProducts, mapPosNameToProduct, normalizePosName
 } from '../../lib/dataService'
-import type { ParsedSalesLine } from '../../lib/dataService'
+import type { DexEventOption, ParsedSalesLine } from '../../lib/dataService'
 import type { EventSalesImport, EventSalesLine, Product } from '../../lib/types'
 import { useAuth } from '../../contexts/AuthContext'
 
@@ -312,6 +312,104 @@ export default function SalesReportCard({ eventId, kind = 'vendas', onSynced }: 
   // Dinheiro sempre pela coluna SEM taxa de serviço (uploads antigos, de
   // antes da coluna, caem no total cheio — resubir o relatório corrige).
   const lineValue = (l: EventSalesLine) => l.total_net ?? l.total_gross ?? 0
+  // ---------- Integração Dex: o relatório vem DIRETO da API, sem CSV ----------
+  // O Bearer que o usuário cola fica SÓ neste navegador (sessionStorage da
+  // aba — morre ao fechar) e viaja pela edge function dex-proxy, que não
+  // grava nem loga o token. Ninguém além do navegador dele vê a credencial.
+  const [dexToken, setDexToken] = useState(sessionStorage.getItem('beetz-dex-token') ?? '')
+  const [dexCompany, setDexCompany] = useState(sessionStorage.getItem('beetz-dex-company') ?? '')
+  const [dexTokenDraft, setDexTokenDraft] = useState('')
+  const [dexCompanyDraft, setDexCompanyDraft] = useState('')
+  const [dexOpen, setDexOpen] = useState(false)
+  const [dexEvents, setDexEvents] = useState<DexEventOption[]>([])
+  const [dexEventId, setDexEventId] = useState('')
+  const [dexBusy, setDexBusy] = useState(false)
+  const dexConectada = !!(dexToken.trim() && dexCompany.trim())
+
+  // Com a Dex conectada, ao abrir o evento já buscamos os eventos de lá e
+  // CASAMOS pelo nome com o evento da Colmeia (normalizado, contenção nos
+  // dois sentidos). Sem lista (endpoint indisponível), o campo manual assume.
+  useEffect(() => {
+    if (!dexConectada) return
+    let vivo = true
+    ;(async () => {
+      try {
+        const [evs, evento] = await Promise.all([dexListEvents(dexToken, dexCompany), getEventById(eventId)])
+        if (!vivo) return
+        setDexEvents(evs)
+        if (evs.length > 0 && evento?.name) {
+          const alvo = normMatch(evento.name)
+          const casado = evs.find((e) => {
+            const n = normMatch(e.name)
+            return !!n && !!alvo && (n === alvo || n.includes(alvo) || alvo.includes(n))
+          })
+          if (casado) setDexEventId((cur) => cur || casado.id)
+        }
+      } catch { /* sem lista: o campo manual de eventId assume */ }
+    })()
+    return () => { vivo = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dexConectada, eventId])
+
+  function conectarDex() {
+    const t = dexTokenDraft.trim()
+    const c = dexCompanyDraft.trim()
+    if (!t || !c) return
+    sessionStorage.setItem('beetz-dex-token', t)
+    sessionStorage.setItem('beetz-dex-company', c)
+    setDexToken(t); setDexCompany(c)
+    setDexTokenDraft(''); setDexCompanyDraft(''); setDexOpen(false)
+  }
+
+  function esquecerDex() {
+    sessionStorage.removeItem('beetz-dex-token')
+    sessionStorage.removeItem('beetz-dex-company')
+    setDexToken(''); setDexCompany(''); setDexEvents([]); setDexEventId('')
+  }
+
+  async function importarDaDex() {
+    if (!dexConectada || !dexEventId.trim()) return
+    setDexBusy(true)
+    setError(null)
+    try {
+      const rows = await dexProductsReport(dexToken, dexCompany, dexEventId.trim())
+      if (rows.length === 0) throw new Error('A Dex devolveu zero produtos pra esse evento — confere o evento escolhido.')
+      // Mesmo trilho do CSV: "value" = faturado SEM a taxa (a coluna certa)
+      // e "commission" é a taxa separada — gross = value + commission.
+      const parsed: ParsedSalesLine[] = rows
+        .map((r) => ({
+          pos_name: (r.productName ?? '').trim(),
+          category: r.categoryName?.trim() || null,
+          unit_value: r.price ?? null,
+          qty_billed: r.count ?? 0,
+          qty_bonus: r.bonusCount ?? 0,
+          quantity: (r.count ?? 0) + (r.bonusCount ?? 0),
+          total_gross: Math.round(((r.value ?? 0) + (r.commission ?? 0)) * 100) / 100,
+          total_net: r.value ?? 0
+        }))
+        .filter((l) => l.pos_name)
+      const d = new Date()
+      const hojeLocal = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      const nomeDex = dexEvents.find((e) => e.id === dexEventId)?.name
+      const imp = await createEventSalesImport(
+        eventId,
+        { report_date: hojeLocal, file_name: `Dex API${nomeDex ? ` — ${nomeDex}` : ''}` },
+        parsed, userId, kind
+      )
+      const imps = await listEventSalesImports(eventId)
+      const cobertos = imps.filter((i) => i.superseded_by === imp.id).length
+      setInfo(cobertos > 0
+        ? `Importado da Dex e virou o oficial: cobre e substitui ${cobertos} anterior${cobertos > 1 ? 'es' : ''}.`
+        : `Importado da Dex: ${parsed.length} produto${parsed.length > 1 ? 's' : ''}.`)
+      await load()
+      onSynced?.()
+    } catch (e: any) {
+      setError(e?.message ?? 'Não deu pra importar da Dex.')
+    } finally {
+      setDexBusy(false)
+    }
+  }
+
   const totalFaturado = useMemo(() => activeLines.reduce((s, l) => s + lineValue(l), 0), [activeLines])
   const unmappedFaturado = useMemo(
     () => activeLines.filter((l) => !l.product_id).reduce((s, l) => s + lineValue(l), 0),
@@ -349,6 +447,80 @@ export default function SalesReportCard({ eventId, kind = 'vendas', onSynced }: 
         </button>
         {totalFaturado > 0 && (
           <span className="text-sm font-bold ml-auto">{currency(totalFaturado)} <span className="font-medium text-white/40 text-xs">faturados</span></span>
+        )}
+      </div>
+
+      {/* ---- 🔌 Integração Dex: importa direto da API, sem baixar CSV ---- */}
+      <div className="mt-3 border border-white/10 rounded-xl p-3">
+        {!dexConectada && !dexOpen && (
+          <button onClick={() => setDexOpen(true)} className="text-sm font-bold text-beetz-yellow hover:underline">
+            🔌 Conectar com a Dex — importar direto, sem CSV
+          </button>
+        )}
+
+        {!dexConectada && dexOpen && (
+          <div className="space-y-2">
+            <p className="text-xs text-white/50">
+              Cole o <strong className="text-white/80">Bearer token</strong> e o <strong className="text-white/80">Company ID</strong> (o
+              código da empresa na URL do painel da Dex). Ficam <strong className="text-white/80">só neste navegador</strong>, até
+              fechar a aba — nada vai pro banco.
+            </p>
+            <input
+              type="password" autoComplete="off" placeholder="Bearer token da Dex"
+              className="w-full rounded-xl border-0 bg-white/10 text-white placeholder-white/40 text-sm px-3 py-2"
+              value={dexTokenDraft} onChange={(e) => setDexTokenDraft(e.target.value)}
+            />
+            <input
+              placeholder="Company ID (ex: 6a6f8a72...)" autoComplete="off"
+              className="w-full rounded-xl border-0 bg-white/10 text-white placeholder-white/40 text-sm px-3 py-2"
+              value={dexCompanyDraft} onChange={(e) => setDexCompanyDraft(e.target.value)}
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={conectarDex}
+                disabled={!dexTokenDraft.trim() || !dexCompanyDraft.trim()}
+                className="text-sm font-bold honey-gradient text-beetz-dark px-3.5 py-2 rounded-xl disabled:opacity-50"
+              >
+                Conectar
+              </button>
+              <button onClick={() => setDexOpen(false)} className="text-xs font-semibold text-white/50 hover:text-white px-2">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+
+        {dexConectada && (
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+              <span className="font-bold text-beetz-yellow">🔌 Dex conectada</span>
+              <span className="text-white/40">token só neste navegador</span>
+              <button onClick={esquecerDex} className="text-white/50 hover:text-white underline">esquecer token</button>
+            </div>
+            {dexEvents.length > 0 ? (
+              <select
+                value={dexEventId}
+                onChange={(e) => setDexEventId(e.target.value)}
+                className="w-full rounded-xl border-0 bg-white/10 text-white text-sm px-3 py-2"
+              >
+                <option value="" className="text-beetz-dark">Escolher o evento na Dex...</option>
+                {dexEvents.map((e) => <option key={e.id} value={e.id} className="text-beetz-dark">{e.name}</option>)}
+              </select>
+            ) : (
+              <input
+                placeholder="Event ID da Dex (copie da URL do painel deles)"
+                className="w-full rounded-xl border-0 bg-white/10 text-white placeholder-white/40 text-sm px-3 py-2"
+                value={dexEventId} onChange={(e) => setDexEventId(e.target.value)}
+              />
+            )}
+            <button
+              onClick={importarDaDex}
+              disabled={dexBusy || !dexEventId.trim()}
+              className="flex items-center gap-1.5 text-sm font-bold honey-gradient text-beetz-dark px-3.5 py-2 rounded-xl disabled:opacity-60"
+            >
+              <Upload size={15} /> {dexBusy ? 'Buscando na Dex...' : (kind === 'producao' ? 'Importar Produção da Dex' : 'Importar vendas da Dex')}
+            </button>
+          </div>
         )}
       </div>
 

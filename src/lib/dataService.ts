@@ -1754,6 +1754,74 @@ export async function listExpensePaymentTotals(): Promise<ExpensePaymentTotal[]>
   return (data ?? []).map((t) => ({ ...t, total_pago: Number(t.total_pago), pagamentos: Number(t.pagamentos) })) as ExpensePaymentTotal[]
 }
 
+// ---------- Integração Dex (PDV via API) ----------
+// O relatório de produtos vem DIRETO da API da Dex, com o Bearer que o
+// usuário cola na tela (fica só no navegador dele — sessionStorage — e
+// viaja pela edge function dex-proxy, que não grava nem loga o token).
+export interface DexReportRow {
+  productName: string
+  categoryName: string | null
+  count: number
+  bonusCount: number
+  price: number
+  // "value" = faturado do produto SEM a taxa de serviço; "commission" é a
+  // taxa separada — exatamente o par Total faturado / taxa do CSV antigo.
+  value: number
+  commission: number
+}
+
+export interface DexEventOption { id: string; name: string }
+
+async function dexApi<T>(token: string, path: string, query: Record<string, string | number>): Promise<T> {
+  const { data, error } = await supabase.functions.invoke('dex-proxy', { body: { token, path, query } })
+  if (error) throw new Error('Não deu pra falar com a Dex agora — tenta de novo em instantes.')
+  const env = data as { ok: boolean; status: number; data: T & { message?: string } }
+  if (!env.ok) {
+    if (env.status === 401 || env.status === 403) throw new Error('A Dex recusou o token (vencido ou sem acesso) — cole um token novo.')
+    throw new Error(`A Dex respondeu ${env.status}${env.data?.message ? `: ${env.data.message}` : ''}.`)
+  }
+  return env.data
+}
+
+// Relatório de produtos do evento, paginando até esgotar.
+export async function dexProductsReport(token: string, companyId: string, dexEventId: string): Promise<DexReportRow[]> {
+  const out: DexReportRow[] = []
+  for (let page = 0; page < 30; page++) {
+    const data = await dexApi<{ content?: DexReportRow[]; last?: boolean }>(
+      token,
+      `/v2/companies/${companyId}/products/report`,
+      { eventId: dexEventId, term: '', sortField: 'totalValue', sortOrder: 'desc', page, size: 100 }
+    )
+    const rows = data?.content ?? []
+    out.push(...rows)
+    if (rows.length < 100 || data?.last === true) break
+  }
+  return out
+}
+
+// Lista os eventos da empresa na Dex pra casar por NOME com o evento da
+// Colmeia. O shape exato da resposta varia — extraímos id/nome com
+// tolerância; se o endpoint não existir no plano deles, devolve [] e o
+// front cai pro campo manual de eventId.
+export async function dexListEvents(token: string, companyId: string): Promise<DexEventOption[]> {
+  try {
+    const data = await dexApi<{ content?: unknown[] } | unknown[]>(
+      token,
+      `/v2/companies/${companyId}/events`,
+      { term: '', page: 0, size: 100 }
+    )
+    const lista = Array.isArray(data) ? data : ((data as { content?: unknown[] })?.content ?? [])
+    return (lista as Record<string, unknown>[])
+      .map((e) => ({
+        id: String(e.eventId ?? e.id ?? e._id ?? ''),
+        name: String(e.eventName ?? e.name ?? e.title ?? '')
+      }))
+      .filter((e) => e.id && e.name)
+  } catch {
+    return []
+  }
+}
+
 // Bolinha da aba Despesas do evento: quantas Pendentes existem (count leve
 // no banco, sem carregar comprovante nenhum). RLS decide o que cada um vê.
 export async function countPendingExpenses(eventId: string): Promise<number> {
