@@ -290,6 +290,16 @@ export async function claimPendingProfile(userId: string, email: string): Promis
   if (error) console.error('Falha ao casar perfil pendente:', error)
 }
 
+// Habilidades mais listadas na colmeia (perfis + pré-cadastros), pra virar
+// chip de 1 toque no cadastro. A RPC roda como definer: quem está se
+// cadastrando não enxerga os perfis todos — e não precisa.
+export async function listTopSkills(limit = 12): Promise<string[]> {
+  if (isDemoMode) return ['Atendimento', 'Coquetelaria', 'Caixa', 'Bartender', 'Vendas', 'Bilheteria']
+  const { data, error } = await supabase.rpc('list_top_skills', { lim: limit })
+  if (error) throw error
+  return ((data ?? []) as { skill: string }[]).map((r) => r.skill)
+}
+
 export interface ImportZohoPendingResult {
   totalRows: number
   imported: number

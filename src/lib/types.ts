@@ -92,11 +92,19 @@ export interface Profile {
   emergency_contact_name: string | null
   emergency_contact_phone: string | null
   department_id: string | null
+  // Departamentos ADICIONAIS (ex.: Caixa E Garçom ao mesmo tempo). O principal
+  // continua sendo department_id — permissões e papel de acesso seguem só ele.
+  extra_department_ids?: string[] | null
   role: string | null
   experience_level: ExperienceLevel | null
   entry_date: string | null
   work_location: string | null
   skills: string[]
+  // Endereço completo (busca por CEP no cadastro).
+  cep?: string | null
+  address_street?: string | null
+  address_neighborhood?: string | null
+  is_smoker?: boolean | null
   health_conditions: string | null
   allergies: string | null
   important_notes: string | null

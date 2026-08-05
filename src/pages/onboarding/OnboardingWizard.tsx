@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
-import { checkSignupValueTaken, listSignupFieldRules, upsertProfile } from '../../lib/dataService'
+import { checkSignupValueTaken, listDepartments, listSignupFieldRules, upsertProfile } from '../../lib/dataService'
 import type { Profile, SignupFieldRule } from '../../lib/types'
 import ProgressBar from '../../components/ui/ProgressBar'
 import StepPersonalData from './StepPersonalData'
@@ -111,10 +111,37 @@ export default function OnboardingWizard() {
     }
     if (!userId) return
     setSaving(true)
-    await upsertProfile({ ...data, id: userId, onboarding_completed: true } as any)
-    await refreshProfile()
-    setSaving(false)
-    navigate('/dashboard')
+    try {
+      const patch = { ...data }
+      if (cadastroNovo) {
+        // Função segue o departamento principal — o campo livre saiu do form.
+        if (patch.department_id) {
+          try {
+            const dep = (await listDepartments()).find((d) => d.id === patch.department_id)
+            if (dep) patch.role = dep.name
+          } catch { /* sem lista agora: mantém o que tiver */ }
+        }
+        // Data de entrada: hoje (fuso local) pra cadastro novo. Quem veio do
+        // histórico (Zoho) já chegou aqui com a data original, via claim.
+        if (!patch.entry_date) {
+          const d = new Date()
+          patch.entry_date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+        }
+        // Experiência saiu do form: antigo (pré-cadastro) já vem marcado pelo
+        // claim; quem sobrou sem nada é abelha nova mesmo.
+        if (!patch.experience_level) patch.experience_level = 'Nova abelha'
+      }
+      await upsertProfile({ ...patch, id: userId, onboarding_completed: true } as any)
+      await refreshProfile()
+      // Cadastro novo segue pros primeiros passos (ativar avisos no aparelho);
+      // quem só estava editando volta pro painel.
+      navigate(cadastroNovo ? '/primeiros-passos' : '/dashboard')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : ''
+      alert(`Não deu pra salvar agora${msg ? ` (${msg})` : ''} — nada foi perdido, tenta de novo.`)
+    } finally {
+      setSaving(false)
+    }
   }
 
   function handleBack() {

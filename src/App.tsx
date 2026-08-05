@@ -26,6 +26,7 @@ import Ranking from './pages/Ranking'
 import Info from './pages/Info'
 import NotFound from './pages/NotFound'
 import OnboardingWizard from './pages/onboarding/OnboardingWizard'
+import FirstSteps from './pages/onboarding/FirstSteps'
 import ProtectedRoute from './components/ProtectedRoute'
 import ProducerProtectedRoute from './components/ProducerProtectedRoute'
 import ProducerLogin from './pages/producer/ProducerLogin'
@@ -52,6 +53,8 @@ export default function App() {
       <Route path="/cadastro" element={
         <ProtectedRoute requireOnboarding={false}><OnboardingWizard /></ProtectedRoute>
       } />
+      {/* Pós-cadastro: ativar os avisos push antes de cair no painel. */}
+      <Route path="/primeiros-passos" element={<ProtectedRoute><FirstSteps /></ProtectedRoute>} />
 
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/turma" element={<ProtectedRoute><TeamDirectory /></ProtectedRoute>} />

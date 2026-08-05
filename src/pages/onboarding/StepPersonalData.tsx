@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { OnboardingData } from './OnboardingWizard'
 import Avatar from '../../components/ui/Avatar'
 import { cleanCpf, formatCpf, isValidCpf } from '../../lib/cpf'
@@ -32,6 +32,52 @@ export default function StepPersonalData({ data, update }: Props) {
   const { userId, isDemoMode } = useAuth()
   const [fotoBusy, setFotoBusy] = useState(false)
   const [fotoErro, setFotoErro] = useState<string | null>(null)
+
+  // Cidades do IBGE pra UF escolhida: estado vem primeiro e a cidade vira um
+  // select certeiro (nada de "São Luis"/"Sao Luís"/"SLZ" no banco). Se a API
+  // falhar, o campo volta a ser texto livre — cadastro nunca trava por isso.
+  const [cidades, setCidades] = useState<string[]>([])
+  const [cidadesBusy, setCidadesBusy] = useState(false)
+  useEffect(() => {
+    const uf = (data.state ?? '').trim()
+    if (!uf) { setCidades([]); return }
+    let vivo = true
+    setCidadesBusy(true)
+    fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/municipios?orderBy=nome`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((lista: { nome: string }[]) => { if (vivo) setCidades(lista.map((m) => m.nome)) })
+      .catch(() => { if (vivo) setCidades([]) })
+      .finally(() => { if (vivo) setCidadesBusy(false) })
+    return () => { vivo = false }
+  }, [data.state])
+
+  // CEP → ViaCEP preenche rua, bairro, cidade e estado de uma vez.
+  const [cepBusy, setCepBusy] = useState(false)
+  const [cepErro, setCepErro] = useState<string | null>(null)
+  async function buscarCep(valor: string) {
+    const numeros = valor.replace(/\D/g, '')
+    if (numeros.length !== 8) return
+    setCepBusy(true)
+    setCepErro(null)
+    try {
+      const r = await fetch(`https://viacep.com.br/ws/${numeros}/json/`)
+      if (!r.ok) throw new Error(String(r.status))
+      const j = await r.json() as { erro?: boolean; logradouro?: string; bairro?: string; localidade?: string; uf?: string }
+      if (j.erro) { setCepErro('CEP não encontrado — confere os números (ou preencha o endereço à mão).'); return }
+      update({
+        // Só completa o que estiver vazio? Não: quem digitou o CEP QUER o
+        // endereço dele — sobrescreve rua/bairro/cidade/UF com o oficial.
+        address_street: j.logradouro || data.address_street || '',
+        address_neighborhood: j.bairro || data.address_neighborhood || '',
+        city: j.localidade || data.city || '',
+        state: j.uf || data.state || ''
+      })
+    } catch {
+      setCepErro('Não deu pra buscar o CEP agora — preencha o endereço à mão.')
+    } finally {
+      setCepBusy(false)
+    }
+  }
 
   // A foto vai DIRETO pro Storage (pasta do próprio usuário), encolhida —
   // nunca mais base64 gigante dentro do banco (era isso que deixava Admin,
@@ -102,14 +148,62 @@ export default function StepPersonalData({ data, update }: Props) {
         <Field label="Telefone"><input className={inputClass} placeholder="(00) 00000-0000" value={data.phone || ''} onChange={(e) => update({ phone: e.target.value })} /></Field>
         <Field label="Email"><input type="email" required className={inputClass} value={data.email || ''} onChange={(e) => update({ email: e.target.value })} /></Field>
       </div>
-      <div className="grid sm:grid-cols-2 gap-4">
-        <Field label="Cidade"><input className={inputClass} value={data.city || ''} onChange={(e) => update({ city: e.target.value })} /></Field>
-        <Field label="Estado">
-          <select className={inputClass} value={data.state || ''} onChange={(e) => update({ state: e.target.value })}>
-            <option value="">Selecionar...</option>
-            {ufs.map((uf) => <option key={uf} value={uf}>{uf}</option>)}
-          </select>
-        </Field>
+      <div className="border-t border-beetz-dark/10 pt-4">
+        <p className="text-sm font-semibold mb-1">Endereço</p>
+        <p className="text-xs text-beetz-dark/50 mb-3">Digite o CEP que a gente preenche rua, bairro, cidade e estado sozinho.</p>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <Field label="CEP">
+            <input
+              className={inputClass}
+              placeholder="00000-000"
+              inputMode="numeric"
+              maxLength={9}
+              value={data.cep || ''}
+              onChange={(e) => {
+                const n = e.target.value.replace(/\D/g, '').slice(0, 8)
+                const mascarado = n.length > 5 ? `${n.slice(0, 5)}-${n.slice(5)}` : n
+                update({ cep: mascarado })
+                if (n.length === 8) buscarCep(n)
+              }}
+            />
+            {cepBusy && <p className="text-xs text-beetz-dark/50 mt-1">Buscando endereço...</p>}
+            {cepErro && <p className="text-xs text-amber-700 mt-1">{cepErro}</p>}
+          </Field>
+          <Field label="Estado">
+            <select className={inputClass} value={data.state || ''} onChange={(e) => update({ state: e.target.value, city: '' })}>
+              <option value="">Selecionar...</option>
+              {ufs.map((uf) => <option key={uf} value={uf}>{uf}</option>)}
+            </select>
+          </Field>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-4 mt-4">
+          <Field label="Cidade">
+            {cidades.length > 0 ? (
+              <select className={inputClass} value={data.city || ''} onChange={(e) => update({ city: e.target.value })}>
+                <option value="">{cidadesBusy ? 'Carregando cidades...' : 'Selecionar...'}</option>
+                {/* Cidade gravada antes da lista existir (ou vinda do Zoho com
+                    grafia própria) continua selecionável — nada se perde. */}
+                {data.city && !cidades.includes(data.city) && <option value={data.city}>{data.city}</option>}
+                {cidades.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            ) : (
+              <input
+                className={inputClass}
+                placeholder={!data.state ? 'Escolha o estado primeiro' : cidadesBusy ? 'Carregando cidades...' : ''}
+                value={data.city || ''}
+                onChange={(e) => update({ city: e.target.value })}
+              />
+            )}
+          </Field>
+          <Field label="Bairro">
+            <input className={inputClass} value={data.address_neighborhood || ''} onChange={(e) => update({ address_neighborhood: e.target.value })} />
+          </Field>
+        </div>
+        <div className="mt-4">
+          <Field label="Endereço (rua e número)">
+            <input className={inputClass} placeholder="Ex.: Rua das Abelhas, 123" value={data.address_street || ''} onChange={(e) => update({ address_street: e.target.value })} />
+          </Field>
+        </div>
       </div>
 
       <div className="border-t border-beetz-dark/10 pt-4">

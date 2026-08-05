@@ -20,6 +20,21 @@ export default function StepHealth({ data, update }: Props) {
       <div className="bg-beetz-yellow/15 border border-beetz-yellow rounded-xl p-3 text-xs text-beetz-dark/70">
         Essas informações são confidenciais e usadas apenas para cuidar de você durante os eventos.
       </div>
+      <Field label="Você fuma?">
+        <div className="flex gap-2">
+          {[{ v: false, r: 'Não fumo' }, { v: true, r: 'Sou fumante' }].map(({ v, r }) => (
+            <button
+              type="button" key={r}
+              onClick={() => update({ is_smoker: v })}
+              className={`text-sm font-medium px-4 py-2.5 rounded-xl border transition-colors ${
+                data.is_smoker === v ? 'bg-beetz-yellow border-beetz-yellow text-beetz-dark' : 'border-beetz-dark/15 text-beetz-dark/70 hover:bg-beetz-gray'
+              }`}
+            >
+              {v ? '🚬' : '🚭'} {r}
+            </button>
+          ))}
+        </div>
+      </Field>
       <Field label="Complicações de saúde" hint="Ex: pressão alta, asma, diabetes...">
         <textarea className={textAreaClass} value={data.health_conditions || ''} onChange={(e) => update({ health_conditions: e.target.value })} />
       </Field>
