@@ -105,6 +105,9 @@ export interface Profile {
   address_street?: string | null
   address_neighborhood?: string | null
   is_smoker?: boolean | null
+  is_drinker?: boolean | null
+  uses_controlled_meds?: boolean | null
+  controlled_meds_notes?: string | null
   health_conditions: string | null
   allergies: string | null
   important_notes: string | null
