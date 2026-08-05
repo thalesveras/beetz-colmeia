@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BarChart3, Link2, Sparkles, Trash2, Upload } from 'lucide-react'
 import {
-  createEventSalesImport, deleteEventSalesImport, dexListEvents, dexProductsReport, getEventById,
+  createEventSalesImport, deleteEventSalesImport, dexListEvents, dexProductsReport, dexTestConnection, getEventById,
   listEventSalesImports, listEventSalesLines, listProducts, mapPosNameToProduct, normalizePosName
 } from '../../lib/dataService'
 import type { DexEventOption, ParsedSalesLine } from '../../lib/dataService'
@@ -351,20 +351,52 @@ export default function SalesReportCard({ eventId, kind = 'vendas', onSynced }: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dexConectada, eventId])
 
-  function conectarDex() {
+  const [dexTestando, setDexTestando] = useState(false)
+  const [dexErroConexao, setDexErroConexao] = useState<string | null>(null)
+  const [dexSucesso, setDexSucesso] = useState<string | null>(null)
+
+  // Conectar = TESTAR de verdade: chama a Dex na hora e só guarda o token
+  // se ela aceitou. Sucesso vira a tela verde com o resumo (quantos eventos
+  // achou e qual casou pelo nome); token recusado nem chega a ser salvo.
+  async function conectarDex() {
     const t = dexTokenDraft.trim()
     const c = dexCompanyDraft.trim()
     if (!t || !c) return
-    sessionStorage.setItem('beetz-dex-token', t)
-    sessionStorage.setItem('beetz-dex-company', c)
-    setDexToken(t); setDexCompany(c)
-    setDexTokenDraft(''); setDexCompanyDraft(''); setDexOpen(false)
+    setDexTestando(true)
+    setDexErroConexao(null)
+    try {
+      const { eventos, aviso } = await dexTestConnection(t, c)
+      sessionStorage.setItem('beetz-dex-token', t)
+      sessionStorage.setItem('beetz-dex-company', c)
+      setDexToken(t); setDexCompany(c)
+      setDexEvents(eventos)
+      let casadoNome: string | null = null
+      try {
+        const evento = await getEventById(eventId)
+        if (evento?.name && eventos.length > 0) {
+          const alvo = normMatch(evento.name)
+          const casado = eventos.find((e) => {
+            const n = normMatch(e.name)
+            return !!n && !!alvo && (n === alvo || n.includes(alvo) || alvo.includes(n))
+          })
+          if (casado) { setDexEventId(casado.id); casadoNome = casado.name }
+        }
+      } catch { /* resumo sai sem o casamento */ }
+      setDexSucesso(
+        aviso ?? `Conexão confirmada! ${eventos.length} evento${eventos.length > 1 ? 's' : ''} encontrado${eventos.length > 1 ? 's' : ''} na Dex${casadoNome ? ` — casei este evento com “${casadoNome}”` : ' — escolha o evento abaixo'}.`
+      )
+      setDexTokenDraft(''); setDexCompanyDraft(''); setDexOpen(false)
+    } catch (e) {
+      setDexErroConexao(e instanceof Error ? e.message : 'Não deu pra conectar — confere o token e o Company ID.')
+    } finally {
+      setDexTestando(false)
+    }
   }
 
   function esquecerDex() {
     sessionStorage.removeItem('beetz-dex-token')
     sessionStorage.removeItem('beetz-dex-company')
-    setDexToken(''); setDexCompany(''); setDexEvents([]); setDexEventId('')
+    setDexToken(''); setDexCompany(''); setDexEvents([]); setDexEventId(''); setDexSucesso(null)
   }
 
   async function importarDaDex() {
@@ -478,20 +510,31 @@ export default function SalesReportCard({ eventId, kind = 'vendas', onSynced }: 
             <div className="flex gap-2">
               <button
                 onClick={conectarDex}
-                disabled={!dexTokenDraft.trim() || !dexCompanyDraft.trim()}
+                disabled={dexTestando || !dexTokenDraft.trim() || !dexCompanyDraft.trim()}
                 className="text-sm font-bold honey-gradient text-beetz-dark px-3.5 py-2 rounded-xl disabled:opacity-50"
               >
-                Conectar
+                {dexTestando ? 'Testando conexão...' : 'Conectar'}
               </button>
-              <button onClick={() => setDexOpen(false)} className="text-xs font-semibold text-white/50 hover:text-white px-2">
+              <button onClick={() => { setDexOpen(false); setDexErroConexao(null) }} className="text-xs font-semibold text-white/50 hover:text-white px-2">
                 Cancelar
               </button>
             </div>
+            {dexErroConexao && (
+              <p className="text-sm text-red-300 bg-red-500/20 border border-red-400/30 rounded-xl px-3 py-2">
+                {dexErroConexao} O token não foi guardado — corrija e tente de novo.
+              </p>
+            )}
           </div>
         )}
 
         {dexConectada && (
           <div className="space-y-2">
+            {/* Tela de sucesso: a prova de que a conexão passou no teste. */}
+            {dexSucesso && (
+              <p className="text-sm font-semibold text-green-300 bg-green-500/15 border border-green-400/30 rounded-xl px-3 py-2.5">
+                ✅ {dexSucesso}
+              </p>
+            )}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
               <span className="font-bold text-beetz-yellow">🔌 Dex conectada</span>
               <span className="text-white/40">token só neste navegador</span>

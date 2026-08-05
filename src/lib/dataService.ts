@@ -1777,10 +1777,36 @@ async function dexApi<T>(token: string, path: string, query: Record<string, stri
   if (error) throw new Error('Não deu pra falar com a Dex agora — tenta de novo em instantes.')
   const env = data as { ok: boolean; status: number; data: T & { message?: string } }
   if (!env.ok) {
-    if (env.status === 401 || env.status === 403) throw new Error('A Dex recusou o token (vencido ou sem acesso) — cole um token novo.')
-    throw new Error(`A Dex respondeu ${env.status}${env.data?.message ? `: ${env.data.message}` : ''}.`)
+    // status vai junto no erro: quem chama distingue "token recusado" (401)
+    // de "endpoint não existe" (404) na hora de validar a conexão.
+    const msg = env.status === 401 || env.status === 403
+      ? 'A Dex recusou o token (vencido ou sem acesso) — cole um token novo.'
+      : `A Dex respondeu ${env.status}${env.data?.message ? `: ${env.data.message}` : ''}.`
+    throw Object.assign(new Error(msg), { status: env.status })
   }
   return env.data
+}
+
+// Valida a conexão na hora do "Conectar": token recusado ou rede fora =
+// FALHA de verdade; endpoint de eventos inexistente (404) = conectou, mas
+// sem lista (o campo manual de Event ID assume).
+export async function dexTestConnection(token: string, companyId: string): Promise<{ eventos: DexEventOption[]; aviso: string | null }> {
+  try {
+    const data = await dexApi<{ content?: unknown[] } | unknown[]>(
+      token, `/v2/companies/${companyId}/events`, { term: '', page: 0, size: 100 }
+    )
+    const lista = Array.isArray(data) ? data : ((data as { content?: unknown[] })?.content ?? [])
+    const eventos = (lista as Record<string, unknown>[])
+      .map((e) => ({ id: String(e.eventId ?? e.id ?? e._id ?? ''), name: String(e.eventName ?? e.name ?? e.title ?? '') }))
+      .filter((e) => e.id && e.name)
+    return { eventos, aviso: eventos.length === 0 ? 'Conexão confirmada — mas a lista de eventos veio vazia; cole o Event ID manual.' : null }
+  } catch (e) {
+    const status = (e as { status?: number }).status
+    if (status === 404) {
+      return { eventos: [], aviso: 'Conexão confirmada! (a Dex não oferece a lista de eventos — cole o Event ID manual)' }
+    }
+    throw e
+  }
 }
 
 // Relatório de produtos do evento, paginando até esgotar.
@@ -1805,18 +1831,8 @@ export async function dexProductsReport(token: string, companyId: string, dexEve
 // front cai pro campo manual de eventId.
 export async function dexListEvents(token: string, companyId: string): Promise<DexEventOption[]> {
   try {
-    const data = await dexApi<{ content?: unknown[] } | unknown[]>(
-      token,
-      `/v2/companies/${companyId}/events`,
-      { term: '', page: 0, size: 100 }
-    )
-    const lista = Array.isArray(data) ? data : ((data as { content?: unknown[] })?.content ?? [])
-    return (lista as Record<string, unknown>[])
-      .map((e) => ({
-        id: String(e.eventId ?? e.id ?? e._id ?? ''),
-        name: String(e.eventName ?? e.name ?? e.title ?? '')
-      }))
-      .filter((e) => e.id && e.name)
+    const { eventos } = await dexTestConnection(token, companyId)
+    return eventos
   } catch {
     return []
   }
