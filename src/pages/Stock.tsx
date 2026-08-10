@@ -1,3 +1,4 @@
+import { eventLabel } from '../lib/eventLabel'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
 import {
@@ -1083,7 +1084,7 @@ export default function Stock() {
                   <label className="text-sm font-medium block mb-1">Evento</label>
                   <select required className={inputClass + ' w-full'} value={transferEventId} onChange={(e) => setTransferEventId(e.target.value)}>
                     <option value="">Selecionar...</option>
-                    {events.map((ev) => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
+                    {events.map((ev) => <option key={ev.id} value={ev.id}>{eventLabel(ev)}</option>)}
                   </select>
                 </div>
                 <div className="grid sm:grid-cols-2 gap-4">

@@ -1,3 +1,4 @@
+import { eventLabel } from '../../lib/eventLabel'
 import { useState } from 'react'
 import { Plus, X } from 'lucide-react'
 import { createExpense, createSupplier } from '../../lib/dataService'
@@ -123,7 +124,7 @@ export default function CreateExpenseModal({
           <Field label="Evento (vazio = despesa da empresa: aluguel, estoque, contador...)">
             <select className={inputClass} value={eventId} onChange={(e) => setEventId(e.target.value)}>
               <option value="">Beetz — despesa da empresa</option>
-              {events.map((ev) => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
+              {events.map((ev) => <option key={ev.id} value={ev.id}>{eventLabel(ev)}</option>)}
             </select>
           </Field>
 

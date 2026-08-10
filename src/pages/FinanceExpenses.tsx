@@ -1,3 +1,4 @@
+import { eventLabel } from '../lib/eventLabel'
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
@@ -643,7 +644,7 @@ export default function FinanceExpenses() {
             <option value="">
               {eventFilter.length > 0 ? `${eventFilter.length} evento${eventFilter.length > 1 ? 's' : ''} — somar outro...` : 'Todos os eventos'}
             </option>
-            {eventOptions.filter((ev) => !eventFilter.includes(ev.id)).map((ev) => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
+            {eventOptions.filter((ev) => !eventFilter.includes(ev.id)).map((ev) => <option key={ev.id} value={ev.id}>{eventLabel(ev)}</option>)}
           </select>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={selectClass}>
             <option value="">Todos os status</option>

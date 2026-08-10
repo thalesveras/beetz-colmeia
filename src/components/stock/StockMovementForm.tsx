@@ -1,3 +1,4 @@
+import { eventLabel } from '../../lib/eventLabel'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Minus, Plus, Search, X } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
@@ -296,7 +297,7 @@ export default function StockMovementForm({ fixedEventId, onSaved }: Props) {
           <label className="text-sm font-medium block mb-1">Evento (opcional)</label>
           <select className={inputClass + ' min-w-0'} value={eventId} onChange={(e) => setEventId(e.target.value)}>
             <option value="">Nenhum (movimentação avulsa)</option>
-            {events.map((ev) => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
+            {events.map((ev) => <option key={ev.id} value={ev.id}>{eventLabel(ev)}</option>)}
           </select>
         </div>
       )}

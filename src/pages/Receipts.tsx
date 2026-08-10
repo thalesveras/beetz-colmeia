@@ -1,3 +1,4 @@
+import { eventLabel } from '../lib/eventLabel'
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Receipt } from 'lucide-react'
@@ -308,7 +309,7 @@ export default function Receipts() {
             className={`${selectClass} w-full lg:w-auto`}
           >
             <option value="">{eventFilter.length > 0 ? `+ Adicionar evento (${eventFilter.length})` : 'Todos os eventos'}</option>
-            {events.filter((ev) => !eventFilter.includes(ev.id)).map((ev) => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
+            {events.filter((ev) => !eventFilter.includes(ev.id)).map((ev) => <option key={ev.id} value={ev.id}>{eventLabel(ev)}</option>)}
           </select>
           <input
             className={`${selectClass} w-full lg:w-52`}

@@ -1,3 +1,4 @@
+import { eventLabel } from '../../lib/eventLabel'
 import { useEffect, useState } from 'react'
 import { CalendarCheck, Check, Plus, X } from 'lucide-react'
 import {
@@ -102,7 +103,7 @@ export default function ReservationsSection({ products, locations, events, avail
         <div className="bg-beetz-gray rounded-2xl p-4 mb-4 grid sm:grid-cols-2 gap-3">
           <select className={inputClass} value={eventId} onChange={(e) => setEventId(e.target.value)}>
             <option value="">Evento...</option>
-            {events.map((ev) => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
+            {events.map((ev) => <option key={ev.id} value={ev.id}>{eventLabel(ev)}</option>)}
           </select>
           <select className={inputClass} value={productId} onChange={(e) => setProductId(e.target.value)}>
             <option value="">Produto...</option>

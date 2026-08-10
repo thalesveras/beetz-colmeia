@@ -1,3 +1,4 @@
+import { eventLabel } from '../../lib/eventLabel'
 import { useEffect, useState } from 'react'
 import { Trash2, X } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
@@ -215,7 +216,7 @@ export default function EditExpenseModal({
           {!lockEvent && (
             <Field label="Evento">
               <select className={inputClass} value={eventId} onChange={(e) => setEventId(e.target.value)}>
-                {events.map((ev) => <option key={ev.id} value={ev.id}>{ev.name} · {ev.event_date}</option>)}
+                {events.map((ev) => <option key={ev.id} value={ev.id}>{eventLabel(ev)}</option>)}
               </select>
               {eventChanged && <p className="text-xs text-beetz-yellow-700 mt-1 text-amber-600">Essa despesa vai mudar de evento ao salvar.</p>}
             </Field>

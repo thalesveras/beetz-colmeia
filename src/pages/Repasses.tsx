@@ -1,3 +1,4 @@
+import { eventLabel } from '../lib/eventLabel'
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { HandCoins } from 'lucide-react'
@@ -78,7 +79,7 @@ export default function Repasses() {
         <div className="flex flex-wrap items-center gap-3">
           <select value={eventFilter} onChange={(e) => setEventFilter(e.target.value)} className={selectClass}>
             <option value="">Todos os eventos</option>
-            {events.map((ev) => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
+            {events.map((ev) => <option key={ev.id} value={ev.id}>{eventLabel(ev)}</option>)}
           </select>
         </div>
       </div>

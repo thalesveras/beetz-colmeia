@@ -1,3 +1,4 @@
+import { eventLabel } from '../lib/eventLabel'
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, Filter, Search, X } from 'lucide-react'
 import {
@@ -209,7 +210,7 @@ export default function TeamDirectory() {
             </select>
             <select value={eventId} onChange={(e) => setEventId(e.target.value)} className="rounded-xl border border-beetz-dark/15 text-sm px-3 py-2">
               <option value="">Todos os eventos</option>
-              {events.map((ev) => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
+              {events.map((ev) => <option key={ev.id} value={ev.id}>{eventLabel(ev)}</option>)}
             </select>
             <select value={role} onChange={(e) => setRole(e.target.value)} className="rounded-xl border border-beetz-dark/15 text-sm px-3 py-2">
               <option value="">Todos os cargos</option>

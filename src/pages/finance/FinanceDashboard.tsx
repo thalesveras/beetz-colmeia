@@ -1,3 +1,4 @@
+import { eventLabel } from '../../lib/eventLabel'
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
@@ -328,7 +329,7 @@ export default function FinanceDashboard() {
             </select>
             <select value={eventId} onChange={(e) => setEventId(e.target.value)} className={`${inputClass} min-w-0`}>
               <option value="">Todos os eventos</option>
-              {data?.events.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+              {data?.events.map((e) => <option key={e.id} value={e.id}>{eventLabel(e)}</option>)}
             </select>
             <select value={category} onChange={(e) => setCategory(e.target.value)} className={`${inputClass} min-w-0`}>
               <option value="">Todas as categorias</option>

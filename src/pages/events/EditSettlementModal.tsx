@@ -1,3 +1,4 @@
+import { eventLabel } from '../../lib/eventLabel'
 import { useEffect, useState } from 'react'
 import { Lock, Trash2, X } from 'lucide-react'
 import {
@@ -215,7 +216,7 @@ export default function EditSettlementModal({ settlement, profiles, canReview, c
             <Field label="Evento do recebimento">
               <select className={inputClass} value={eventId} onChange={(e) => setEventId(e.target.value)}>
                 {eventOptions.map((ev) => (
-                  <option key={ev.id} value={ev.id}>{ev.name}</option>
+                  <option key={ev.id} value={ev.id}>{eventLabel(ev)}</option>
                 ))}
               </select>
               {eventId !== settlement.event_id && (

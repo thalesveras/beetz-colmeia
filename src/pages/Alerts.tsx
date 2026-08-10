@@ -1,3 +1,4 @@
+import { eventLabel } from '../lib/eventLabel'
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Bell, CheckCheck, Globe, ListChecks, Mail, Send, Settings as SettingsIcon, ShieldAlert, Smartphone, User } from 'lucide-react'
@@ -495,7 +496,7 @@ function ManualPushTab() {
           <div className="space-y-2.5">
             <select className={inputClass} value={eventId} onChange={(e) => setEventId(e.target.value)}>
               <option value="">Escolher o evento...</option>
-              {events.map((ev) => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
+              {events.map((ev) => <option key={ev.id} value={ev.id}>{eventLabel(ev)}</option>)}
             </select>
             {eventId && funcoesDoEvento.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
