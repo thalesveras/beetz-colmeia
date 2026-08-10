@@ -1915,6 +1915,49 @@ export async function getEventFinanceRows(): Promise<EventFinanceRow[]> {
   })) as EventFinanceRow[]
 }
 
+// ---------- Equipe: prévia do candidato ----------
+// O que o líder precisa pra decidir uma candidatura sem abrir perfil por
+// perfil: histórico de eventos confirmados, habilidades, experiência, cidade
+// e tempo de casa. A RPC roda como definer com trava is_staff — dado sensível
+// (CPF, saúde, Pix) NÃO passa por aqui.
+export interface CandidatePreview {
+  skills: string[]
+  experience_level: string | null
+  city: string | null
+  entry_date: string | null
+  department_name: string | null
+  eventos_total: number
+  ultimos_eventos: { nome: string; data: string; funcao: string }[]
+}
+
+export async function getStaffingCandidatePreview(profileId: string): Promise<CandidatePreview | null> {
+  if (isDemoMode) return null
+  const { data, error } = await supabase.rpc('staffing_candidate_preview', { p_profile_id: profileId })
+  if (error) throw error
+  const r = (data as any[])?.[0]
+  if (!r) return null
+  return {
+    skills: (r.skills ?? []) as string[],
+    experience_level: r.experience_level ?? null,
+    city: r.city ?? null,
+    entry_date: r.entry_date ?? null,
+    department_name: r.department_name ?? null,
+    eventos_total: Number(r.eventos_total ?? 0),
+    ultimos_eventos: ((r.ultimos_eventos ?? []) as any[]).map((e) => ({
+      nome: String(e.nome ?? ''), data: String(e.data ?? ''), funcao: String(e.funcao ?? '')
+    }))
+  }
+}
+
+// Contratante nas vagas do /escala: só id+name dos produtores (a ficha
+// completa continua restrita). Marketplace: toda vaga tem um contratante.
+export async function listProducerNames(): Promise<Map<string, string>> {
+  if (isDemoMode) return new Map()
+  const { data, error } = await supabase.rpc('list_producer_names')
+  if (error) throw error
+  return new Map(((data ?? []) as { id: string; name: string }[]).map((p) => [p.id, p.name] as [string, string]))
+}
+
 // ---------- Financeiro: conferência de caixa (espécie) ----------
 // Por evento: dinheiro que entrou pelos caixas − despesas em Dinheiro.
 //   saldo > 0 → a devolver pro caixa da empresa

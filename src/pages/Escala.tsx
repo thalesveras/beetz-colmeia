@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CalendarDays, Check, ClipboardList, Clock3, MapPin, X } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
-import { applyToStaffingSlot, listOpenStaffingSlots, listStaffingRoles, updateStaffingApplicationStatus } from '../lib/dataService'
+import { applyToStaffingSlot, listOpenStaffingSlots, listProducerNames, listStaffingRoles, updateStaffingApplicationStatus } from '../lib/dataService'
 import type { OpenStaffingSlot, StaffingApplicationStatus, StaffingRole } from '../lib/types'
 
 // Tela da turma: vagas abertas nos próximos eventos + status das minhas
@@ -52,12 +52,21 @@ export default function Escala() {
   const [recorte, setRecorte] = useState<RecorteEscala>('proximas')
   const decidiuRecorte = useRef(false)
 
+  // Contratante da vaga (produtor do evento) — reforça a ideia de
+  // marketplace: toda vaga tem quem está contratando.
+  const [producerNames, setProducerNames] = useState<Map<string, string>>(new Map())
+
   async function load() {
     setLoading(true)
     try {
-      const [sl, rl] = await Promise.all([listOpenStaffingSlots(userId ?? null), listStaffingRoles()])
+      const [sl, rl, pn] = await Promise.all([
+        listOpenStaffingSlots(userId ?? null),
+        listStaffingRoles(),
+        listProducerNames().catch(() => new Map<string, string>())
+      ])
       setSlots(sl)
       setRoles(rl)
+      setProducerNames(pn)
       // Padrão esperto: se tem vaga PRA HOJE, é nela que a pessoa cai.
       if (!decidiuRecorte.current) {
         decidiuRecorte.current = true
@@ -339,6 +348,14 @@ export default function Escala() {
                     <Link to={`/eventos/${slot.event.id}`} className="block truncate text-sm text-beetz-dark/60 hover:text-beetz-dark font-medium">
                       {slot.event.name}
                     </Link>
+                    {/* Contratante: quem está pagando por essa vaga — o produtor
+                        do evento (ou a casa, quando o evento é próprio). */}
+                    <p className="text-xs mt-0.5 truncate">
+                      <span className="text-beetz-dark/40">Contratante:</span>{' '}
+                      <span className="font-semibold text-beetz-dark/70">
+                        🤝 {(slot.event.producer_id && producerNames.get(slot.event.producer_id)) || 'Beetz Bar'}
+                      </span>
+                    </p>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-xs text-beetz-dark/50">
                       <span className="flex items-center gap-1"><CalendarDays size={12} /> {formatDate(slot.event.event_date)}</span>
                       {slot.event.start_time && <span className="flex items-center gap-1"><Clock3 size={12} /> {slot.event.start_time}</span>}

@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Check, Pencil, Users, Wallet, X } from 'lucide-react'
+import { Check, ChevronDown, Pencil, Users, Wallet, X } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import {
-  applyToStaffingSlot, generateScalePayments, getEventById, listCashierSettlementsForEvent, listEventStaffingApplications,
+  applyToStaffingSlot, generateScalePayments, getEventById, getStaffingCandidatePreview, listCashierSettlementsForEvent, listEventStaffingApplications,
   listEventStaffingRequirements, listProfilesLite, listStaffingRoles, previewScalePayments, updateEvent, updateStaffingApplicationPercent,
   updateStaffingApplicationStatus, updateStaffingApplicationValue
 } from '../../lib/dataService'
-import type { ScalePaymentPlanItem } from '../../lib/dataService'
+import type { CandidatePreview, ScalePaymentPlanItem } from '../../lib/dataService'
 
 function brl(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -60,6 +60,24 @@ export default function StaffingTab({ eventId, canManage, canFinance = false, on
   // Valor por pessoa: herda o da vaga, mas o líder pode ajustar caso a caso.
   const [editingValueId, setEditingValueId] = useState<string | null>(null)
   const [valueDraft, setValueDraft] = useState('')
+
+  // Prévia do candidato: quem é essa pessoa? Últimos eventos, habilidades,
+  // experiência — carrega na hora que o líder abre (e fica em cache local).
+  const [previewOpenId, setPreviewOpenId] = useState<string | null>(null)
+  const [previews, setPreviews] = useState<Map<string, CandidatePreview | null>>(new Map())
+
+  async function togglePreview(app: EventStaffingApplication) {
+    if (previewOpenId === app.id) { setPreviewOpenId(null); return }
+    setPreviewOpenId(app.id)
+    if (!previews.has(app.profile_id)) {
+      try {
+        const p = await getStaffingCandidatePreview(app.profile_id)
+        setPreviews((m) => new Map(m).set(app.profile_id, p))
+      } catch {
+        setPreviews((m) => new Map(m).set(app.profile_id, null))
+      }
+    }
+  }
   const [generating, setGenerating] = useState(false)
   const [payMessage, setPayMessage] = useState<string | null>(null)
 
@@ -541,11 +559,30 @@ export default function StaffingTab({ eventId, canManage, canFinance = false, on
               ) : (
                 <div className="space-y-2">
                   {[...waiting, ...confirmed, ...refused].map((app) => (
-                    <div key={app.id} className="flex flex-wrap items-center gap-2.5 py-2 border-t border-beetz-dark/5 first:border-0">
+                    <div key={app.id} className="py-2 border-t border-beetz-dark/5 first:border-0">
+                      {/* Andar 1 — identidade: rosto, nome, status e a seta da
+                          prévia. Andar 2 — dinheiro e ações, recuado embaixo do
+                          nome. Nada de flex-wrap sorteando a ordem no celular. */}
+                      <div className="flex items-center gap-2.5 min-w-0">
                       <Avatar src={personAvatar(app.profile_id)} name={personName(app.profile_id)} size="sm" />
-                      <Link to={`/perfil/${app.profile_id}`} className="flex-1 min-w-[120px] text-sm font-semibold hover:text-beetz-dark/60">
+                      <Link to={`/perfil/${app.profile_id}`} className="flex-1 min-w-0 truncate text-sm font-semibold hover:text-beetz-dark/60">
                         {personName(app.profile_id)}
                       </Link>
+                      <span className={`shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-full ${STATUS_STYLES[app.status]}`}>
+                        {app.status}
+                      </span>
+                      {canManage && (
+                        <button
+                          onClick={() => togglePreview(app)}
+                          className={`shrink-0 p-1.5 rounded-lg border transition-colors ${previewOpenId === app.id ? 'bg-beetz-dark text-white border-beetz-dark' : 'text-beetz-dark/40 border-beetz-dark/10 hover:bg-beetz-gray'}`}
+                          title="Ver histórico e habilidades"
+                        >
+                          <ChevronDown size={13} className={`transition-transform ${previewOpenId === app.id ? 'rotate-180' : ''}`} />
+                        </button>
+                      )}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 mt-1.5 pl-10">
+                      {/* fim do andar 1 / começo do andar 2 */}
                       {/* Valor/percentual combinado: gestor vê todos; o resto
                           vê só o PRÓPRIO — combinado de colega não circula. */}
                       {app.status === 'Confirmado' && (canManage || app.profile_id === userId) && (
@@ -598,10 +635,6 @@ export default function StaffingTab({ eventId, canManage, canFinance = false, on
                           </span>
                         )
                       )}
-                      <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${STATUS_STYLES[app.status]}`}>
-                        {app.status}
-                      </span>
-
                       {canManage && app.status !== 'Confirmado' && (
                         <button
                           onClick={() => decide(app, 'Confirmado')}
@@ -620,6 +653,50 @@ export default function StaffingTab({ eventId, canManage, canFinance = false, on
                         >
                           <X size={12} /> Recusar
                         </button>
+                      )}
+                      </div>
+
+                      {/* Prévia do candidato: quem é essa abelha? Histórico,
+                          habilidades e experiência — decisão sem sair da fila. */}
+                      {previewOpenId === app.id && (
+                        <div className="mt-2 sm:ml-10 bg-beetz-gray/70 border border-beetz-dark/5 rounded-xl p-3 text-xs space-y-2">
+                          {!previews.has(app.profile_id) ? (
+                            <p className="text-beetz-dark/40">Carregando histórico...</p>
+                          ) : !previews.get(app.profile_id) ? (
+                            <p className="text-beetz-dark/40">Não deu pra carregar a prévia agora.</p>
+                          ) : (() => {
+                            const p = previews.get(app.profile_id)!
+                            const desde = p.entry_date ? new Date(p.entry_date + 'T12:00:00').getFullYear() : null
+                            const fmtEv = (iso: string) => iso ? new Date(iso + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: '2-digit' }).replace('.', '') : ''
+                            return (
+                              <>
+                                <p className="font-semibold text-beetz-dark/80">
+                                  🐝 {p.eventos_total > 0 ? `${p.eventos_total} ${p.eventos_total === 1 ? 'evento' : 'eventos'} na colmeia` : 'Ainda sem eventos confirmados por aqui'}
+                                  {p.department_name && <span className="font-normal text-beetz-dark/50"> · {p.department_name}</span>}
+                                  {p.experience_level && <span className="font-normal text-beetz-dark/50"> · {p.experience_level}</span>}
+                                  {desde && <span className="font-normal text-beetz-dark/50"> · desde {desde}</span>}
+                                  {p.city && <span className="font-normal text-beetz-dark/50"> · {p.city}</span>}
+                                </p>
+                                {p.ultimos_eventos.length > 0 && (
+                                  <div className="space-y-0.5">
+                                    {p.ultimos_eventos.map((ev, i) => (
+                                      <p key={i} className="text-beetz-dark/60 truncate">
+                                        📅 {fmtEv(ev.data)} — {ev.nome}{ev.funcao ? ` · ${ev.funcao}` : ''}
+                                      </p>
+                                    ))}
+                                  </div>
+                                )}
+                                {p.skills.length > 0 && (
+                                  <div className="flex flex-wrap gap-1">
+                                    {p.skills.slice(0, 8).map((s) => (
+                                      <span key={s} className="bg-white border border-beetz-dark/10 px-2 py-0.5 rounded-full font-semibold text-beetz-dark/60">{s}</span>
+                                    ))}
+                                  </div>
+                                )}
+                              </>
+                            )
+                          })()}
+                        </div>
                       )}
                     </div>
                   ))}
