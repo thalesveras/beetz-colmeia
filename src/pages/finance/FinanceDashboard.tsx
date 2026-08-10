@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { canViewFinancialSummary } from '../../lib/permissions'
-import { getEventFinanceRows, getFinanceDataset, type EventFinanceRow, type FinanceDataset, type FinanceRow } from '../../lib/dataService'
+import { getCashReconciliation, getEventFinanceRows, getFinanceDataset, type CashReconRow, type EventFinanceRow, type FinanceDataset, type FinanceRow } from '../../lib/dataService'
 import { Donut, HorizontalBars, MonthlyBars, formatMoney, formatMoneyFull, monthLabel, type ChartDatum } from '../../components/finance/Charts'
 
 const inputClass = 'rounded-xl border border-beetz-dark/15 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
@@ -63,18 +63,20 @@ export default function FinanceDashboard() {
   const [groupBy, setGroupBy] = useState<GroupBy>('category')
   const [chartKind, setChartKind] = useState<ChartKind>('barras')
 
-  // As duas visões do painel: "Por evento" (o P&L de cada festa — a
-  // pergunta da Beetz) e "Despesas" (pra onde o dinheiro foi, o painel
-  // clássico). Cada uma com seus filtros; a busca é compartilhada.
-  const [visao, setVisao] = useState<'eventos' | 'despesas'>('eventos')
+  // As três visões do painel: "Caixa" (a conferência de espécie — quanto cada
+  // evento tem a devolver pro caixa da empresa, ou quanto faltou), "Por
+  // evento" (o P&L de cada festa) e "Despesas" (pra onde o dinheiro foi).
+  // Caixa abre primeiro: é a conta que fecha a noite.
+  const [visao, setVisao] = useState<'caixa' | 'eventos' | 'despesas'>('caixa')
   const [eventRows, setEventRows] = useState<EventFinanceRow[]>([])
+  const [cashRows, setCashRows] = useState<CashReconRow[]>([])
   const [evStatus, setEvStatus] = useState('')
   type EvSortKey = 'name' | 'event_date' | 'pdv_faturado' | 'recebido_caixas' | 'despesas' | 'comissoes' | 'resultado'
   const [evSort, setEvSort] = useState<{ key: EvSortKey; asc: boolean }>({ key: 'event_date', asc: false })
 
   useEffect(() => {
-    Promise.all([getFinanceDataset(), getEventFinanceRows()])
-      .then(([d, ev]) => { setData(d); setEventRows(ev) })
+    Promise.all([getFinanceDataset(), getEventFinanceRows(), getCashReconciliation().catch(() => [] as CashReconRow[])])
+      .then(([d, ev, cx]) => { setData(d); setEventRows(ev); setCashRows(cx) })
       .finally(() => setLoading(false))
   }, [])
 
@@ -200,9 +202,29 @@ export default function FinanceDashboard() {
     return null
   }, [groupBy, category, supplier, person, status, eventId, data])
 
-  const activeFilters = visao === 'eventos'
-    ? [month, evStatus, search.trim()].filter(Boolean).length
-    : [month, eventId, category, supplier, person, status, search.trim()].filter(Boolean).length
+  // Conferência de caixa: mesmos filtros da visão por evento (mês/status/busca).
+  const caixaFiltrados = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return cashRows
+      .filter((r) =>
+        (!month || r.event_date.slice(0, 7) === month) &&
+        (!evStatus || r.event_status === evStatus) &&
+        (!q || r.event_name.toLowerCase().includes(q))
+      )
+      .map((r) => ({ ...r, saldo: r.cash_in - r.cash_out }))
+  }, [cashRows, month, evStatus, search])
+
+  const totaisCaixa = useMemo(() => {
+    const devolver = caixaFiltrados.filter((r) => r.saldo > 0).reduce((s, r) => s + r.saldo, 0)
+    const cobrir = caixaFiltrados.filter((r) => r.saldo < 0).reduce((s, r) => s + Math.abs(r.saldo), 0)
+    const entrada = caixaFiltrados.reduce((s, r) => s + r.cash_in, 0)
+    const saida = caixaFiltrados.reduce((s, r) => s + r.cash_out, 0)
+    return { devolver, cobrir, entrada, saida, geral: entrada - saida }
+  }, [caixaFiltrados])
+
+  const activeFilters = visao === 'despesas'
+    ? [month, eventId, category, supplier, person, status, search.trim()].filter(Boolean).length
+    : [month, evStatus, search.trim()].filter(Boolean).length
 
   function clearFilters() {
     setMonth(''); setEventId(''); setCategory(''); setSupplier(''); setPerson(''); setStatus(''); setSearch(''); setEvStatus('')
@@ -239,6 +261,12 @@ export default function FinanceDashboard() {
         <div className="flex items-center gap-2">
           <div className="flex bg-white rounded-xl p-1 border border-beetz-dark/10 shrink-0">
             <button
+              onClick={() => setVisao('caixa')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-colors ${visao === 'caixa' ? 'bg-beetz-dark text-white' : 'text-beetz-dark/50'}`}
+            >
+              💵 Caixa
+            </button>
+            <button
               onClick={() => setVisao('eventos')}
               className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-colors ${visao === 'eventos' ? 'bg-beetz-dark text-white' : 'text-beetz-dark/50'}`}
             >
@@ -254,7 +282,7 @@ export default function FinanceDashboard() {
           <div className="relative flex-1 min-w-0">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-beetz-dark/30" />
             <input
-              placeholder={visao === 'eventos' ? 'Buscar evento...' : 'Buscar descrição, fornecedor, pessoa...'}
+              placeholder={visao === 'despesas' ? 'Buscar descrição, fornecedor, pessoa...' : 'Buscar evento...'}
               value={search} onChange={(e) => setSearch(e.target.value)}
               className={`${inputClass} w-full min-w-0 pl-9`}
             />
@@ -276,7 +304,7 @@ export default function FinanceDashboard() {
           </button>
         </div>
 
-        {showFilters && (visao === 'eventos' ? (
+        {showFilters && (visao !== 'despesas' ? (
           <div className="bg-white rounded-2xl p-3 border border-beetz-dark/5 shadow-soft grid grid-cols-2 gap-2">
             <select value={month} onChange={(e) => setMonth(e.target.value)} className={`${inputClass} min-w-0`}>
               <option value="">Todos os meses</option>
@@ -326,6 +354,93 @@ export default function FinanceDashboard() {
           </div>
         ))}
       </div>
+
+      {/* ============ VISÃO CAIXA: conferência de espécie por evento ============
+          Recebido em dinheiro pelos caixas − despesas em Dinheiro do evento.
+          Positivo: o evento tem dinheiro a DEVOLVER pro caixa da empresa.
+          Negativo: faltou — a empresa precisa INCLUIR essa diferença.
+          Só leitura: nenhuma despesa é alterada aqui. */}
+      {visao === 'caixa' && (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="bg-beetz-dark text-white rounded-2xl p-4">
+              <p className={`text-2xl font-extrabold leading-none ${totaisCaixa.geral < 0 ? 'text-red-400' : 'text-beetz-yellow'}`}>
+                {totaisCaixa.geral < 0 ? '−' : ''}{formatMoney(Math.abs(totaisCaixa.geral))}
+              </p>
+              <p className="text-xs text-white/60 mt-1.5">Saldo geral {totaisCaixa.geral < 0 ? '(faltando)' : 'a entrar no caixa'}</p>
+            </div>
+            <div className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5">
+              <p className="text-2xl font-extrabold leading-none text-green-700">{formatMoney(totaisCaixa.devolver)}</p>
+              <p className="text-xs text-beetz-dark/50 mt-1.5">A devolver ao caixa ({caixaFiltrados.filter((r) => r.saldo > 0).length} eventos)</p>
+            </div>
+            <div className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5">
+              <p className="text-2xl font-extrabold leading-none text-red-600">{formatMoney(totaisCaixa.cobrir)}</p>
+              <p className="text-xs text-beetz-dark/50 mt-1.5">A incluir no caixa ({caixaFiltrados.filter((r) => r.saldo < 0).length} eventos)</p>
+            </div>
+            <div className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5">
+              <p className="text-lg font-extrabold leading-tight">{formatMoney(totaisCaixa.entrada)}<span className="text-beetz-dark/35 font-semibold text-sm"> − {formatMoney(totaisCaixa.saida)}</span></p>
+              <p className="text-xs text-beetz-dark/50 mt-1.5">Recebido em dinheiro − despesas em dinheiro</p>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-soft border border-beetz-dark/5 overflow-hidden">
+            <div className="px-4 py-3 border-b border-beetz-dark/5 flex items-center justify-between gap-2">
+              <p className="font-bold text-sm">Conferência evento por evento</p>
+              <p className="text-xs text-beetz-dark/40">{caixaFiltrados.length} eventos com movimento em espécie</p>
+            </div>
+
+            {caixaFiltrados.length === 0 ? (
+              <p className="text-sm text-beetz-dark/40 p-8 text-center">Nenhum evento com dinheiro em espécie nesse filtro.</p>
+            ) : (
+              <div className="divide-y divide-beetz-dark/5">
+                {caixaFiltrados.map((r) => (
+                  <Link
+                    key={r.event_id}
+                    to={`/eventos/${r.event_id}`}
+                    className="flex items-center gap-3 px-4 py-3 hover:bg-beetz-gray transition-colors"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="font-bold text-sm truncate">{r.event_name}</p>
+                      <p className="text-[11px] text-beetz-dark/40 mt-0.5">
+                        {fmtDataEv(r.event_date)} · {r.event_status}
+                        {r.cash_out_pendente > 0.004 && (
+                          <span className="text-amber-700"> · inclui {formatMoneyFull(r.cash_out_pendente)} em dinheiro ainda pendente</span>
+                        )}
+                      </p>
+                      {/* A conta escrita por extenso — é uma tela de conferência,
+                          o número tem que ser auditável de olho. */}
+                      <p className="text-[11px] text-beetz-dark/50 mt-0.5 tabular-nums">
+                        💵 {formatMoneyFull(r.cash_in)} recebido − {formatMoneyFull(r.cash_out)} em despesas
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className={`font-extrabold tabular-nums ${r.saldo < -0.004 ? 'text-red-600' : 'text-green-700'}`}>
+                        {r.saldo < 0 ? '−' : ''}{formatMoneyFull(Math.abs(r.saldo))}
+                      </p>
+                      <p className={`text-[10px] font-bold uppercase tracking-wide ${r.saldo < -0.004 ? 'text-red-500' : 'text-green-600'}`}>
+                        {r.saldo < -0.004 ? 'incluir no caixa' : 'devolver ao caixa'}
+                      </p>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+
+            {/* Rodapé com a soma da conferência filtrada */}
+            <div className="px-4 py-3 bg-beetz-dark text-white flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold text-white/60">Saldo dos eventos listados</p>
+              <p className={`font-extrabold tabular-nums ${totaisCaixa.geral < 0 ? 'text-red-400' : 'text-beetz-yellow'}`}>
+                {totaisCaixa.geral < 0 ? '−' : ''}{formatMoneyFull(Math.abs(totaisCaixa.geral))}
+              </p>
+            </div>
+          </div>
+
+          <p className="text-[11px] text-beetz-dark/40">
+            Entram na conta: valores em <strong>Dinheiro</strong> dos recebimentos dos caixas (fechamentos não rejeitados) e todas as
+            despesas do evento com forma de pagamento <strong>Dinheiro</strong>. Nada é alterado — é só conferência.
+          </p>
+        </>
+      )}
 
       {/* ============ VISÃO POR EVENTO: o P&L de cada festa ============ */}
       {visao === 'eventos' && (

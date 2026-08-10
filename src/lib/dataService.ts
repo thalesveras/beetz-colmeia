@@ -1915,6 +1915,33 @@ export async function getEventFinanceRows(): Promise<EventFinanceRow[]> {
   })) as EventFinanceRow[]
 }
 
+// ---------- Financeiro: conferência de caixa (espécie) ----------
+// Por evento: dinheiro que entrou pelos caixas − despesas em Dinheiro.
+//   saldo > 0 → a devolver pro caixa da empresa
+//   saldo < 0 → faltou: a empresa cobre
+// Só leitura (a RPC nem tem update); a RLS de quem chama continua valendo.
+export interface CashReconRow {
+  event_id: string
+  event_name: string
+  event_date: string
+  event_status: string
+  cash_in: number
+  cash_out: number
+  cash_out_pendente: number
+}
+
+export async function getCashReconciliation(): Promise<CashReconRow[]> {
+  if (isDemoMode) return []
+  const { data, error } = await supabase.rpc('cash_reconciliation')
+  if (error) throw error
+  return ((data ?? []) as any[]).map((r) => ({
+    ...r,
+    cash_in: Number(r.cash_in ?? 0),
+    cash_out: Number(r.cash_out ?? 0),
+    cash_out_pendente: Number(r.cash_out_pendente ?? 0)
+  })) as CashReconRow[]
+}
+
 // ---------- Configurações: Regras do /cadastro ----------
 // Nada aqui altera dados de perfis — só as regras do formulário.
 
