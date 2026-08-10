@@ -57,8 +57,12 @@ export default function ProfilesSection() {
     }
   }
 
+  // 'sem' é sentinela: mostra quem AINDA não tem departamento — é essa turma
+  // que precisa de ajuste, e antes ela não tinha filtro pra aparecer sozinha.
+  const semDepartamento = profiles.filter((p) => !p.department_id).length
   const filteredProfiles = profiles.filter((p) => {
-    if (departmentFilter && p.department_id !== departmentFilter) return false
+    if (departmentFilter === 'sem') { if (p.department_id) return false }
+    else if (departmentFilter && p.department_id !== departmentFilter) return false
     if (search && !`${p.first_name} ${p.last_name}`.toLowerCase().includes(search.toLowerCase())) return false
     return true
   })
@@ -98,6 +102,19 @@ export default function ProfilesSection() {
               {d.icon} {d.name}
             </button>
           ))}
+          {semDepartamento > 0 && (
+            <button
+              onClick={() => setDepartmentFilter('sem')}
+              title="Quem ainda não tem departamento definido — é essa turma que precisa de ajuste"
+              className={`text-sm font-semibold px-3.5 py-2 rounded-xl transition-colors ${
+                departmentFilter === 'sem'
+                  ? 'bg-amber-500 text-white'
+                  : 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100'
+              }`}
+            >
+              ⚠️ Sem departamento ({semDepartamento})
+            </button>
+          )}
         </div>
         <p className="text-xs text-beetz-dark/40">{filteredProfiles.length} de {profiles.length} perfil(s)</p>
       </div>
