@@ -42,15 +42,15 @@ export default function StepHealth({ data, update }: Props) {
       <Field label="Você fuma?">
         <SimNao valor={data.is_smoker} nao="🚭 Não fumo" sim="🚬 Sou fumante" onPick={(v) => update({ is_smoker: v })} />
       </Field>
-      <Field label="Você bebe?">
-        <SimNao valor={data.is_drinker} nao="🚱 Não bebo" sim="🍺 Bebo" onPick={(v) => update({ is_drinker: v })} />
+      <Field label="Você faz uso de bebida alcoólica?">
+        <SimNao valor={data.is_drinker} nao="🚱 Não faço uso" sim="🍺 Faço uso" onPick={(v) => update({ is_drinker: v })} />
       </Field>
-      <Field label="Você toma remédios controlados?">
-        <SimNao valor={data.uses_controlled_meds} nao="Não tomo" sim="💊 Tomo" onPick={(v) => update({ uses_controlled_meds: v, ...(v ? {} : { controlled_meds_notes: null }) })} />
+      <Field label="Você faz uso de medicamento controlado?">
+        <SimNao valor={data.uses_controlled_meds} nao="Não faço uso" sim="💊 Faço uso" onPick={(v) => update({ uses_controlled_meds: v, ...(v ? {} : { controlled_meds_notes: null }) })} />
         {data.uses_controlled_meds === true && (
           <input
             className="w-full border border-beetz-dark/15 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-beetz-yellow mt-2"
-            placeholder="Quais? (ajuda a equipe a cuidar de você numa emergência)"
+            placeholder="Quais medicamentos? (ajuda a equipe a cuidar de você numa emergência)"
             value={data.controlled_meds_notes || ''}
             onChange={(e) => update({ controlled_meds_notes: e.target.value })}
           />
