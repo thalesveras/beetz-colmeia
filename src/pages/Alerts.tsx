@@ -6,12 +6,12 @@ import { ALERT_TYPES } from '../lib/alerts'
 import { canConfigureAlerts, ACCESS_ROLES, ACCESS_ROLE_LABELS } from '../lib/permissions'
 import {
   disablePushOnThisDevice, enablePushOnThisDevice, isPushEnabledHere, listAlertChannels,
-  listEventMembers, listEvents, listMyAlertPrefs, listNotifications, listProfilesLite,
+  listDepartments, listEventMembers, listEvents, listMyAlertPrefs, listNotifications, listProfilesLite,
   listPushProfileIds, listRolePermissions,
   markAllNotificationsRead, markNotificationRead, pushSupportedHere, sendManualPush,
   setMyAlertPref, updateAlertChannel, updateRolePermission
 } from '../lib/dataService'
-import type { AlertChannelSetting, AlertFlagKey, AppNotification, EventItem, EventMember, Profile, RolePermissions } from '../lib/types'
+import type { AlertChannelSetting, AlertFlagKey, AppNotification, Department, EventItem, EventMember, Profile, RolePermissions } from '../lib/types'
 
 type TabKey = 'pessoais' | 'globais' | 'escala' | 'meus' | 'enviar' | 'config'
 
@@ -242,8 +242,11 @@ function ManualPushTab() {
   const [eventId, setEventId] = useState('')
   const [members, setMembers] = useState<EventMember[]>([])
   const [eventFns, setEventFns] = useState<Set<string>>(new Set()) // vazio = todas
-  // Por função em geral (o cadastro tem texto livre — agrupamos normalizado)
+  // Por departamento: o cadastro tem departamento estruturado (e desde o
+  // multi-departamento, também os extras) — MUITO mais limpo que a antiga
+  // "função" em texto livre, que virava sopa de variações.
   const [fns, setFns] = useState<Set<string>>(new Set())
+  const [departments, setDepartments] = useState<Department[]>([])
   // Ajuste fino dos recortes: filtro "só com push ativo" + exclusões
   // pontuais (o recorte traz todo mundo marcado; a Diretoria desmarca
   // quem não deve receber). Trocou o recorte, as exclusões zeram.
@@ -263,6 +266,13 @@ function ManualPushTab() {
       listEvents().then(setEvents).catch(() => setEvents([]))
     }
   }, [mode, events.length])
+
+  // Departamentos idem: só quando o recorte é por departamento.
+  useEffect(() => {
+    if (mode === 'funcao' && departments.length === 0) {
+      listDepartments().then(setDepartments).catch(() => setDepartments([]))
+    }
+  }, [mode, departments.length])
 
   useEffect(() => {
     setMembers([])
@@ -287,7 +297,27 @@ function ManualPushTab() {
 
   const aprovados = useMemo(() => members.filter((m) => m.status === 'Aprovado'), [members])
   const funcoesDoEvento = useMemo(() => agrupaFuncoes(aprovados.map((m) => m.role_in_event)), [aprovados])
-  const funcoesGerais = useMemo(() => agrupaFuncoes(profiles.map((p) => p.role)), [profiles])
+
+  // Departamentos de uma pessoa: o principal + os extras (Caixa E Garçons
+  // recebe aviso dos dois).
+  const depsDe = (p: Profile): string[] =>
+    [p.department_id, ...((p.extra_department_ids ?? []) as string[])].filter(Boolean) as string[]
+
+  const departamentosGerais = useMemo(() => {
+    const contagem = new Map<string, number>()
+    let semDep = 0
+    for (const p of profiles) {
+      const ds = depsDe(p)
+      if (ds.length === 0) { semDep++; continue }
+      for (const d of new Set(ds)) contagem.set(d, (contagem.get(d) ?? 0) + 1)
+    }
+    const lista = departments
+      .map((d) => ({ key: d.id, label: `${d.icon} ${d.name}`, count: contagem.get(d.id) ?? 0 }))
+      .filter((d) => d.count > 0)
+      .sort((a, b) => b.count - a.count)
+    if (semDep > 0) lista.push({ key: 'sem', label: 'Sem departamento', count: semDep })
+    return lista
+  }, [profiles, departments])
 
   // A resolução final: cada modo vira uma lista de pessoas ANTES do envio,
   // com prévia — a Diretoria vê exatamente quem vai receber.
@@ -300,7 +330,13 @@ function ManualPushTab() {
       )]
     }
     if (mode === 'funcao') {
-      return profiles.filter((p) => fns.has(normFn(p.role))).map((p) => p.id)
+      return profiles
+        .filter((p) => {
+          const ds = depsDe(p)
+          if (ds.length === 0) return fns.has('sem')
+          return ds.some((d) => fns.has(d))
+        })
+        .map((p) => p.id)
     }
     return []
   }, [mode, aprovados, eventFns, profiles, fns])
@@ -389,7 +425,7 @@ function ManualPushTab() {
     if (mode === 'some' && selected.size === 0) { setError('Escolha ao menos uma pessoa.'); return }
     if (mode === 'evento' && !eventId) { setError('Escolha o evento.'); return }
     if ((mode === 'evento' || mode === 'funcao') && resolvedIds.length === 0) {
-      setError(mode === 'evento' ? 'Esse recorte não tem ninguém aprovado no evento.' : 'Escolha ao menos uma função.')
+      setError(mode === 'evento' ? 'Esse recorte não tem ninguém aprovado no evento.' : 'Escolha ao menos um departamento.')
       return
     }
     if ((mode === 'evento' || mode === 'funcao') && finalIds.length === 0) {
@@ -444,7 +480,7 @@ function ManualPushTab() {
             ['all', 'Toda a colmeia'],
             ['some', `Escolher pessoas${selected.size > 0 ? ` (${selected.size})` : ''}`],
             ['evento', 'Por evento'],
-            ['funcao', 'Por função']
+            ['funcao', 'Por departamento']
           ] as ['all' | 'some' | 'evento' | 'funcao', string][]).map(([m, label]) => (
             <button key={m} onClick={() => setMode(m)}
               className={`text-sm font-semibold px-3.5 py-2 rounded-xl transition-colors ${
@@ -496,7 +532,7 @@ function ManualPushTab() {
         {mode === 'funcao' && (
           <div className="space-y-2.5">
             <div className="flex flex-wrap gap-1.5">
-              {funcoesGerais.map((f) => (
+              {departamentosGerais.map((f) => (
                 <button key={f.key}
                   onClick={() => setFns((prev) => {
                     const next = new Set(prev)
@@ -512,11 +548,11 @@ function ManualPushTab() {
               ))}
             </div>
             <p className="text-xs text-beetz-dark/40">
-              As funções vêm do cadastro (texto livre) — variações como "garçom" e "garçons " já chegam agrupadas; marque as que fizerem sentido.
+              Os departamentos vêm do cadastro — quem tem mais de um (ex.: Caixa e Garçons) conta nos dois; marque os que fizerem sentido.
             </p>
             {fns.size > 0 && (
               resolvedIds.length === 0
-                ? <p className="text-xs text-beetz-dark/50">Ninguém com essas funções.</p>
+                ? <p className="text-xs text-beetz-dark/50">Ninguém nesses departamentos.</p>
                 : gridResolvidas()
             )}
           </div>
