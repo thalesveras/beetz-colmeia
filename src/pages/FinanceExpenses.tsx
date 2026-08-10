@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import {
-  addExpensePayment, deleteExpense, listAllExpenses, listEvents, listExpenseCategories, listExpensePaymentTotals, listPaymentMethods, updateExpense,
+  addExpensePayment, deleteExpense, getExpenseAttachments, listAllExpenses, listEvents, listExpenseCategories, listExpensePaymentTotals, listPaymentMethods, updateExpense,
   listPendingProfilesForPicker, listProfiles, listSuppliers
 } from '../lib/dataService'
 import type {
@@ -45,7 +45,15 @@ type SortDir = 'asc' | 'desc'
 
 export default function FinanceExpenses() {
   const { accessRole, userId } = useAuth()
-  const [loading, setLoading] = useState(true)
+  // A rota abre LEVE (só listas dos filtros/modais). As despesas descem no
+  // Aplicar — recortadas por evento no banco e SEM os anexos base64 (16 MB
+  // no select antigo). Anexo de UMA despesa vem na hora de editar.
+  const [loading, setLoading] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+  const [abrindoId, setAbrindoId] = useState<string | null>(null)
+  // Paginação (vale pras duas visões).
+  const [pageSize, setPageSize] = useState<50 | 200>(50)
+  const [page, setPage] = useState(0)
   const [expenses, setExpenses] = useState<Expense[]>([])
   // Soma dos pagamentos parciais por despesa (view leve, sem comprovantes):
   // alimenta o chip "falta R$ X" de quem já começou a ser paga.
@@ -201,26 +209,40 @@ export default function FinanceExpenses() {
     }
   }
 
+  // Mount: só o que os FILTROS e os modais precisam pra existir — leve.
+  useEffect(() => {
+    Promise.all([
+      listEvents().catch(() => [] as EventItem[]),
+      listExpenseCategories().catch(() => [] as ExpenseCategory[]),
+      listPaymentMethods().catch(() => [] as PaymentMethodOption[])
+    ]).then(([evs, cats, methods]) => {
+      setEvents(evs)
+      setCategories(cats)
+      setPaymentMethods(methods)
+    })
+  }, [])
+
   async function load() {
     setLoading(true)
-    const [exp, evs, profs, pend, sups, cats, methods, pagos] = await Promise.all([
-      listAllExpenses(), listEvents(), listProfiles(), listPendingProfilesForPicker(), listSuppliers(),
-      listExpenseCategories(), listPaymentMethods(),
-      // Se a view falhar, a página vive sem os chips — nunca derruba a lista.
-      listExpensePaymentTotals().catch(() => [])
-    ])
-    setExpenses(exp)
-    setPayTotals(pagos)
-    setEvents(evs)
-    setProfiles(profs)
-    setPendingProfiles(pend)
-    setSuppliers(sups)
-    setCategories(cats)
-    setPaymentMethods(methods)
-    setLoading(false)
+    try {
+      const [exp, profs, pend, sups, pagos] = await Promise.all([
+        // Recortada por evento JÁ NO BANCO (nenhum marcado = todos), magra.
+        listAllExpenses(eventFilter),
+        listProfiles(), listPendingProfilesForPicker(), listSuppliers(),
+        // Se a view falhar, a página vive sem os chips — nunca derruba a lista.
+        listExpensePaymentTotals().catch(() => [])
+      ])
+      setExpenses(exp)
+      setPayTotals(pagos)
+      setProfiles(profs)
+      setPendingProfiles(pend)
+      setSuppliers(sups)
+      setLoaded(true)
+      setPage(0)
+    } finally {
+      setLoading(false)
+    }
   }
-
-  useEffect(() => { load() }, [])
 
   const pagoPorDespesa = useMemo(() => new Map(payTotals.map((t) => [t.expense_id, t.total_pago])), [payTotals])
   // Chip de pagamento parcial: só aparece quando a despesa já recebeu algum
@@ -342,6 +364,29 @@ export default function FinanceExpenses() {
   const total = useMemo(() => filtered.reduce((sum, e) => sum + e.total, 0), [filtered])
   const hasFilters = !!(searchFilter || monthFilter || producerFilter || eventFilter.length > 0 || statusFilter)
 
+  // Paginação: fatia o recorte pras duas visões. Totais, "Selecionar todas"
+  // e ações em lote continuam sobre o recorte INTEIRO, não só a página.
+  useEffect(() => { setPage(0) }, [searchFilter, monthFilter, producerFilter, statusFilter, pageSize, sortField, sortDir])
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const pageClamped = Math.min(page, totalPages - 1)
+  const paginated = useMemo(
+    () => filtered.slice(pageClamped * pageSize, (pageClamped + 1) * pageSize),
+    [filtered, pageClamped, pageSize]
+  )
+
+  // Editar busca os anexos pesados (comprovante/assinatura/repasse) SÓ da
+  // despesa aberta — a lista vem sem eles. Sem essa busca, o salvar do modal
+  // apagaria os anexos existentes.
+  async function abrirEdicao(exp: Expense) {
+    setAbrindoId(exp.id)
+    try {
+      const anexos = await getExpenseAttachments(exp.id).catch(() => ({ receipt_data: null, signature_data: null, repasse_data: null }))
+      setEditingExpense({ ...exp, ...anexos })
+    } finally {
+      setAbrindoId(null)
+    }
+  }
+
   const selectedTotal = useMemo(
     () => filtered.filter((e) => selected.has(e.id)).reduce((sum, e) => sum + e.total, 0),
     [filtered, selected]
@@ -407,7 +452,7 @@ export default function FinanceExpenses() {
   // pequenas, porque tabela de 8 colunas em celular é scroll infinito.
   const cardsList = (
     <div className="space-y-2">
-      {filtered.map((exp) => {
+      {paginated.map((exp) => {
         const event = eventsById.get(exp.event_id)
         const supplier = exp.supplier_id ? suppliers.find((s) => s.id === exp.supplier_id) : null
         const person = personName(exp)
@@ -523,7 +568,7 @@ export default function FinanceExpenses() {
                   {canEdit && (
                     <div className="flex items-center gap-1 shrink-0">
                       <button
-                        onClick={() => setEditingExpense(exp)}
+                        onClick={() => abrirEdicao(exp)} disabled={abrindoId === exp.id}
                         className="text-beetz-dark/40 hover:text-beetz-dark p-2 rounded-lg hover:bg-beetz-gray"
                       >
                         <Pencil size={15} />
@@ -666,6 +711,15 @@ export default function FinanceExpenses() {
               ))}
             </div>
           )}
+          {/* Nada carrega sozinho: o Aplicar é quem busca — recortado por
+              evento no banco e sem os anexos pesados. */}
+          <button
+            onClick={load}
+            disabled={loading}
+            className="w-full sm:w-auto honey-gradient text-beetz-dark font-bold px-6 py-2.5 rounded-xl text-sm disabled:opacity-60 active:scale-[0.99] transition-transform"
+          >
+            {loading ? 'Carregando...' : loaded ? '🔎 Aplicar filtro' : '🔎 Aplicar e carregar'}
+          </button>
           {hasFilters && (
             <button
               onClick={clearFilters}
@@ -721,6 +775,14 @@ export default function FinanceExpenses() {
 
       {loading ? (
         <p className="text-beetz-dark/50 text-sm">Carregando despesas...</p>
+      ) : !loaded ? (
+        <div className="bg-white rounded-2xl p-10 shadow-soft border border-beetz-dark/5 text-center">
+          <p className="text-4xl mb-3">🔎</p>
+          <p className="font-bold">Escolha o recorte e toque em Aplicar</p>
+          <p className="text-sm text-beetz-dark/50 mt-1 max-w-md mx-auto">
+            A tela não baixa mais tudo sozinha — marque um ou mais eventos (ou nenhum, pra ver todos) e aplique o filtro.
+          </p>
+        </div>
       ) : (
         <>
           <div className="flex flex-wrap items-center justify-between gap-3 bg-beetz-dark text-white rounded-2xl p-5">
@@ -783,7 +845,7 @@ export default function FinanceExpenses() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((exp) => {
+                  {paginated.map((exp) => {
                     const event = eventsById.get(exp.event_id)
                     const supplier = exp.supplier_id ? suppliers.find((s) => s.id === exp.supplier_id) : null
                     const person = personName(exp)
@@ -824,7 +886,7 @@ export default function FinanceExpenses() {
                         {canEdit && (
                           <td className="p-3">
                             <div className="flex items-center gap-1 justify-end">
-                              <button onClick={() => setEditingExpense(exp)} className="text-beetz-dark/40 hover:text-beetz-dark p-1.5 rounded-lg hover:bg-beetz-gray">
+                              <button onClick={() => abrirEdicao(exp)} disabled={abrindoId === exp.id} className="text-beetz-dark/40 hover:text-beetz-dark p-1.5 rounded-lg hover:bg-beetz-gray">
                                 <Pencil size={13} />
                               </button>
                               {confirmDeleteId === exp.id ? (
@@ -853,6 +915,40 @@ export default function FinanceExpenses() {
               </table>
             </div>
             </>
+          )}
+
+          {/* Paginação (vale pra cards e tabela): 50 ou 200 por página. */}
+          {filtered.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 bg-white rounded-2xl px-4 py-3 shadow-soft border border-beetz-dark/5">
+              <p className="text-xs text-beetz-dark/50">
+                {pageClamped * pageSize + 1}–{Math.min((pageClamped + 1) * pageSize, filtered.length)} de {filtered.length}
+              </p>
+              <div className="flex items-center gap-2">
+                <select
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value) as 50 | 200)}
+                  className="rounded-lg border border-beetz-dark/15 text-xs px-2 py-1.5 bg-white"
+                >
+                  <option value={50}>50 por página</option>
+                  <option value={200}>200 por página</option>
+                </select>
+                <button
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={pageClamped === 0}
+                  className="text-sm font-bold px-3 py-1.5 rounded-lg border border-beetz-dark/12 bg-white disabled:opacity-40"
+                >
+                  ‹
+                </button>
+                <span className="text-xs font-semibold text-beetz-dark/60">{pageClamped + 1} / {totalPages}</span>
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                  disabled={pageClamped >= totalPages - 1}
+                  className="text-sm font-bold px-3 py-1.5 rounded-lg border border-beetz-dark/12 bg-white disabled:opacity-40"
+                >
+                  ›
+                </button>
+              </div>
+            </div>
           )}
         </>
       )}

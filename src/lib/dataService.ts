@@ -909,13 +909,38 @@ export async function listExpensesForEvent(eventId: string): Promise<Expense[]> 
 
 // Todas as despesas, de todos os eventos — usado na visão financeira global
 // (/financeiro), que cruza com listEvents() pra filtrar por mês/produtor/evento.
-export async function listAllExpenses(): Promise<Expense[]> {
+// MAGRA de propósito: o select('*') baixava comprovante + assinatura +
+// repasse em base64 de TODAS as despesas (16 MB) — e nenhum consumidor
+// desta lista usa esses anexos. Quem edita UMA despesa busca os anexos dela
+// sob demanda (getExpenseAttachments). eventIds recorta já no banco.
+const EXPENSE_LEAN_COLS =
+  'id,event_id,status,category,payment_method,description,quantity,unit_value,dex_fee,total,created_by,created_at,team_member_id,supplier_id,pending_team_member_id,zoho_expense_id,stock_movement_id,staffing_application_id'
+
+export async function listAllExpenses(eventIds?: string[]): Promise<Expense[]> {
   if (isDemoMode) {
-    return [...demoState.expenses].sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+    return [...demoState.expenses]
+      .filter((e) => !eventIds || eventIds.length === 0 || eventIds.includes(e.event_id))
+      .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
   }
-  const { data, error } = await supabase.from('expenses').select('*').order('created_at', { ascending: false })
+  let q = supabase.from('expenses').select(EXPENSE_LEAN_COLS).order('created_at', { ascending: false })
+  if (eventIds && eventIds.length > 0) q = q.in('event_id', eventIds)
+  const { data, error } = await q
   if (error) throw error
-  return data as Expense[]
+  return data as unknown as Expense[]
+}
+
+// Anexos (base64 pesado) de UMA despesa — só na hora de abrir pra editar.
+// Sem isso, o salvar do modal gravaria null por cima e apagaria comprovante,
+// assinatura e repasse da despesa.
+export async function getExpenseAttachments(id: string): Promise<{ receipt_data: string | null; signature_data: string | null; repasse_data: string | null }> {
+  if (isDemoMode) {
+    const e = demoState.expenses.find((x) => x.id === id)
+    return { receipt_data: e?.receipt_data ?? null, signature_data: e?.signature_data ?? null, repasse_data: e?.repasse_data ?? null }
+  }
+  const { data, error } = await supabase.from('expenses').select('receipt_data,signature_data,repasse_data').eq('id', id).single()
+  if (error) throw error
+  const r = data as { receipt_data: string | null; signature_data: string | null; repasse_data: string | null } | null
+  return { receipt_data: r?.receipt_data ?? null, signature_data: r?.signature_data ?? null, repasse_data: r?.repasse_data ?? null }
 }
 
 // ---------- Dashboard financeiro ----------
