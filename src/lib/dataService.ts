@@ -1246,13 +1246,34 @@ export async function deleteCashierSettlement(id: string): Promise<void> {
 // Todos os recebimentos (fechamentos de caixa), de todos os eventos — usado
 // na visão financeira global (/financeiro/recebimentos), igual listAllExpenses()
 // faz pra despesas.
-export async function listAllCashierSettlements(): Promise<CashierSettlement[]> {
+// MAGRO de propósito: o select('*') antigo baixava os comprovantes base64
+// junto — 148 MB pra abrir a tela de Recebimentos. Aqui vem só o que a
+// tabela mostra; o comprovante de um lançamento específico é buscado sob
+// demanda (getSettlementReceipt) na hora de editar.
+const SETTLEMENT_LEAN_COLS =
+  'id,event_id,profile_id,role_type,cash_amount,debit_amount,credit_amount,pix_amount,total,notes,created_by,created_at,status,commission_amount'
+
+export async function listAllCashierSettlements(eventIds?: string[]): Promise<CashierSettlement[]> {
   if (isDemoMode) {
-    return [...demoState.cashierSettlements].sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+    return [...demoState.cashierSettlements]
+      .filter((s) => !eventIds || eventIds.length === 0 || eventIds.includes(s.event_id))
+      .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
   }
-  const { data, error } = await supabase.from('cashier_settlements').select('*').order('created_at', { ascending: false })
+  let q = supabase.from('cashier_settlements').select(SETTLEMENT_LEAN_COLS).order('created_at', { ascending: false })
+  if (eventIds && eventIds.length > 0) q = q.in('event_id', eventIds)
+  const { data, error } = await q
   if (error) throw error
-  return data as CashierSettlement[]
+  return data as unknown as CashierSettlement[]
+}
+
+// O comprovante (base64 pesado) de UM lançamento — só quando alguém abre
+// pra editar. Sem isso, o modal salvaria receipt_data null por cima do que
+// existe e apagaria o comprovante da pessoa.
+export async function getSettlementReceipt(id: string): Promise<string | null> {
+  if (isDemoMode) return demoState.cashierSettlements.find((s) => s.id === id)?.receipt_data ?? null
+  const { data, error } = await supabase.from('cashier_settlements').select('receipt_data').eq('id', id).single()
+  if (error) throw error
+  return (data as { receipt_data: string | null } | null)?.receipt_data ?? null
 }
 
 // ---------- Estoque multi-almoxarifado ----------

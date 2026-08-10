@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Receipt } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
-import { listAllCashierSettlements, listAllSettlementInternals, listEvents, listProfilesLite, listProfilesPixLite } from '../lib/dataService'
+import { getSettlementReceipt, listAllCashierSettlements, listAllSettlementInternals, listEvents, listProfilesLite, listProfilesPixLite } from '../lib/dataService'
 import type { ProfilePixLite } from '../lib/dataService'
 import type { CashierRoleType, CashierSettlement, CashierSettlementInternal, CashierStatus, EventItem, Profile } from '../lib/types'
 import { canGroupReceipts, canMoveSettlementEvent, canReviewCashier, canViewFinancialSummary } from '../lib/permissions'
@@ -47,13 +47,23 @@ const COLS_STORAGE_KEY = 'colmeia:recebimentos-colunas'
 
 export default function Receipts() {
   const { accessRole } = useAuth()
-  const [loading, setLoading] = useState(true)
+  // A rota abre LEVE: só a lista de eventos (pro filtro). Os recebimentos
+  // em si só descem quando a pessoa toca em Aplicar — e já recortados por
+  // evento no banco, sem os comprovantes base64 (eram 148 MB no select antigo).
+  const [loading, setLoading] = useState(false)
+  const [loaded, setLoaded] = useState(false)
   const [settlements, setSettlements] = useState<CashierSettlement[]>([])
   const [internals, setInternals] = useState<Map<string, CashierSettlementInternal>>(new Map())
   const [events, setEvents] = useState<EventItem[]>([])
   const [profiles, setProfiles] = useState<Profile[]>([])
-  const [eventFilter, setEventFilter] = useState('')
+  // Multi-seleção de eventos: o select acumula; os escolhidos viram chips.
+  const [eventFilter, setEventFilter] = useState<string[]>([])
   const [search, setSearch] = useState('')
+  // Paginação da tabela detalhada.
+  const [pageSize, setPageSize] = useState<50 | 200>(50)
+  const [page, setPage] = useState(0)
+  // Editar busca o comprovante pesado sob demanda — trava só aquela linha.
+  const [abrindoId, setAbrindoId] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState('')
   const [roleFilter, setRoleFilter] = useState('')
   const [onlyDevendo, setOnlyDevendo] = useState(false)
@@ -99,29 +109,36 @@ export default function Receipts() {
   }
   const col = (k: string) => cols.has(k)
 
-  async function load() {
+  // Carga inicial: SÓ os eventos do filtro (uma lista de nomes). Nada de
+  // recebimentos ainda.
+  useEffect(() => { listEvents().then(setEvents).catch(() => setEvents([])) }, [])
+
+  async function aplicar() {
     setLoading(true)
-    const [s, ints, evs, profs, pix] = await Promise.all([
-      listAllCashierSettlements(),
-      listAllSettlementInternals().catch(() => [] as CashierSettlementInternal[]),
-      listEvents(),
-      // Lite: era o listProfiles COMPLETO (7,8 MB com fotos base64) que
-      // segurava esta tela no "Carregando recebimentos..." — a página só
-      // precisa de nomes.
-      listProfilesLite(),
-      // Pix relacionado do perfil (4 campos, leve) — falha aqui não derruba
-      // a tela: a coluna aparece vazia.
-      listProfilesPixLite().catch(() => [] as ProfilePixLite[])
-    ])
-    setSettlements(s)
-    setInternals(new Map(ints.map((i) => [i.settlement_id, i])))
-    setEvents(evs)
-    setProfiles(profs)
-    setPixByProfile(new Map(pix.map((p) => [p.id, p])))
-    setLoading(false)
+    try {
+      const [s, ints, profs, pix] = await Promise.all([
+        // Recortado por evento JÁ NO BANCO (sem eventos marcados = todos).
+        listAllCashierSettlements(eventFilter),
+        listAllSettlementInternals().catch(() => [] as CashierSettlementInternal[]),
+        // Lite: nomes sem fotos base64.
+        listProfilesLite(),
+        // Pix relacionado do perfil (4 campos, leve) — falha aqui não derruba
+        // a tela: a coluna aparece vazia.
+        listProfilesPixLite().catch(() => [] as ProfilePixLite[])
+      ])
+      setSettlements(s)
+      setInternals(new Map(ints.map((i) => [i.settlement_id, i])))
+      setProfiles(profs)
+      setPixByProfile(new Map(pix.map((p) => [p.id, p])))
+      setLoaded(true)
+      setPage(0)
+    } finally {
+      setLoading(false)
+    }
   }
 
-  useEffect(() => { load() }, [])
+  // Recarrega mantendo o recorte (pós-edição no modal).
+  const load = aplicar
 
   const eventsById = useMemo(() => {
     const map = new Map<string, EventItem>()
@@ -138,16 +155,27 @@ export default function Receipts() {
     return nome || 'Sem nome (perfil incompleto)'
   }
 
+  // Evento NÃO entra aqui: o recorte de eventos acontece no banco, na hora
+  // do Aplicar. Busca/status/tipo/devendo continuam instantâneos no cliente.
   const filtered = useMemo(() => {
     return settlements
-      .filter((s) => !eventFilter || s.event_id === eventFilter)
       .filter((s) => !statusFilter || s.status === statusFilter)
       .filter((s) => !roleFilter || s.role_type === roleFilter)
       .filter((s) => !onlyDevendo || internals.get(s.id)?.status === 'Devendo')
       .filter((s) => !search.trim() || norm(profileName(s.profile_id)).includes(norm(search)))
       .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settlements, eventFilter, statusFilter, roleFilter, onlyDevendo, search, internals, profiles])
+  }, [settlements, statusFilter, roleFilter, onlyDevendo, search, internals, profiles])
+
+  // Filtro de cliente mudou → volta pra primeira página.
+  useEffect(() => { setPage(0) }, [statusFilter, roleFilter, onlyDevendo, search, pageSize, agrupar])
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const pageClamped = Math.min(page, totalPages - 1)
+  const paginated = useMemo(
+    () => filtered.slice(pageClamped * pageSize, (pageClamped + 1) * pageSize),
+    [filtered, pageClamped, pageSize]
+  )
 
   const total = useMemo(() => filtered.reduce((sum, s) => sum + s.total, 0), [filtered])
   const totalCommission = useMemo(() => filtered.reduce((sum, s) => sum + s.commission_amount, 0), [filtered])
@@ -198,7 +226,9 @@ export default function Receipts() {
   }, [filtered, profiles])
 
   async function copiarFolhaPix() {
-    const evento = eventFilter ? (eventsById.get(eventFilter)?.name ?? 'evento') : 'todos os eventos'
+    const evento = eventFilter.length === 1
+      ? (eventsById.get(eventFilter[0])?.name ?? 'evento')
+      : eventFilter.length > 1 ? `${eventFilter.length} eventos` : 'todos os eventos'
     const totalFolha = folhaPix.reduce((s, p) => s + p.valor, 0)
     const linhas = folhaPix.map((p) => {
       const chave = p.pix?.pix_key?.trim()
@@ -227,7 +257,6 @@ export default function Receipts() {
   const devedores = useMemo(() => {
     const map = new Map<string, { profileId: string; total: number; lancamentos: number; eventos: Set<string> }>()
     for (const s of settlements) {
-      if (eventFilter && s.event_id !== eventFilter) continue
       const i = internals.get(s.id)
       if (!i || i.status !== 'Devendo' || !s.profile_id) continue
       const entry = map.get(s.profile_id) ?? { profileId: s.profile_id, total: 0, lancamentos: 0, eventos: new Set<string>() }
@@ -237,16 +266,15 @@ export default function Receipts() {
       map.set(s.profile_id, entry)
     }
     return Array.from(map.values()).sort((a, b) => b.total - a.total)
-  }, [settlements, internals, eventFilter])
+  }, [settlements, internals])
   const totalDevendo = useMemo(() => devedores.reduce((s, d) => s + d.total, 0), [devedores])
   const acertados = useMemo(() => {
     let n = 0
     for (const s of settlements) {
-      if (eventFilter && s.event_id !== eventFilter) continue
       if (internals.get(s.id)?.status === 'Acertado') n++
     }
     return n
-  }, [settlements, internals, eventFilter])
+  }, [settlements, internals])
 
   if (!canViewFinancialSummary(accessRole)) {
     return (
@@ -267,23 +295,32 @@ export default function Receipts() {
         <p className="text-beetz-dark/60 mt-1">Todos os fechamentos de caixa (vendas), de todos os eventos.</p>
       </div>
 
-      <div className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5">
-        <div className="flex flex-wrap items-center gap-3">
-          <select value={eventFilter} onChange={(e) => setEventFilter(e.target.value)} className={selectClass}>
-            <option value="">Todos os eventos</option>
-            {events.map((ev) => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
+      <div className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5 space-y-3">
+        {/* Grid no celular (2 colunas certinhas), linha corrida no desktop. */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-center gap-2 lg:gap-3">
+          {/* Multi-seleção: o select ACUMULA eventos; os marcados viram chips. */}
+          <select
+            value=""
+            onChange={(e) => {
+              const id = e.target.value
+              if (id && !eventFilter.includes(id)) setEventFilter((prev) => [...prev, id])
+            }}
+            className={`${selectClass} w-full lg:w-auto`}
+          >
+            <option value="">{eventFilter.length > 0 ? `+ Adicionar evento (${eventFilter.length})` : 'Todos os eventos'}</option>
+            {events.filter((ev) => !eventFilter.includes(ev.id)).map((ev) => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
           </select>
           <input
-            className={`${selectClass} w-full sm:w-52`}
+            className={`${selectClass} w-full lg:w-52`}
             placeholder="Buscar por nome..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={selectClass}>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={`${selectClass} w-full lg:w-auto`}>
             <option value="">Todos os status</option>
             {(['Pendente', 'Aprovado', 'Rejeitado'] as CashierStatus[]).map((st) => <option key={st} value={st}>{st}</option>)}
           </select>
-          <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} className={selectClass}>
+          <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} className={`${selectClass} w-full lg:w-auto`}>
             <option value="">Caixa e Garçom</option>
             {(['Caixa', 'Garçom'] as CashierRoleType[]).map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
@@ -306,19 +343,46 @@ export default function Receipts() {
               👥 Agrupar por colaborador
             </button>
           )}
-          {(search.trim() || statusFilter || roleFilter || onlyDevendo || eventFilter) && (
+        </div>
+
+        {/* Chips dos eventos marcados — X tira um; o recorte muda no Aplicar. */}
+        {eventFilter.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {eventFilter.map((id) => (
+              <span key={id} className="flex items-center gap-1.5 text-xs font-semibold bg-beetz-yellow/25 border border-beetz-yellow/60 px-2.5 py-1 rounded-full">
+                {eventsById.get(id)?.name ?? 'Evento'}
+                <button onClick={() => setEventFilter((prev) => prev.filter((x) => x !== id))} className="text-beetz-dark/40 hover:text-beetz-dark font-bold">×</button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={aplicar}
+            disabled={loading}
+            className="w-full sm:w-auto honey-gradient text-beetz-dark font-bold px-6 py-2.5 rounded-xl text-sm disabled:opacity-60 active:scale-[0.99] transition-transform"
+          >
+            {loading ? 'Carregando...' : loaded ? '🔎 Aplicar filtro' : '🔎 Aplicar e carregar'}
+          </button>
+          {!loaded && !loading && (
+            <p className="text-xs text-beetz-dark/45">
+              Nada carrega sozinho: escolha os eventos (ou deixe em branco pra todos) e toque em Aplicar.
+            </p>
+          )}
+          {(search.trim() || statusFilter || roleFilter || onlyDevendo || eventFilter.length > 0) && (
             <button
-              onClick={() => { setSearch(''); setStatusFilter(''); setRoleFilter(''); setOnlyDevendo(false); setEventFilter('') }}
+              onClick={() => { setSearch(''); setStatusFilter(''); setRoleFilter(''); setOnlyDevendo(false); setEventFilter([]) }}
               className="text-xs font-semibold text-beetz-dark/50 hover:text-red-600 px-2 py-2"
             >
-              Limpar
+              Limpar filtros
             </button>
           )}
         </div>
       </div>
 
       {/* Controle de colunas: oculte/exiba qualquer uma; a escolha fica salva. */}
-      {!loading && (
+      {loaded && !loading && (
         <div className="mb-4">
           <button
             onClick={() => setColsOpen((v) => !v)}
@@ -351,6 +415,14 @@ export default function Receipts() {
 
       {loading ? (
         <p className="text-beetz-dark/50 text-sm">Carregando recebimentos...</p>
+      ) : !loaded ? (
+        <div className="bg-white rounded-2xl p-10 shadow-soft border border-beetz-dark/5 text-center">
+          <p className="text-4xl mb-3">🔎</p>
+          <p className="font-bold">Escolha o recorte e toque em Aplicar</p>
+          <p className="text-sm text-beetz-dark/50 mt-1 max-w-md mx-auto">
+            A tela não baixa mais tudo sozinha — marque um ou mais eventos (ou nenhum, pra ver todos) e aplique o filtro.
+          </p>
+        </div>
       ) : (
         <>
           <div className="flex flex-wrap items-center justify-between gap-3 bg-beetz-dark text-white rounded-2xl p-5">
@@ -393,7 +465,7 @@ export default function Receipts() {
             <div className="bg-white rounded-2xl p-5 shadow-soft border border-red-100">
               <h2 className="font-bold text-red-700 mb-1">Quem deve a casa</h2>
               <p className="text-xs text-beetz-dark/50 mb-3">
-                Soma do "falta acertar" de cada pessoa{eventFilter ? ' neste evento' : ' em todos os eventos'}.
+                Soma do "falta acertar" de cada pessoa no recorte carregado.
                 Toque num card pra ver os lançamentos da pessoa.
               </p>
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
@@ -519,7 +591,7 @@ export default function Receipts() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((s) => {
+                  {paginated.map((s) => {
                     const event = eventsById.get(s.event_id)
                     return (
                       <tr key={s.id} className="border-b border-beetz-dark/5 last:border-0">
@@ -585,10 +657,22 @@ export default function Receipts() {
                         {canReviewCashier(accessRole) && (
                           <td className="p-3 whitespace-nowrap">
                             <button
-                              onClick={() => setEditing(s)}
-                              className="text-xs font-semibold text-beetz-dark/50 hover:text-beetz-dark px-2 py-1 rounded-lg hover:bg-beetz-gray"
+                              onClick={async () => {
+                                // A lista vem SEM os comprovantes (magra). Aqui
+                                // busca o base64 só deste lançamento — sem isso
+                                // o salvar do modal apagaria o comprovante.
+                                setAbrindoId(s.id)
+                                try {
+                                  const receipt = await getSettlementReceipt(s.id).catch(() => null)
+                                  setEditing({ ...s, receipt_data: receipt })
+                                } finally {
+                                  setAbrindoId(null)
+                                }
+                              }}
+                              disabled={abrindoId === s.id}
+                              className="text-xs font-semibold text-beetz-dark/50 hover:text-beetz-dark px-2 py-1 rounded-lg hover:bg-beetz-gray disabled:opacity-50"
                             >
-                              Editar
+                              {abrindoId === s.id ? 'Abrindo...' : 'Editar'}
                             </button>
                           </td>
                         )}
@@ -597,6 +681,39 @@ export default function Receipts() {
                   })}
                 </tbody>
               </table>
+
+              {/* Paginação: 50 ou 200 por página — os totais lá de cima seguem
+                  sendo do recorte INTEIRO, não só da página. */}
+              <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-t border-beetz-dark/8 bg-beetz-gray/40">
+                <p className="text-xs text-beetz-dark/50">
+                  {filtered.length === 0 ? '0' : `${pageClamped * pageSize + 1}–${Math.min((pageClamped + 1) * pageSize, filtered.length)}`} de {filtered.length}
+                </p>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={pageSize}
+                    onChange={(e) => setPageSize(Number(e.target.value) as 50 | 200)}
+                    className="rounded-lg border border-beetz-dark/15 text-xs px-2 py-1.5 bg-white"
+                  >
+                    <option value={50}>50 por página</option>
+                    <option value={200}>200 por página</option>
+                  </select>
+                  <button
+                    onClick={() => setPage((p) => Math.max(0, p - 1))}
+                    disabled={pageClamped === 0}
+                    className="text-sm font-bold px-3 py-1.5 rounded-lg border border-beetz-dark/12 bg-white disabled:opacity-40"
+                  >
+                    ‹
+                  </button>
+                  <span className="text-xs font-semibold text-beetz-dark/60">{pageClamped + 1} / {totalPages}</span>
+                  <button
+                    onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                    disabled={pageClamped >= totalPages - 1}
+                    className="text-sm font-bold px-3 py-1.5 rounded-lg border border-beetz-dark/12 bg-white disabled:opacity-40"
+                  >
+                    ›
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </>
