@@ -3122,13 +3122,19 @@ export async function listEventRepasses(eventId: string): Promise<EventRepasse[]
 
 // eventId omitido = todos os lançamentos, de todos os eventos (usado na
 // visão global /financeiro/repasses); informado = só os daquele evento.
-export async function listAllEventRepasses(eventId?: string): Promise<EventRepasse[]> {
+// MAGRA: sem o receipt_data (comprovante base64) — nenhum consumidor desta
+// lista global usa a imagem; o dossiê pega os comprovantes pela função
+// por-evento. Aceita string (1 evento, legado) ou lista (multi-seleção).
+export async function listAllEventRepasses(eventId?: string | string[]): Promise<EventRepasse[]> {
+  const ids = Array.isArray(eventId) ? eventId : eventId ? [eventId] : []
   if (isDemoMode) {
     const all = [...demoState.eventRepasses].sort((a, b) => (a.paid_at < b.paid_at ? 1 : -1))
-    return eventId ? all.filter((r) => r.event_id === eventId) : all
+    return ids.length > 0 ? all.filter((r) => ids.includes(r.event_id)) : all
   }
-  let query = supabase.from('event_repasses').select('*').order('paid_at', { ascending: false })
-  if (eventId) query = query.eq('event_id', eventId)
+  let query = supabase.from('event_repasses')
+    .select('id,event_id,amount,paid_at,notes,created_by,created_at')
+    .order('paid_at', { ascending: false })
+  if (ids.length > 0) query = query.in('event_id', ids)
   const { data, error } = await query
   if (error) throw error
   return data as EventRepasse[]
