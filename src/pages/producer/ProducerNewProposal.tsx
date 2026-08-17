@@ -6,7 +6,119 @@ import {
   createEventAsProducer, createEventModality, createEventStaffingRequirement,
   getAppSettings, listServiceModalities, requestContractSignature
 } from '../../lib/dataService'
+import { supabase } from '../../lib/supabaseClient'
 import type { ServiceModality } from '../../lib/types'
+
+// ---- Leitor de flyer: sobe a arte e o OCR preenche o formulário ----
+// tesseract.js entra por script tag na primeira leitura (mesma engrenagem do
+// comprovante inteligente) — nada de chave de API, roda no navegador.
+async function loadTesseract(): Promise<any> {
+  const w = window as any
+  if (w.Tesseract) return w.Tesseract
+  await new Promise<void>((resolve, reject) => {
+    const s = document.createElement('script')
+    s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js'
+    s.onload = () => resolve()
+    s.onerror = () => reject(new Error('Não deu pra carregar o leitor de imagem.'))
+    document.head.appendChild(s)
+  })
+  return (window as any).Tesseract
+}
+
+// Encolhe o flyer (máx. 1100px, JPEG 85%) — bom pro OCR e leve pro Storage.
+async function encolherFlyer(file: File): Promise<string> {
+  const bmp = await createImageBitmap(file)
+  const escala = Math.min(1, 1100 / Math.max(bmp.width, bmp.height))
+  const c = document.createElement('canvas')
+  c.width = Math.round(bmp.width * escala)
+  c.height = Math.round(bmp.height * escala)
+  c.getContext('2d')!.drawImage(bmp, 0, 0, c.width, c.height)
+  return c.toDataURL('image/jpeg', 0.85)
+}
+
+const MESES: Record<string, number> = {
+  janeiro: 1, fevereiro: 2, marco: 3, março: 3, abril: 4, maio: 5, junho: 6,
+  julho: 7, agosto: 8, setembro: 9, outubro: 10, novembro: 11, dezembro: 12
+}
+const ESTILOS = ['samba', 'pagode', 'pagodão', 'sertanejo', 'forró', 'piseiro', 'arrocha', 'funk', 'eletrônica', 'techno', 'house', 'rock', 'reggae', 'axé', 'mpb', 'rap', 'trap', 'brega', 'piano']
+const LOCAL_DICAS = ['espaço', 'arena', 'clube', 'praça', 'camarote', 'convento', 'chácara', 'sítio', 'casa', 'deck', 'estádio', 'quadra', 'iate', 'lounge', 'hall']
+const UFS = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO']
+
+// Data digitada/impressa vira ISO; sem ano, assume o atual (ou o próximo, se
+// já passou faz tempo — flyer é sempre de evento FUTURO).
+function dataFlyerParaISO(dd: number, mm: number, yy?: number): string | null {
+  if (dd < 1 || dd > 31 || mm < 1 || mm > 12) return null
+  const hoje = new Date()
+  let ano = yy ? (yy < 100 ? 2000 + yy : yy) : hoje.getFullYear()
+  if (!yy) {
+    const tentativa = new Date(ano, mm - 1, dd)
+    if (tentativa.getTime() < hoje.getTime() - 30 * 86400000) ano++
+  }
+  return `${ano}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`
+}
+
+interface FlyerExtraido {
+  name?: string; eventDate?: string; startTime?: string
+  city?: string; location?: string; musicStyle?: string
+}
+
+function extrairDoFlyer(texto: string): FlyerExtraido {
+  const out: FlyerExtraido = {}
+  const linhas = texto.split('\n').map((l) => l.trim()).filter((l) => l.length > 1)
+  const plano = texto.toLowerCase()
+
+  // Data: numérica (26/07[/2026]) ou por extenso (26 de julho)
+  const dNum = texto.match(/(\d{1,2})[\/\.](\d{1,2})(?:[\/\.](\d{2,4}))?/)
+  const dExt = plano.match(/(\d{1,2})\s*(?:de\s+)?(janeiro|fevereiro|mar[cç]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)/)
+  if (dNum) {
+    const iso = dataFlyerParaISO(Number(dNum[1]), Number(dNum[2]), dNum[3] ? Number(dNum[3]) : undefined)
+    if (iso) out.eventDate = iso
+  } else if (dExt) {
+    const iso = dataFlyerParaISO(Number(dExt[1]), MESES[dExt[2].normalize('NFD').replace(/[̀-ͯ]/g, '')] ?? MESES[dExt[2]])
+    if (iso) out.eventDate = iso
+  }
+
+  // Hora de início: "22h", "22:00", "22H30"
+  const hora = texto.match(/(?:a partir d[ae]s?|às|as)?\s*(\d{1,2})\s*[hH:]\s*(\d{2})?/)
+  if (hora) {
+    const h = Number(hora[1])
+    if (h >= 0 && h <= 23) out.startTime = `${String(h).padStart(2, '0')}:${hora[2] ?? '00'}`
+  }
+
+  // Estilo musical: primeira palavra do dicionário que aparecer
+  const estilo = ESTILOS.find((e) => plano.includes(e))
+  if (estilo) out.musicStyle = estilo.charAt(0).toUpperCase() + estilo.slice(1)
+
+  // Cidade: linha terminando em " - UF" ou "/UF"
+  for (const l of linhas) {
+    const m = l.match(/^(.{3,40})\s*[-–\/]\s*([A-Z]{2})\s*$/)
+    if (m && UFS.includes(m[2])) { out.city = m[1].trim(); break }
+  }
+
+  // Local: linha com palavra típica de espaço de evento
+  const localLinha = linhas.find((l) => {
+    const low = l.toLowerCase()
+    return LOCAL_DICAS.some((d) => low.includes(d)) && l.length <= 60
+  })
+  if (localLinha) out.location = localLinha.replace(/^[^A-Za-zÀ-ú0-9]+/, '').trim()
+
+  // Nome do evento: a linha mais "gritada" (maiúsculas, tamanho bom), fora
+  // datas, preços e chamadas de venda.
+  const vetadas = /ingresso|open\s*bar|lote|vip|presen[cç]a|atra[cç][aã]o|www\.|@|https?:|r\$|\d{1,2}[\/\.]\d{1,2}/i
+  let melhor = ''
+  let melhorScore = 0
+  for (const l of linhas.slice(0, 12)) {
+    if (l.length < 4 || l.length > 48 || vetadas.test(l)) continue
+    const letras = l.replace(/[^A-Za-zÀ-ú]/g, '')
+    if (letras.length < 4) continue
+    const upper = letras.replace(/[^A-ZÀ-Ú]/g, '').length / letras.length
+    const score = upper * Math.min(l.length, 30)
+    if (score > melhorScore) { melhorScore = score; melhor = l }
+  }
+  if (melhor) out.name = melhor.replace(/\s{2,}/g, ' ').trim()
+
+  return out
+}
 
 const inputClass = 'w-full border border-beetz-dark/15 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
 const STEPS = ['Resumo do evento', 'Modalidades', 'Faturamento', 'Equipe necessária', 'Revisão e assinatura']
@@ -54,6 +166,39 @@ export default function ProducerNewProposal() {
   const [submitting, setSubmitting] = useState(false)
   const [signUrl, setSignUrl] = useState<string | null>(null)
   const [done, setDone] = useState(false)
+
+  // Flyer: sobe a arte, o OCR lê e preenche o que estiver vazio — o produtor
+  // só revisa. A imagem vira o flyer oficial do evento no envio.
+  const [flyerData, setFlyerData] = useState<string | null>(null)
+  const [flyerBusy, setFlyerBusy] = useState(false)
+  const [flyerInfo, setFlyerInfo] = useState<string | null>(null)
+
+  async function handleFlyer(file: File) {
+    setFlyerBusy(true)
+    setFlyerInfo(null)
+    try {
+      const dataUrl = await encolherFlyer(file)
+      setFlyerData(dataUrl)
+      const T = await loadTesseract()
+      const result = await T.recognize(dataUrl, 'por', {})
+      const extraido = extrairDoFlyer(String(result?.data?.text ?? ''))
+      // Preenche SÓ o que está vazio — nunca por cima do que foi digitado.
+      let n = 0
+      if (extraido.name && !name.trim()) { setName(extraido.name); n++ }
+      if (extraido.eventDate && !eventDate) { setEventDate(extraido.eventDate); n++ }
+      if (extraido.startTime && !startTime) { setStartTime(extraido.startTime); n++ }
+      if (extraido.city && !city.trim()) { setCity(extraido.city); n++ }
+      if (extraido.location && !location.trim()) { setLocation(extraido.location); n++ }
+      if (extraido.musicStyle && !musicStyle.trim()) { setMusicStyle(extraido.musicStyle); n++ }
+      setFlyerInfo(n > 0
+        ? `✨ Li o flyer e preenchi ${n} campo${n > 1 ? 's' : ''} — confere se acertei e ajusta o que faltar.`
+        : 'Flyer anexado! Não consegui ler os dados da arte — preenche os campos que ele vai junto na proposta.')
+    } catch {
+      setFlyerInfo('Flyer anexado! Não deu pra ler a arte agora — preenche os campos que ele vai junto na proposta.')
+    } finally {
+      setFlyerBusy(false)
+    }
+  }
 
   useEffect(() => { listServiceModalities().then(setModalities) }, [])
 
@@ -130,10 +275,26 @@ export default function ProducerNewProposal() {
     setSubmitting(true)
     setError(null)
     try {
+      // O flyer vira o oficial do evento: sobe pro Storage (pasta do próprio
+      // login — a mesma regra dos avatares) e entra como URL. Se o upload
+      // falhar, a proposta segue sem flyer — imagem nunca trava o envio.
+      let flyerUrl: string | null = null
+      if (flyerData) {
+        try {
+          const blob = await (await fetch(flyerData)).blob()
+          const path = `${producerId}/flyer-${Date.now()}.jpg`
+          const { error: upErr } = await supabase.storage.from('avatars').upload(path, blob, { contentType: 'image/jpeg', upsert: true })
+          if (!upErr) {
+            const { data: pub } = supabase.storage.from('avatars').getPublicUrl(path)
+            flyerUrl = pub.publicUrl
+          }
+        } catch { /* segue sem flyer */ }
+      }
+
       const event = await createEventAsProducer(producerId, {
         name, event_date: eventDate, location, city, status: 'Planejado', leader_id: null,
         address, start_time: startTime || null, end_date: endDate || null, end_time: endTime || null,
-        music_style: musicStyle || null, link: link || null,
+        music_style: musicStyle || null, link: link || null, flyer_url: flyerUrl,
         sales_amount: salesAmount, commission_percentage: commissionPercentage
       })
 
@@ -209,6 +370,36 @@ export default function ProducerNewProposal() {
         {step === 0 && (
           <>
             <div>
+              {/* Atalho esperto: sobe o flyer e o leitor preenche os campos
+                  vazios — o produtor só confere. A arte ainda vira o flyer
+                  oficial do evento no envio. */}
+              <label className={`block border-2 border-dashed rounded-2xl p-4 mb-4 cursor-pointer transition-colors ${
+                flyerData ? 'border-beetz-yellow bg-beetz-yellow/10' : 'border-beetz-dark/15 hover:border-beetz-yellow hover:bg-beetz-yellow/5'
+              } ${flyerBusy ? 'opacity-70 pointer-events-none' : ''}`}>
+                <input
+                  type="file" accept="image/*" className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleFlyer(f) }}
+                />
+                <div className="flex items-center gap-3">
+                  {flyerData ? (
+                    <img src={flyerData} alt="Flyer" className="w-14 h-[4.5rem] rounded-lg object-cover border border-beetz-dark/10 shrink-0" />
+                  ) : (
+                    <span className="text-2xl shrink-0">📸</span>
+                  )}
+                  <div className="min-w-0">
+                    <p className="font-bold text-sm">
+                      {flyerBusy ? 'Lendo o flyer...' : flyerData ? 'Flyer anexado — toque pra trocar' : 'Suba o flyer e eu preencho pra você'}
+                    </p>
+                    <p className="text-xs text-beetz-dark/50 mt-0.5">
+                      {flyerBusy ? 'Um instante — extraindo nome, data e horário da arte.' : 'A arte vira o flyer oficial do evento e os dados entram sozinhos nos campos vazios.'}
+                    </p>
+                  </div>
+                </div>
+                {flyerInfo && !flyerBusy && (
+                  <p className="text-xs font-semibold text-beetz-dark/70 bg-white border border-beetz-dark/8 rounded-xl px-3 py-2 mt-3">{flyerInfo}</p>
+                )}
+              </label>
+
               <label className="text-sm font-medium block mb-1">Nome do evento *</label>
               <input required className={inputClass} value={name} onChange={(e) => setName(e.target.value)} />
             </div>
