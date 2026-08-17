@@ -1,20 +1,22 @@
 import { useState } from 'react'
-import { Globe, Link2, Users, UserPlus } from 'lucide-react'
+import { Globe, HandCoins, Link2, Users, UserPlus } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { canManageUsers } from '../lib/permissions'
 import InviteSection from '../components/admin/InviteSection'
 import ProfilesSection from '../components/admin/ProfilesSection'
+import ProposalsSection from '../components/admin/ProposalsSection'
 import RedirectsSection from '../components/admin/RedirectsSection'
 import SubdomainsSection from '../components/admin/SubdomainsSection'
 
 // A página era uma pilha de quatro seções empilhadas numa rolagem só — pra
 // chegar nos redirecionadores era preciso passar por toda a lista de perfis.
 // Agora cada assunto é uma aba, no mesmo padrão do EventDetail e do Settings.
-type TabKey = 'convidar' | 'perfis' | 'redirecionadores' | 'subdominios'
+type TabKey = 'convidar' | 'perfis' | 'propostas' | 'redirecionadores' | 'subdominios'
 
 const TABS: { key: TabKey; label: string; icon: any }[] = [
   { key: 'convidar', label: 'Convidar para o time', icon: UserPlus },
   { key: 'perfis', label: 'Perfis e departamentos', icon: Users },
+  { key: 'propostas', label: 'Propostas', icon: HandCoins },
   { key: 'redirecionadores', label: 'Redirecionadores', icon: Link2 },
   { key: 'subdominios', label: 'Subdomínios', icon: Globe }
 ]
@@ -59,6 +61,7 @@ export default function Admin() {
 
       {activeTab === 'convidar' && <InviteSection />}
       {activeTab === 'perfis' && <ProfilesSection />}
+      {activeTab === 'propostas' && <ProposalsSection />}
       {activeTab === 'redirecionadores' && <RedirectsSection />}
       {activeTab === 'subdominios' && <SubdomainsSection />}
     </div>

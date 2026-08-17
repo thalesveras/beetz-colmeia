@@ -3405,7 +3405,8 @@ export async function listEventsForProducer(producerId: string): Promise<EventIt
 
 // O produtor monta a proposta sozinho — cria o próprio evento (rascunho) vinculado à sua conta.
 export async function createEventAsProducer(producerId: string, event: NewEventInput): Promise<EventItem> {
-  return createEvent({ ...event, producer_id: producerId, contract_status: 'Rascunho' })
+  // Proposta nasce Pendente — a Diretoria decide na fila (admin → Propostas).
+  return createEvent({ ...event, producer_id: producerId, contract_status: 'Rascunho', proposal_status: 'Pendente' } as NewEventInput & { proposal_status: string })
 }
 
 // ---------- Configurações: modalidades de serviço ----------

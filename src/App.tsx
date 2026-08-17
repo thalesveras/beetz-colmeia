@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom'
+import { Navigate, Routes, Route } from 'react-router-dom'
 import Welcome from './pages/Welcome'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
@@ -37,10 +37,14 @@ import ProducerEventDetail from './pages/producer/ProducerEventDetail'
 import { PrivacyPage, TermsPage } from './pages/Legal'
 import PraiseInsights from './pages/PraiseInsights'
 
+// produtor.beetz.bar é a PORTA DO PRODUTOR: o mesmo app, mas a raiz cai
+// direto no painel de propostas — o produtor nunca vê a colmeia interna.
+const isProducerHost = typeof window !== 'undefined' && window.location.hostname.startsWith('produtor.')
+
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<Welcome />} />
+      <Route path="/" element={isProducerHost ? <Navigate to="/produtor" replace /> : <Welcome />} />
       <Route path="/entrar" element={<Login />} />
 
       {/* Páginas públicas exigidas pelo consentimento OAuth do Google.

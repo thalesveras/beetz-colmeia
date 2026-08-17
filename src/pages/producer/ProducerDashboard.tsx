@@ -59,6 +59,17 @@ export default function ProducerDashboard() {
                   {ev.event_date ? new Date(ev.event_date + 'T00:00:00').toLocaleDateString('pt-BR') : 'Data a definir'} · {ev.city || 'Cidade a definir'}
                 </p>
               </div>
+              {/* O que interessa primeiro: a DECISÃO da proposta. Pendente,
+                  aprovada ou recusada — o produtor vê sem perguntar. */}
+              {ev.proposal_status && (
+                <span className={`text-xs font-bold px-3 py-1.5 rounded-full ${
+                  ev.proposal_status === 'Aprovada' ? 'bg-green-100 text-green-700'
+                    : ev.proposal_status === 'Recusada' ? 'bg-red-100 text-red-700'
+                    : 'bg-amber-100 text-amber-700'
+                }`}>
+                  {ev.proposal_status === 'Pendente' ? '⏳ Em análise' : ev.proposal_status === 'Aprovada' ? '✅ Aprovada' : 'Recusada'}
+                </span>
+              )}
               <span className={`text-xs font-semibold px-3 py-1.5 rounded-full ${statusColors[ev.contract_status]}`}>{ev.contract_status}</span>
             </Link>
           ))}

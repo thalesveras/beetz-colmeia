@@ -4,7 +4,7 @@ import { Check, Plus, Trash2 } from 'lucide-react'
 import { useProducerAuth } from '../../contexts/ProducerAuthContext'
 import {
   createEventAsProducer, createEventModality, createEventStaffingRequirement,
-  listServiceModalities, requestContractSignature
+  getAppSettings, listServiceModalities, requestContractSignature
 } from '../../lib/dataService'
 import type { ServiceModality } from '../../lib/types'
 
@@ -56,6 +56,14 @@ export default function ProducerNewProposal() {
   const [done, setDone] = useState(false)
 
   useEffect(() => { listServiceModalities().then(setModalities) }, [])
+
+  // Interruptor da Diretoria (admin → Propostas): fechado, o formulário avisa
+  // e não deixa enviar. Se a leitura falhar, assume aberto — configuração
+  // nunca derruba o painel.
+  const [propostasAbertas, setPropostasAbertas] = useState(true)
+  useEffect(() => {
+    getAppSettings().then((cfg) => setPropostasAbertas(cfg?.proposals_open ?? true)).catch(() => {})
+  }, [])
 
   const needsStaffing = Object.keys(selected).some((id) => modalities.find((m) => m.id === id)?.requires_staffing)
   const totalModalidades = Object.entries(selected).reduce((sum, [, cfg]) => sum + cfg.quantity * cfg.unit_price, 0)
@@ -115,6 +123,10 @@ export default function ProducerNewProposal() {
 
   async function handleSubmit() {
     if (!producerId) return
+    if (!propostasAbertas) {
+      setError('As propostas estão pausadas no momento — fale com a equipe da Beetz.')
+      return
+    }
     setSubmitting(true)
     setError(null)
     try {
@@ -165,6 +177,18 @@ export default function ProducerNewProposal() {
         <button onClick={() => navigate('/produtor')} className="block mx-auto text-sm text-beetz-dark/50 underline mt-2">
           Ver minhas propostas
         </button>
+      </div>
+    )
+  }
+
+  if (!propostasAbertas) {
+    return (
+      <div className="max-w-lg mx-auto bg-white rounded-2xl p-8 shadow-soft border border-beetz-dark/5 text-center space-y-3">
+        <p className="text-4xl">⏸️</p>
+        <h1 className="text-xl font-extrabold">Propostas pausadas</h1>
+        <p className="text-sm text-beetz-dark/60">
+          A Beetz não está recebendo novas propostas neste momento. Suas propostas já enviadas continuam valendo — e assim que reabrir, é só voltar aqui.
+        </p>
       </div>
     )
   }

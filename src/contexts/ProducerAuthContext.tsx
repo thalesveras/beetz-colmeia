@@ -98,11 +98,15 @@ export function ProducerAuthProvider({ children }: { children: ReactNode }) {
       return { error: null }
     }
     try {
-      const { error } = await supabase.auth.signInWithOtp({
-        email: emailInput,
-        options: { emailRedirectTo: `${window.location.origin}/produtor` }
+      // O e-mail sai pela nossa edge function, no padrão Beetz (logo oficial,
+      // preto + amarelo) — não mais o template cru do Supabase. A function
+      // valida o e-mail, respeita allowlist de redirect e tem trava anti-spam.
+      const { data, error } = await supabase.functions.invoke('producer-magic-link', {
+        body: { email: emailInput, redirectTo: `${window.location.origin}/produtor` }
       })
-      return { error: error?.message ?? null }
+      if (error) return { error: 'Não foi possível enviar o link agora. Tente novamente.' }
+      const erroFn = (data as { error?: string } | null)?.error
+      return { error: erroFn ?? null }
     } catch (err: any) {
       return { error: err?.message ?? 'Não foi possível enviar o link. Tente novamente.' }
     }

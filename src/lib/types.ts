@@ -172,6 +172,9 @@ export interface EventItem {
   // Portal do produtor / contrato via ZapSign
   producer_id: string | null
   contract_status: ContractStatus
+  // Eventos que NASCERAM como proposta do painel do produtor: Pendente até a
+  // Diretoria decidir (admin → Propostas). Null = evento interno normal.
+  proposal_status?: 'Pendente' | 'Aprovada' | 'Recusada' | null
   zapsign_doc_token: string | null
   zapsign_signer_token: string | null
   zapsign_sign_url: string | null
@@ -995,6 +998,9 @@ export interface AppSettings {
   // fazer por semana (janela móvel de 7 dias, aplicada por trigger no banco).
   // null/0 = sem limite. Diretoria é isenta; o wizard inicial não conta.
   profile_edit_weekly_limit?: number | null
+  // Interruptor do painel do produtor: false fecha a entrada de NOVAS
+  // propostas (as existentes seguem visíveis).
+  proposals_open?: boolean | null
   updated_at: string
 }
 
