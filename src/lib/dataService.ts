@@ -3786,7 +3786,9 @@ export async function generateScalePayments(eventId: string, createdBy: string |
 // ---------- Contrato via ZapSign ----------
 // Em modo demo simulamos a criação do documento (não existe ZapSign de verdade
 // pra chamar); em produção isso invoca a Edge Function que fala com a API real.
-export async function requestContractSignature(eventId: string): Promise<{ sign_url: string | null; doc_token: string }> {
+// v23 da function: doc_token pode vir null quando o ZapSign falha — o e-mail
+// com o resumo da proposta sai mesmo assim e o erro fica em zapsign_error.
+export async function requestContractSignature(eventId: string): Promise<{ sign_url: string | null; doc_token: string | null; email_sent?: boolean; zapsign_error?: string | null }> {
   if (isDemoMode) {
     const idx = demoState.events.findIndex((e) => e.id === eventId)
     if (idx < 0) throw new Error('Evento não encontrado')
@@ -4083,6 +4085,9 @@ export async function listOpenStaffingSlots(profileId: string | null): Promise<O
   // (staffing_closed, botão em Evento → Equipe) ou evento Cancelado/Concluído.
   const events = (await listEvents()).filter(
     (e) => !e.staffing_closed && e.status !== 'Cancelado' && e.status !== 'Concluído'
+      // Proposta de produtor NÃO abre vagas sozinha: só depois da Diretoria
+      // aprovar (proposal_status 'Aprovada' ou null = evento interno).
+      && e.proposal_status !== 'Pendente' && e.proposal_status !== 'Recusada'
   )
   if (!events.length) return []
   const eventIds = events.map((e) => e.id)

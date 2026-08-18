@@ -103,7 +103,11 @@ export default function Dashboard() {
   if (loading) return <p className="text-beetz-dark/50 p-8">Carregando a colmeia...</p>
 
   const today = hojeISO()
-  const upcoming = events.filter((e) => e.event_date >= today).sort((a, b) => (a.event_date < b.event_date ? -1 : 1))
+  // Propostas de produtor ainda não aprovadas não aparecem pra turma como
+  // evento de verdade — só entram aqui depois do aceite da Diretoria.
+  const upcoming = events
+    .filter((e) => e.event_date >= today && e.proposal_status !== 'Pendente' && e.proposal_status !== 'Recusada')
+    .sort((a, b) => (a.event_date < b.event_date ? -1 : 1))
   const eventosDeHoje = upcoming.filter((e) => e.event_date === today && e.status !== 'Cancelado')
   const activeEvents = events.filter((e) => e.status === 'Confirmado' || e.status === 'Em andamento').length
 

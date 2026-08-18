@@ -382,13 +382,13 @@ export default function ProducerNewProposal() {
         <h1 className="text-xl font-extrabold">Proposta enviada!</h1>
         {signUrl ? (
           <>
-            <p className="text-sm text-beetz-dark/60">Falta só a assinatura — seu e-mail já foi validado pelo login.</p>
+            <p className="text-sm text-beetz-dark/60">O resumo foi pro seu e-mail — falta só a assinatura.</p>
             <a href={signUrl} target="_blank" rel="noreferrer" className="inline-block honey-gradient text-beetz-dark font-bold px-6 py-3 rounded-xl">
               🖊️ Assinar a proposta
             </a>
           </>
         ) : (
-          <p className="text-sm text-beetz-dark/60">O link de assinatura chega no seu e-mail em instantes.</p>
+          <p className="text-sm text-beetz-dark/60">O resumo da proposta foi pro seu e-mail. O link de assinatura chega em seguida, assim que a Beetz preparar o contrato.</p>
         )}
         <p className="text-xs text-beetz-dark/45">A Beetz analisa e responde por aqui e por e-mail.</p>
       </div>
