@@ -107,7 +107,7 @@ function extrairDoFlyer(texto: string): FlyerExtraido {
 type Etapa =
   | 'flyer' | 'nome' | 'data' | 'local' | 'cidade' | 'endereco'
   | 'servicos' | 'qtd_fixa' | 'maquinas' | 'totens' | 'cupom'
-  | 'produtos' | 'funcoes' | 'minimo' | 'parceiros' | 'cerveja'
+  | 'produtos' | 'outros_bares' | 'funcoes' | 'minimo' | 'parceiros' | 'cerveja'
   | 'resumo' | 'enviando' | 'fim'
 
 interface Msg { de: 'b' | 'p'; texto: string }
@@ -115,6 +115,8 @@ interface StaffRow { role_label: string; quantity: number }
 
 const ehMaquina = (m: ServiceModality) => /m[áa]quin|totem|autoatend|cart[ãa]o/i.test(m.name)
 const FUNCOES_COMUNS = ['Garçom', 'Caixa', 'Barman', 'Líder de bar', 'Repositor', 'Segurança']
+// Tipos de produto da operação de bar — chips de 1 toque; "outros" no campo livre.
+const PRODUTOS_TIPOS = ['Cerveja', 'Drinks', 'Destilados', 'Energético', 'Refrigerante & Água', 'Vinho/Espumante', 'Caipirinha']
 
 export default function ProducerNewProposal() {
   const { producerId } = useProducerAuth()
@@ -162,6 +164,9 @@ export default function ProducerNewProposal() {
   const [cupom, setCupom] = useState('')
   const [cupomAplicado, setCupomAplicado] = useState(false)
   const [produtosDesejados, setProdutosDesejados] = useState('')
+  const [tiposProdutos, setTiposProdutos] = useState<string[]>([])
+  const [hasOtherBars, setHasOtherBars] = useState<boolean | null>(null)
+  const [otherBarsNotes, setOtherBarsNotes] = useState('')
   const [staffRows, setStaffRows] = useState<StaffRow[]>([])
   const [novaFuncao, setNovaFuncao] = useState('')
   const [novaQtd, setNovaQtd] = useState(1)
@@ -214,9 +219,10 @@ export default function ProducerNewProposal() {
     if (prox === 'maquinas') fala('Quantas máquinas de cartão você precisa?')
     if (prox === 'totens') fala('E totens de autoatendimento — quantos?')
     if (prox === 'cupom') fala('Você tem cupom de desconto nas taxas? Se tiver, digita ele aqui — se não, é só pular.')
-    if (prox === 'produtos') fala('Sobre a operação de bares: quais produtos você quer no evento? (ex.: cerveja, drinks, energético, água...)')
+    if (prox === 'produtos') fala('Sobre a operação de bares: que tipos de produtos o evento precisa? Marca os que fizerem sentido. 👇')
+    if (prox === 'outros_bares') fala('Vai ter outra operação de bar dentro do evento (além da Beetz)?')
     if (prox === 'funcoes') fala('E de equipe, o que a operação precisa? Adiciona as funções e quantidades. 👇')
-    if (prox === 'minimo') fala('Qual o mínimo de vendas (R$) que o evento precisa fazer pra valer a pena pra você?')
+    if (prox === 'minimo') fala('Agora a meta: quanto o evento deve vender (R$)? É com base nela que fechamos o combinado.')
     if (prox === 'parceiros') fala('Vão ter outros parceiros de bebida no evento?')
     if (prox === 'cerveja') fala('O evento tem cerveja oficial?')
     if (prox === 'resumo') fala('Fechou! Dá uma conferida no resumo antes de enviar. 👇')
@@ -302,13 +308,35 @@ export default function ProducerNewProposal() {
       irPara('servicos')
       return
     }
-    if (etapa === 'produtos') {
-      if (!v) { setErro('Me conta ao menos os principais produtos. 🍻'); return }
-      setProdutosDesejados(v)
-      respondo(v)
+  }
+
+  // Produtos da operação: chips de tipos + complemento livre.
+  function confirmarProdutos() {
+    const livre = campo.trim()
+    if (tiposProdutos.length === 0 && !livre) { setErro('Marca ao menos um tipo de produto. 🍻'); return }
+    const texto = [...tiposProdutos, livre].filter(Boolean).join(', ')
+    setProdutosDesejados(texto)
+    respondo(texto)
+    irPara('outros_bares')
+  }
+
+  function respostaOutrosBares(v: boolean) {
+    setHasOtherBars(v)
+    if (!v) {
+      respondo('Não — só a Beetz')
+      setOtherBarsNotes('')
       irPara('funcoes')
-      return
+    } else {
+      respondo('Sim')
+      fala('Quais operações? (quem mais vai vender bebida lá dentro)')
+      setHasOtherPartnersFoco((n) => n + 1)
     }
+  }
+
+  function confirmarOutrosBaresNotas() {
+    if (!otherBarsNotes.trim()) { setErro('Me conta quais operações. 🙂'); return }
+    respondo(otherBarsNotes)
+    irPara('funcoes')
   }
 
   function confirmarData() {
@@ -388,8 +416,13 @@ export default function ProducerNewProposal() {
   }
 
   function confirmarMinimo() {
-    if (!minSalesTarget || minSalesTarget <= 0) { setErro('Me diz um valor mínimo de vendas.'); return }
+    if (!minSalesTarget || minSalesTarget <= 0) { setErro('Me diz a meta de vendas.'); return }
     respondo(currency(minSalesTarget))
+    // A cláusula de performance da casa, dita com todas as letras — o número
+    // exato do gatilho e o que acontece se não bater.
+    const th = Number(cfg?.proposal_goal_threshold ?? 70)
+    const pen = Number(cfg?.proposal_goal_penalty ?? 10)
+    fala(`Combinado então: o evento precisa fazer ao menos ${th}% dessa meta (${currency(minSalesTarget * th / 100)}). Se ficar abaixo, o seu repasse cai ${pen} pontos — de ${percentProdutor}% pra ${Math.max(0, percentProdutor - pen)}%. Isso fica registrado na proposta. 📝`)
     irPara('parceiros')
   }
 
@@ -464,7 +497,12 @@ export default function ProducerNewProposal() {
         proposal_fees: feesAplicadas,
         proposal_products: temOperacao ? produtosDesejados.trim() || null : null,
         proposal_totems: temMaquinas ? totensQtd : null,
-        proposal_coupon: cupomAplicado && mf ? mf.coupon_code : null
+        proposal_coupon: cupomAplicado && mf ? mf.coupon_code : null,
+        has_other_bar_operations: temOperacao ? hasOtherBars : null,
+        other_bar_operations_notes: temOperacao && hasOtherBars ? otherBarsNotes.trim() || null : null,
+        // Snapshot da cláusula: os números combinados HOJE ficam no evento.
+        goal_threshold_percent: temOperacao ? Number(cfg?.proposal_goal_threshold ?? 70) : null,
+        goal_penalty_percent: temOperacao ? Number(cfg?.proposal_goal_penalty ?? 10) : null
       })
 
       for (const id of escolhidas) {
@@ -578,9 +616,13 @@ export default function ProducerNewProposal() {
               {temOperacao && (
                 <>
                   <p className="text-xs text-beetz-dark/55">Produtos: {produtosDesejados}</p>
+                  <p className="text-xs text-beetz-dark/55">Outras operações de bar: {hasOtherBars ? `Sim — ${otherBarsNotes}` : 'Não, só a Beetz'}</p>
                   <p className="text-xs text-beetz-dark/55">Equipe: {staffRows.map((s) => `${s.quantity}× ${s.role_label}`).join(', ')}</p>
                   <p className="text-xs text-beetz-dark/55">
-                    Mínimo de vendas: {currency(minSalesTarget)} · Parceiros de bebida: {hasOtherPartners ? `Sim — ${partnersNotes}` : 'Não'} · Cerveja oficial: {hasOfficialBeer ? `Sim — ${officialBeerBrand}` : 'Não'}
+                    Meta de vendas: {currency(minSalesTarget)} · Parceiros de bebida: {hasOtherPartners ? `Sim — ${partnersNotes}` : 'Não'} · Cerveja oficial: {hasOfficialBeer ? `Sim — ${officialBeerBrand}` : 'Não'}
+                  </p>
+                  <p className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-2 py-1.5">
+                    📝 Cláusula: abaixo de {Number(cfg?.proposal_goal_threshold ?? 70)}% da meta ({currency(minSalesTarget * Number(cfg?.proposal_goal_threshold ?? 70) / 100)}), o repasse cai {Number(cfg?.proposal_goal_penalty ?? 10)} pontos ({percentProdutor}% → {Math.max(0, percentProdutor - Number(cfg?.proposal_goal_penalty ?? 10))}%).
                   </p>
                 </>
               )}
@@ -619,7 +661,7 @@ export default function ProducerNewProposal() {
           </div>
         )}
 
-        {(etapa === 'nome' || etapa === 'local' || etapa === 'cidade' || etapa === 'endereco' || etapa === 'produtos') && (
+        {(etapa === 'nome' || etapa === 'local' || etapa === 'cidade' || etapa === 'endereco') && (
           <div className="flex gap-2">
             <input
               ref={entradaRef}
@@ -629,8 +671,7 @@ export default function ProducerNewProposal() {
                 etapa === 'nome' ? (name ? `Li "${name}" no flyer — confirma ou corrige` : 'Nome do evento...')
                 : etapa === 'local' ? (location || 'Local/espaço...')
                 : etapa === 'cidade' ? (city || 'Cidade...')
-                : etapa === 'endereco' ? 'Rua, número, bairro...'
-                : 'Cerveja, drinks, energético...'
+                : 'Rua, número, bairro...'
               }
               value={campo}
               onChange={(e) => setCampo(e.target.value)}
@@ -716,6 +757,53 @@ export default function ProducerNewProposal() {
               Pular
             </button>
           </div>
+        )}
+
+        {etapa === 'produtos' && (
+          <div className="space-y-2">
+            <div className="flex flex-wrap gap-1.5">
+              {PRODUTOS_TIPOS.map((t) => {
+                const on = tiposProdutos.includes(t)
+                return (
+                  <button
+                    key={t}
+                    onClick={() => setTiposProdutos((prev) => (on ? prev.filter((x) => x !== t) : [...prev, t]))}
+                    className={`text-xs font-semibold px-3 py-2 rounded-xl border transition-colors ${
+                      on ? 'bg-beetz-yellow border-beetz-yellow text-beetz-dark' : 'bg-white border-beetz-dark/12 text-beetz-dark/70'
+                    }`}
+                  >
+                    {t}
+                  </button>
+                )
+              })}
+            </div>
+            <div className="flex gap-2">
+              <input
+                ref={entradaRef}
+                className={inputChat}
+                enterKeyHint="send"
+                placeholder="Outros produtos? (opcional)"
+                value={campo}
+                onChange={(e) => setCampo(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') confirmarProdutos() }}
+              />
+              {botaoOk('É isso →', confirmarProdutos)}
+            </div>
+          </div>
+        )}
+
+        {etapa === 'outros_bares' && (
+          hasOtherBars === true ? (
+            <div className="flex gap-2">
+              <input ref={entradaRef} className={inputChat} enterKeyHint="send" placeholder="Quais operações vendem lá dentro?" value={otherBarsNotes} onChange={(e) => setOtherBarsNotes(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') confirmarOutrosBaresNotas() }} autoFocus />
+              {botaoOk('Confirmar', confirmarOutrosBaresNotas)}
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              {botaoOk('Sim', () => respostaOutrosBares(true))}
+              <button onClick={() => respostaOutrosBares(false)} className="px-6 rounded-xl text-sm font-semibold bg-white border border-beetz-dark/10 min-h-[48px]">Não, só a Beetz</button>
+            </div>
+          )
         )}
 
         {etapa === 'funcoes' && (

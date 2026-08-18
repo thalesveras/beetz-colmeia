@@ -189,6 +189,12 @@ export interface EventItem {
   proposal_products?: string | null
   proposal_totems?: number | null
   proposal_coupon?: string | null
+  // Outras operações de bares dentro do mesmo evento (concorrência interna).
+  has_other_bar_operations?: boolean | null
+  other_bar_operations_notes?: string | null
+  // Snapshot da cláusula de performance combinada nesta proposta.
+  goal_threshold_percent?: number | null
+  goal_penalty_percent?: number | null
   zapsign_doc_token: string | null
   zapsign_signer_token: string | null
   zapsign_sign_url: string | null
@@ -1024,6 +1030,11 @@ export interface AppSettings {
   // Percentual PADRÃO do produtor sobre as vendas (a casa trabalha com 40).
   // Definido no admin → Propostas; o formulário do produtor usa esse valor.
   proposal_producer_percent?: number | null
+  // Cláusula de performance da operação de bar: o evento precisa atingir
+  // ao menos THRESHOLD % da meta declarada; abaixo disso o repasse do
+  // produtor cai PENALTY pontos percentuais.
+  proposal_goal_threshold?: number | null
+  proposal_goal_penalty?: number | null
   // Taxas da operação exibidas (e aceitas) na proposta do produtor.
   proposal_fee_debit_pix?: number | null
   proposal_fee_credit?: number | null

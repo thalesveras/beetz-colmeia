@@ -29,8 +29,11 @@ export default function ProposalsSection() {
   const [producerNames, setProducerNames] = useState<Map<string, string>>(new Map())
   const [modalities, setModalities] = useState<ServiceModality[]>([])
   const [proposalsOpen, setProposalsOpen] = useState(true)
-  // Percentual padrão do produtor sobre as vendas — a regra da casa (40).
+  // Percentual padrão do produtor sobre as vendas — a regra da casa (40) —
+  // e a cláusula de performance: mínimo de X% da meta, senão cai Y pontos.
   const [percent, setPercent] = useState('40')
+  const [goalThreshold, setGoalThreshold] = useState('70')
+  const [goalPenalty, setGoalPenalty] = useState('10')
   const [percentBusy, setPercentBusy] = useState(false)
   const [percentOk, setPercentOk] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -55,6 +58,8 @@ export default function ProposalsSection() {
       setModalities(mods)
       setProposalsOpen(cfg?.proposals_open ?? true)
       setPercent(String(cfg?.proposal_producer_percent ?? 40))
+      setGoalThreshold(String(cfg?.proposal_goal_threshold ?? 70))
+      setGoalPenalty(String(cfg?.proposal_goal_penalty ?? 10))
       if (cfg?.machine_fees) setMf({ ...MF_PADRAO, ...cfg.machine_fees, standard: { ...MF_PADRAO.standard, ...cfg.machine_fees.standard }, coupon: { ...MF_PADRAO.coupon, ...cfg.machine_fees.coupon } })
     } finally {
       setLoading(false)
@@ -154,11 +159,14 @@ export default function ProposalsSection() {
 
   async function salvarPercent() {
     const v = Number(percent.replace(',', '.'))
+    const th = Number(goalThreshold.replace(',', '.'))
+    const pen = Number(goalPenalty.replace(',', '.'))
     if (!Number.isFinite(v) || v <= 0 || v > 100) { setError('Percentual precisa estar entre 1 e 100.'); return }
+    if (!Number.isFinite(th) || th <= 0 || th > 100 || !Number.isFinite(pen) || pen < 0 || pen > 100) { setError('Cláusula: números entre 0 e 100.'); return }
     setPercentBusy(true)
     setError(null)
     try {
-      await updateAppSettings({ proposal_producer_percent: v })
+      await updateAppSettings({ proposal_producer_percent: v, proposal_goal_threshold: th, proposal_goal_penalty: pen })
       setPercentOk(true)
       setTimeout(() => setPercentOk(false), 2500)
     } catch {
@@ -321,6 +329,16 @@ export default function ProposalsSection() {
             {percentBusy ? 'Salvando...' : percentOk ? 'Salvo ✓' : 'Salvar'}
           </button>
         </div>
+
+        {/* Cláusula de performance: o evento precisa fazer X% da meta que o
+            produtor declarou — abaixo disso o repasse cai Y pontos. */}
+        <div className="w-full flex flex-wrap items-center gap-2 pt-3 mt-1 border-t border-beetz-dark/8 text-sm text-beetz-dark/70">
+          <span>📝 Cláusula: exigir</span>
+          <input className={`${inputClass} w-16 text-center font-bold`} inputMode="decimal" value={goalThreshold} onChange={(e) => setGoalThreshold(e.target.value)} />
+          <span>% da meta declarada — abaixo disso o repasse cai</span>
+          <input className={`${inputClass} w-16 text-center font-bold`} inputMode="decimal" value={goalPenalty} onChange={(e) => setGoalPenalty(e.target.value)} />
+          <span>pontos. (Salva junto com o percentual.)</span>
+        </div>
       </div>
 
       {/* Máquinas & Totem: as regras comerciais que a conversa de proposta
@@ -442,9 +460,21 @@ export default function ProposalsSection() {
                         {ev.sales_amount ? <> · Estimadas: {currency(Number(ev.sales_amount))}</> : null}
                       </p>
                       {(ev.has_other_beverage_partners != null || ev.has_official_beer != null) && (
-                        <p className="text-beetz-dark/70 pb-1 border-b border-beetz-dark/10">
+                        <p className="text-beetz-dark/70">
                           🍺 Outros parceiros de bebida: <strong>{ev.has_other_beverage_partners ? `Sim — ${ev.beverage_partners_notes ?? ''}` : 'Não'}</strong>
                           {' · '}Cerveja oficial: <strong>{ev.has_official_beer ? `Sim — ${ev.official_beer_brand ?? ''}` : 'Não'}</strong>
+                          {ev.has_other_bar_operations != null && (
+                            <> · Outras operações de bar: <strong>{ev.has_other_bar_operations ? `Sim — ${ev.other_bar_operations_notes ?? ''}` : 'Não'}</strong></>
+                          )}
+                        </p>
+                      )}
+                      {ev.proposal_products && (
+                        <p className="text-beetz-dark/70">🛒 Produtos desejados: <strong>{ev.proposal_products}</strong></p>
+                      )}
+                      {ev.goal_threshold_percent != null && ev.min_sales_target != null && (
+                        <p className="text-amber-700 pb-1 border-b border-beetz-dark/10">
+                          📝 Cláusula combinada: mínimo de <strong>{Number(ev.goal_threshold_percent)}%</strong> da meta
+                          ({currency(Number(ev.min_sales_target) * Number(ev.goal_threshold_percent) / 100)}) — abaixo disso o repasse cai <strong>{Number(ev.goal_penalty_percent ?? 0)} pontos</strong>.
                         </p>
                       )}
                       {!dets ? (
