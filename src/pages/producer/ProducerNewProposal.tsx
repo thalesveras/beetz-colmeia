@@ -187,7 +187,6 @@ export default function ProducerNewProposal() {
 
   // Envio
   const [submitting, setSubmitting] = useState(false)
-  const [signUrl, setSignUrl] = useState<string | null>(null)
   const [done, setDone] = useState(false)
 
   const temOperacao = escolhidas.some((id) => modalities.find((m) => m.id === id)?.price_type === 'percent')
@@ -336,9 +335,10 @@ export default function ProducerNewProposal() {
             unit_cost: null, notes: null
           })
         }
-        const result = await requestContractSignature(event.id)
-        setSignUrl(result.sign_url)
-      } catch { /* assinatura chega por e-mail; a Beetz completa o resto */ }
+        // Dispara o e-mail padrão Beetz com o resumo e as condições (sem
+        // assinatura externa: o aceite é o próprio envio da proposta).
+        await requestContractSignature(event.id)
+      } catch { /* a Beetz completa o resto pela fila */ }
       setDone(true)
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Não foi possível enviar. Nada foi perdido — tente de novo.')
@@ -380,16 +380,7 @@ export default function ProducerNewProposal() {
       <div className="max-w-lg mx-auto bg-white rounded-2xl p-8 shadow-soft border border-beetz-dark/5 text-center space-y-4">
         <div className="w-14 h-14 rounded-full bg-green-100 text-green-600 flex items-center justify-center mx-auto"><Check size={28} /></div>
         <h1 className="text-xl font-extrabold">Proposta enviada!</h1>
-        {signUrl ? (
-          <>
-            <p className="text-sm text-beetz-dark/60">O resumo foi pro seu e-mail — falta só a assinatura.</p>
-            <a href={signUrl} target="_blank" rel="noreferrer" className="inline-block honey-gradient text-beetz-dark font-bold px-6 py-3 rounded-xl">
-              🖊️ Assinar a proposta
-            </a>
-          </>
-        ) : (
-          <p className="text-sm text-beetz-dark/60">O resumo da proposta foi pro seu e-mail. O link de assinatura chega em seguida, assim que a Beetz preparar o contrato.</p>
-        )}
+        <p className="text-sm text-beetz-dark/60">O resumo com as condições foi pro seu e-mail — ele é o registro da proposta.</p>
         <p className="text-xs text-beetz-dark/45">A Beetz analisa e responde por aqui e por e-mail.</p>
       </div>
     )
@@ -647,7 +638,7 @@ export default function ProducerNewProposal() {
             </ul>
             {step === 2 && (
               <p className="text-[11px] text-white/50 mt-3 pt-2.5 border-t border-white/10">
-                Ao enviar e assinar, você concorda com as condições acima — elas ficam registradas na proposta.
+                Ao enviar, você concorda com as condições acima — elas ficam registradas na proposta e vão no e-mail de confirmação.
               </p>
             )}
           </div>
@@ -665,7 +656,7 @@ export default function ProducerNewProposal() {
             </button>
           ) : (
             <button type="button" onClick={enviar} disabled={submitting} className="honey-gradient text-beetz-dark font-bold px-6 py-3 rounded-xl disabled:opacity-60 active:scale-[0.99] transition-transform">
-              {submitting ? 'Enviando...' : '🖊️ Enviar e assinar'}
+              {submitting ? 'Enviando...' : 'Enviar proposta'}
             </button>
           )}
         </div>
