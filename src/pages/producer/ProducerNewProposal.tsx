@@ -357,7 +357,9 @@ export default function ProducerNewProposal() {
   }
   if (temMaquinas && mf && feesAtivas) {
     condicoes.push(`Taxas${cupomAplicado ? ` (cupom ${mf.coupon_code})` : ' padrão'}: ${feesAtivas.debit_pix}% débito/pix · ${feesAtivas.credit}% crédito · ${feesAtivas.cash}% dinheiro · ${feesAtivas.management}% gestão.`)
-    condicoes.push(`Aluguel mensal: máquina de cartão ${currency(mf.machine_rent)}${totensQtd > 0 ? ` · totem ${currency(mf.totem_rent)}` : ''}.`)
+    // Máquina é cobrada pelo preço do catálogo (R$/máquina, já no total) —
+    // só o totem tem aluguel mensal como condição à parte.
+    if (totensQtd > 0) condicoes.push(`Aluguel mensal do totem: ${currency(mf.totem_rent)} cada.`)
   }
   if (fixasEscolhidas.some((m) => m.default_price == null)) {
     condicoes.push('Itens "sob consulta" têm o valor confirmado pela Beetz na aprovação.')
