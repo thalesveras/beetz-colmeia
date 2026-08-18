@@ -249,10 +249,18 @@ export default function ProducerNewProposal() {
   }, [])
 
   const needsStaffing = Object.keys(selected).some((id) => modalities.find((m) => m.id === id)?.requires_staffing)
-  const totalModalidades = Object.entries(selected).reduce((sum, [, cfg]) => sum + cfg.quantity * cfg.unit_price, 0)
-  // Itens sem preço da casa entram como "sob consulta" — a Beetz confirma o
-  // valor na aprovação. O produtor nunca digita preço.
+  // Só modalidade de preço FIXO soma em reais — % das vendas não tem base
+  // ainda, e "sob consulta" não tem valor. Cada uma aparece com o rótulo certo.
+  const totalModalidades = Object.entries(selected).reduce((sum, [id, cfg]) => {
+    const m = modalities.find((x) => x.id === id)
+    if (!m || m.default_price == null || m.price_type === 'percent') return sum
+    return sum + cfg.quantity * cfg.unit_price
+  }, 0)
   const itensSobConsulta = Object.keys(selected).filter((id) => (modalities.find((m) => m.id === id)?.default_price ?? null) == null).length
+  const itensPercent = Object.keys(selected).filter((id) => {
+    const m = modalities.find((x) => x.id === id)
+    return m?.default_price != null && m.price_type === 'percent'
+  }).length
 
   function toggleModality(m: ServiceModality) {
     setSelected((prev) => {
@@ -514,6 +522,7 @@ export default function ProducerNewProposal() {
             {modalities.map((m) => {
               const isSelected = !!selected[m.id]
               const temPreco = m.default_price != null
+              const ehPercent = temPreco && m.price_type === 'percent'
               return (
                 <div key={m.id} className={`border rounded-2xl transition-colors overflow-hidden ${isSelected ? 'border-beetz-yellow bg-beetz-yellow/10' : 'border-beetz-dark/10 hover:border-beetz-dark/25'}`}>
                   <label className="flex items-start gap-3 cursor-pointer p-4">
@@ -523,7 +532,7 @@ export default function ProducerNewProposal() {
                       {m.description && <p className="text-xs text-beetz-dark/50 mt-0.5">{m.description}</p>}
                     </div>
                     <span className={`shrink-0 text-xs font-bold px-2.5 py-1.5 rounded-full ${temPreco ? 'bg-beetz-yellow/40 text-beetz-dark' : 'bg-beetz-gray text-beetz-dark/50'}`}>
-                      {temPreco ? `${currency(m.default_price!)} / ${m.unit_label}` : 'Sob consulta'}
+                      {ehPercent ? `${m.default_price}% das vendas` : temPreco ? `${currency(m.default_price!)} / ${m.unit_label}` : 'Sob consulta'}
                     </span>
                   </label>
 
@@ -555,7 +564,11 @@ export default function ProducerNewProposal() {
                         </div>
                         <span className="text-xs text-beetz-dark/50 font-medium">{m.unit_label}{selected[m.id].quantity > 1 ? 's' : ''}</span>
                         {/* Subtotal da linha, ao vivo — a conta na cara. */}
-                        {temPreco ? (
+                        {ehPercent ? (
+                          <span className="ml-auto text-sm font-extrabold text-beetz-dark/80">
+                            {m.default_price}% sobre as vendas do evento
+                          </span>
+                        ) : temPreco ? (
                           <span className="ml-auto text-sm font-extrabold">
                             {selected[m.id].quantity} × {currency(m.default_price!)} = {currency(selected[m.id].quantity * selected[m.id].unit_price)}
                           </span>
@@ -579,6 +592,11 @@ export default function ProducerNewProposal() {
               <div className="bg-beetz-dark text-white rounded-2xl px-5 py-4 flex flex-wrap justify-between items-center gap-2">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-white/50">Total das modalidades</p>
+                  {itensPercent > 0 && (
+                    <p className="text-[11px] text-beetz-yellow/80 mt-0.5">
+                      + {itensPercent} {itensPercent === 1 ? 'item' : 'itens'} em % das vendas
+                    </p>
+                  )}
                   {itensSobConsulta > 0 && (
                     <p className="text-[11px] text-amber-300 mt-0.5">
                       + {itensSobConsulta} {itensSobConsulta === 1 ? 'item' : 'itens'} sob consulta (fora da soma)
@@ -586,7 +604,7 @@ export default function ProducerNewProposal() {
                   )}
                 </div>
                 <span className="text-2xl font-extrabold text-beetz-yellow">
-                  {totalModalidades > 0 ? currency(totalModalidades) : itensSobConsulta > 0 ? 'Sob consulta' : currency(0)}
+                  {totalModalidades > 0 ? currency(totalModalidades) : itensPercent > 0 ? '% das vendas' : itensSobConsulta > 0 ? 'Sob consulta' : currency(0)}
                 </span>
               </div>
             )}

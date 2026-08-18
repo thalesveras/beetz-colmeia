@@ -167,6 +167,7 @@ export default function ProposalsSection() {
   const [novoNome, setNovoNome] = useState('')
   const [novaUnidade, setNovaUnidade] = useState('un')
   const [novoPreco, setNovoPreco] = useState('')
+  const [novoTipo, setNovoTipo] = useState<'fixed' | 'percent'>('fixed')
   const [modBusy, setModBusy] = useState<string | null>(null)
 
   // Edição inline: nome, unidade e o PREÇO DA CASA (que o produtor aceita).
@@ -174,24 +175,28 @@ export default function ProposalsSection() {
   const [eNome, setENome] = useState('')
   const [eUnidade, setEUnidade] = useState('')
   const [ePreco, setEPreco] = useState('')
+  const [eTipo, setETipo] = useState<'fixed' | 'percent'>('fixed')
 
   function abrirEdicao(m: ServiceModality) {
     setEditId(m.id)
     setENome(m.name)
     setEUnidade(m.unit_label)
     setEPreco(m.default_price != null ? String(m.default_price) : '')
+    setETipo(m.price_type ?? 'fixed')
   }
 
   async function salvarEdicao(m: ServiceModality) {
     const precoNum = ePreco.trim() === '' ? null : Number(ePreco.replace(',', '.'))
     if (precoNum != null && (!Number.isFinite(precoNum) || precoNum < 0)) { setError('Preço inválido.'); return }
+    if (eTipo === 'percent' && precoNum != null && precoNum > 100) { setError('Percentual não passa de 100.'); return }
     setModBusy(m.id)
     setError(null)
     try {
       await updateServiceModality(m.id, {
         name: eNome.trim() || m.name,
         unit_label: eUnidade.trim() || m.unit_label,
-        default_price: precoNum
+        default_price: precoNum,
+        price_type: eTipo
       } as Partial<ServiceModality>)
       setModalities(await listServiceModalities())
       setEditId(null)
@@ -200,6 +205,22 @@ export default function ProposalsSection() {
     } finally {
       setModBusy(null)
     }
+  }
+
+  // Botões R$ | % pro tipo de preço (usados no editar e no adicionar).
+  function TipoPreco({ valor, onPick }: { valor: 'fixed' | 'percent'; onPick: (v: 'fixed' | 'percent') => void }) {
+    return (
+      <div className="flex bg-beetz-gray rounded-xl p-0.5">
+        {([['fixed', 'R$'], ['percent', '%']] as ['fixed' | 'percent', string][]).map(([v, r]) => (
+          <button
+            key={v} type="button" onClick={() => onPick(v)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-colors ${valor === v ? 'bg-beetz-dark text-white' : 'text-beetz-dark/50'}`}
+          >
+            {r}
+          </button>
+        ))}
+      </div>
+    )
   }
 
   async function addModalidade() {
@@ -211,10 +232,12 @@ export default function ProposalsSection() {
       await createServiceModality({
         name: nome, description: null, requires_staffing: false, requires_products: false,
         unit_label: novaUnidade.trim() || 'un', sort_order: (modalities[modalities.length - 1]?.sort_order ?? 0) + 1,
-        default_price: precoNum != null && Number.isFinite(precoNum) ? precoNum : null
+        default_price: precoNum != null && Number.isFinite(precoNum) ? precoNum : null,
+        price_type: novoTipo
       } as Parameters<typeof createServiceModality>[0])
       setNovoNome('')
       setNovoPreco('')
+      setNovoTipo('fixed')
       setModalities(await listServiceModalities())
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Não deu pra criar a modalidade.')
@@ -392,7 +415,9 @@ export default function ProposalsSection() {
                             return (
                               <p key={d.id} className="text-beetz-dark/70">
                                 • {m?.name ?? 'Modalidade'} — {d.quantity} {m?.unit_label ?? 'un'}{' '}
-                                {d.unit_price > 0 ? (
+                                {m?.price_type === 'percent' && d.unit_price > 0 ? (
+                                  <strong>· {d.unit_price}% sobre as vendas</strong>
+                                ) : d.unit_price > 0 ? (
                                   <>× {currency(d.unit_price)} = <strong>{currency(d.total)}</strong></>
                                 ) : (
                                   <strong className="text-amber-700">· SOB CONSULTA — defina o valor ao aprovar</strong>
@@ -448,7 +473,12 @@ export default function ProposalsSection() {
                 <div className="flex flex-wrap items-center gap-2">
                   <input className={`${inputClass} flex-1 min-w-[140px]`} value={eNome} onChange={(e) => setENome(e.target.value)} placeholder="Nome" />
                   <input className={`${inputClass} w-20`} value={eUnidade} onChange={(e) => setEUnidade(e.target.value)} placeholder="unidade" title="Como se conta: un, hora, máquina..." />
-                  <input className={`${inputClass} w-28`} value={ePreco} onChange={(e) => setEPreco(e.target.value)} inputMode="decimal" placeholder="Preço R$" title="Preço da casa — o produtor aceita este valor no formulário. Vazio = produtor digita." />
+                  <TipoPreco valor={eTipo} onPick={setETipo} />
+                  <input
+                    className={`${inputClass} w-24`} value={ePreco} onChange={(e) => setEPreco(e.target.value)} inputMode="decimal"
+                    placeholder={eTipo === 'percent' ? '% vendas' : 'Preço R$'}
+                    title={eTipo === 'percent' ? 'Percentual sobre as vendas do evento' : 'Preço da casa por unidade. Vazio = sob consulta.'}
+                  />
                   <button onClick={() => salvarEdicao(m)} disabled={modBusy === m.id} className="text-xs font-bold bg-beetz-dark text-white px-3 py-2 rounded-xl disabled:opacity-50">
                     {modBusy === m.id ? '...' : 'Salvar'}
                   </button>
@@ -460,7 +490,7 @@ export default function ProposalsSection() {
                     {m.name} <span className="text-beetz-dark/40 font-normal text-xs">({m.unit_label})</span>
                     {m.default_price != null && (
                       <span className="ml-1.5 text-[11px] font-bold bg-beetz-yellow/25 text-beetz-dark px-2 py-0.5 rounded-full">
-                        {currency(m.default_price)} / {m.unit_label}
+                        {m.price_type === 'percent' ? `${m.default_price}% das vendas` : `${currency(m.default_price)} / ${m.unit_label}`}
                       </span>
                     )}
                   </p>
@@ -512,13 +542,14 @@ export default function ProposalsSection() {
               onChange={(e) => setNovaUnidade(e.target.value)}
               title="Como se conta: un, hora, pessoa..."
             />
+            <TipoPreco valor={novoTipo} onPick={setNovoTipo} />
             <input
-              className={`${inputClass} w-28`}
-              placeholder="Preço R$"
+              className={`${inputClass} w-24`}
+              placeholder={novoTipo === 'percent' ? '% vendas' : 'Preço R$'}
               inputMode="decimal"
               value={novoPreco}
               onChange={(e) => setNovoPreco(e.target.value)}
-              title="Preço da casa — vazio deixa o produtor digitar"
+              title={novoTipo === 'percent' ? 'Percentual sobre as vendas do evento' : 'Preço da casa por unidade — vazio fica sob consulta'}
             />
             <button
               onClick={addModalidade}

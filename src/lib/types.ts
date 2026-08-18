@@ -241,6 +241,9 @@ export interface ServiceModality {
   // Preço padrão da casa: quando preenchido, o formulário de proposta já
   // traz o valor travado — o produtor aceita, não digita.
   default_price?: number | null
+  // 'fixed' = R$ por unidade; 'percent' = % sobre as vendas do evento
+  // (default_price guarda o número nos dois casos).
+  price_type?: 'fixed' | 'percent'
   created_at: string
 }
 
