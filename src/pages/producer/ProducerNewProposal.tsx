@@ -121,7 +121,25 @@ function extrairDoFlyer(texto: string): FlyerExtraido {
 }
 
 const inputClass = 'w-full border border-beetz-dark/15 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
-const STEPS = ['Resumo do evento', 'Modalidades', 'Faturamento', 'Equipe necessária', 'Revisão e assinatura']
+const STEPS = ['Resumo do evento', 'Modalidades', 'Faturamento e bebidas', 'Equipe necessária', 'Revisão e assinatura']
+
+// Par de botões Sim/Não do padrão da casa (null = não respondeu ainda).
+function SimNao({ valor, onPick }: { valor: boolean | null; onPick: (v: boolean) => void }) {
+  return (
+    <div className="flex gap-2">
+      {[{ v: false, r: 'Não' }, { v: true, r: 'Sim' }].map(({ v, r }) => (
+        <button
+          type="button" key={r} onClick={() => onPick(v)}
+          className={`text-sm font-medium px-5 py-2.5 rounded-xl border transition-colors ${
+            valor === v ? 'bg-beetz-yellow border-beetz-yellow text-beetz-dark' : 'border-beetz-dark/15 text-beetz-dark/70 hover:bg-beetz-gray'
+          }`}
+        >
+          {r}
+        </button>
+      ))}
+    </div>
+  )
+}
 
 interface ModalitySelection { quantity: number; unit_price: number; notes: string }
 interface StaffingRow { role_label: string; quantity: number; unit_cost: number }
@@ -154,7 +172,15 @@ export default function ProducerNewProposal() {
 
   // Passo 3 — faturamento
   const [salesAmount, setSalesAmount] = useState(0)
-  const [commissionPercentage, setCommissionPercentage] = useState(20)
+  // O percentual do produtor NÃO é negociado no formulário: vem da regra da
+  // casa (admin → Propostas; hoje 40%). O produtor vê, não edita.
+  const [commissionPercentage, setCommissionPercentage] = useState(40)
+  // Perguntas comerciais que a Diretoria precisa antes de aprovar.
+  const [minSalesTarget, setMinSalesTarget] = useState(0)
+  const [hasOtherPartners, setHasOtherPartners] = useState<boolean | null>(null)
+  const [partnersNotes, setPartnersNotes] = useState('')
+  const [hasOfficialBeer, setHasOfficialBeer] = useState<boolean | null>(null)
+  const [officialBeerBrand, setOfficialBeerBrand] = useState('')
 
   // Passo 4 — equipe necessária
   const [staffing, setStaffing] = useState<StaffingRow[]>([])
@@ -207,7 +233,11 @@ export default function ProducerNewProposal() {
   // nunca derruba o painel.
   const [propostasAbertas, setPropostasAbertas] = useState(true)
   useEffect(() => {
-    getAppSettings().then((cfg) => setPropostasAbertas(cfg?.proposals_open ?? true)).catch(() => {})
+    getAppSettings().then((cfg) => {
+      setPropostasAbertas(cfg?.proposals_open ?? true)
+      // Percentual oficial da casa — o formulário exige este valor.
+      if (cfg?.proposal_producer_percent != null) setCommissionPercentage(Number(cfg.proposal_producer_percent))
+    }).catch(() => {})
   }, [])
 
   const needsStaffing = Object.keys(selected).some((id) => modalities.find((m) => m.id === id)?.requires_staffing)
@@ -244,6 +274,13 @@ export default function ProducerNewProposal() {
     }
     if (step === 1) {
       if (Object.keys(selected).length === 0) return 'Escolha ao menos uma modalidade de serviço.'
+    }
+    if (step === 2) {
+      if (!minSalesTarget || minSalesTarget <= 0) return 'Informe o mínimo necessário de vendas do evento.'
+      if (hasOtherPartners === null) return 'Responda se vão ter outros parceiros de bebida.'
+      if (hasOtherPartners && !partnersNotes.trim()) return 'Conte quais são os outros parceiros de bebida.'
+      if (hasOfficialBeer === null) return 'Responda se o evento tem cerveja oficial.'
+      if (hasOfficialBeer && !officialBeerBrand.trim()) return 'Informe qual é a cerveja oficial.'
     }
     if (step === 3 && needsStaffing) {
       if (staffing.length === 0) return 'Adicione ao menos uma função de equipe (obrigatório para a(s) modalidade(s) escolhida(s)).'
@@ -295,7 +332,12 @@ export default function ProducerNewProposal() {
         name, event_date: eventDate, location, city, status: 'Planejado', leader_id: null,
         address, start_time: startTime || null, end_date: endDate || null, end_time: endTime || null,
         music_style: musicStyle || null, link: link || null, flyer_url: flyerUrl,
-        sales_amount: salesAmount, commission_percentage: commissionPercentage
+        sales_amount: salesAmount, commission_percentage: commissionPercentage,
+        min_sales_target: minSalesTarget || null,
+        has_other_beverage_partners: hasOtherPartners,
+        beverage_partners_notes: hasOtherPartners ? partnersNotes.trim() || null : null,
+        has_official_beer: hasOfficialBeer,
+        official_beer_brand: hasOfficialBeer ? officialBeerBrand.trim() || null : null
       })
 
       for (const [modalityId, cfg] of Object.entries(selected)) {
@@ -504,19 +546,62 @@ export default function ProducerNewProposal() {
         {step === 2 && (
           <>
             <p className="text-sm text-beetz-dark/60">Estimativas de faturamento do evento — sujeitas à confirmação da Beetz.</p>
+
+            {/* O percentual é REGRA DA CASA (admin → Propostas) — aparece
+                claro, mas não se negocia no formulário. */}
+            <div className="bg-beetz-dark text-white rounded-2xl px-5 py-4 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-white/50">Repasse ao produtor</p>
+                <p className="text-2xl font-extrabold text-beetz-yellow">{commissionPercentage}% das vendas</p>
+              </div>
+              <p className="text-[11px] text-white/50 max-w-[180px] text-right">Percentual padrão da Beetz — o restante cobre estrutura, equipe e operação.</p>
+            </div>
+
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
                 <label className="text-sm font-medium block mb-1">Vendas estimadas (R$)</label>
                 <input type="number" min={0} step="0.01" className={inputClass} value={salesAmount} onChange={(e) => setSalesAmount(Number(e.target.value))} />
               </div>
               <div>
-                <label className="text-sm font-medium block mb-1">Percentual da Beetz (%)</label>
-                <input type="number" min={0} max={100} step="0.1" className={inputClass} value={commissionPercentage} onChange={(e) => setCommissionPercentage(Number(e.target.value))} />
+                <label className="text-sm font-medium block mb-1">Mínimo necessário de vendas (R$) *</label>
+                <input
+                  type="number" min={0} step="0.01" className={inputClass} value={minSalesTarget}
+                  onChange={(e) => setMinSalesTarget(Number(e.target.value))}
+                  title="Abaixo de quanto o evento não se sustenta pra você?"
+                />
               </div>
             </div>
             <div className="bg-beetz-gray rounded-xl px-4 py-3 flex justify-between items-center">
-              <span className="text-sm font-medium text-beetz-dark/60">A receber pela Beetz (estimado)</span>
+              <span className="text-sm font-medium text-beetz-dark/60">Repasse estimado ao produtor ({commissionPercentage}%)</span>
               <span className="font-bold">{currency(salesAmount * (commissionPercentage / 100))}</span>
+            </div>
+
+            {/* Perguntas comerciais — a Diretoria decide com isso na mesa. */}
+            <div className="border-t border-beetz-dark/10 pt-4 space-y-4">
+              <div>
+                <label className="text-sm font-medium block mb-2">Vão ter outros parceiros de bebida no evento? *</label>
+                <SimNao valor={hasOtherPartners} onPick={(v) => { setHasOtherPartners(v); if (!v) setPartnersNotes('') }} />
+                {hasOtherPartners === true && (
+                  <input
+                    className={`${inputClass} mt-2`}
+                    placeholder="Quais? Ex.: gin oficial, energético, água..."
+                    value={partnersNotes}
+                    onChange={(e) => setPartnersNotes(e.target.value)}
+                  />
+                )}
+              </div>
+              <div>
+                <label className="text-sm font-medium block mb-2">O evento tem cerveja oficial? *</label>
+                <SimNao valor={hasOfficialBeer} onPick={(v) => { setHasOfficialBeer(v); if (!v) setOfficialBeerBrand('') }} />
+                {hasOfficialBeer === true && (
+                  <input
+                    className={`${inputClass} mt-2`}
+                    placeholder="Qual marca?"
+                    value={officialBeerBrand}
+                    onChange={(e) => setOfficialBeerBrand(e.target.value)}
+                  />
+                )}
+              </div>
             </div>
           </>
         )}
@@ -562,8 +647,11 @@ export default function ProducerNewProposal() {
               ))}
             </div>
             <div>
-              <h3 className="text-xs font-bold uppercase tracking-wide text-beetz-dark/40 mb-1">Faturamento</h3>
-              <p className="text-sm">Vendas estimadas: {currency(salesAmount)} · Percentual Beetz: {commissionPercentage}%</p>
+              <h3 className="text-xs font-bold uppercase tracking-wide text-beetz-dark/40 mb-1">Faturamento e bebidas</h3>
+              <p className="text-sm">Vendas estimadas: {currency(salesAmount)} · Mínimo necessário: {currency(minSalesTarget)} · Repasse ao produtor: {commissionPercentage}%</p>
+              <p className="text-sm text-beetz-dark/60 mt-0.5">
+                Outros parceiros de bebida: {hasOtherPartners ? `Sim — ${partnersNotes}` : 'Não'} · Cerveja oficial: {hasOfficialBeer ? `Sim — ${officialBeerBrand}` : 'Não'}
+              </p>
             </div>
             {staffing.length > 0 && (
               <div>

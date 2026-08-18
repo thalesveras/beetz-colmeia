@@ -29,6 +29,10 @@ export default function ProposalsSection() {
   const [producerNames, setProducerNames] = useState<Map<string, string>>(new Map())
   const [modalities, setModalities] = useState<ServiceModality[]>([])
   const [proposalsOpen, setProposalsOpen] = useState(true)
+  // Percentual padrão do produtor sobre as vendas — a regra da casa (40).
+  const [percent, setPercent] = useState('40')
+  const [percentBusy, setPercentBusy] = useState(false)
+  const [percentOk, setPercentOk] = useState(false)
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -50,6 +54,7 @@ export default function ProposalsSection() {
       setProducerNames(prods)
       setModalities(mods)
       setProposalsOpen(cfg?.proposals_open ?? true)
+      setPercent(String(cfg?.proposal_producer_percent ?? 40))
     } finally {
       setLoading(false)
     }
@@ -111,6 +116,22 @@ export default function ProposalsSection() {
     } catch {
       setProposalsOpen(!novo)
       setError('Não deu pra salvar o interruptor agora.')
+    }
+  }
+
+  async function salvarPercent() {
+    const v = Number(percent.replace(',', '.'))
+    if (!Number.isFinite(v) || v <= 0 || v > 100) { setError('Percentual precisa estar entre 1 e 100.'); return }
+    setPercentBusy(true)
+    setError(null)
+    try {
+      await updateAppSettings({ proposal_producer_percent: v })
+      setPercentOk(true)
+      setTimeout(() => setPercentOk(false), 2500)
+    } catch {
+      setError('Não deu pra salvar o percentual agora.')
+    } finally {
+      setPercentBusy(false)
     }
   }
 
@@ -183,6 +204,32 @@ export default function ProposalsSection() {
         </button>
       </div>
 
+      {/* Percentual padrão do produtor — o formulário EXIGE este valor. */}
+      <div className="bg-white rounded-2xl p-5 shadow-soft border border-beetz-dark/5 flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="font-bold">Percentual do produtor</h2>
+          <p className="text-xs text-beetz-dark/50 mt-0.5">
+            É o repasse sobre as vendas que aparece travado no formulário de proposta — a casa trabalha com 40%.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <input
+            type="text" inputMode="decimal"
+            className={`${inputClass} w-20 text-center font-bold`}
+            value={percent}
+            onChange={(e) => setPercent(e.target.value)}
+          />
+          <span className="text-sm font-bold text-beetz-dark/50">%</span>
+          <button
+            onClick={salvarPercent}
+            disabled={percentBusy}
+            className="text-xs font-bold bg-beetz-dark text-white px-3.5 py-2 rounded-xl disabled:opacity-50"
+          >
+            {percentBusy ? 'Salvando...' : percentOk ? 'Salvo ✓' : 'Salvar'}
+          </button>
+        </div>
+      </div>
+
       {/* Fila de propostas */}
       <div>
         <h2 className="font-bold mb-1">Fila de propostas {pendentes > 0 && <span className="text-xs font-extrabold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full align-middle ml-1">{pendentes} pendente{pendentes > 1 ? 's' : ''}</span>}</h2>
@@ -223,6 +270,18 @@ export default function ProposalsSection() {
 
                   {openId === ev.id && (
                     <div className="mt-2 bg-beetz-gray/70 border border-beetz-dark/5 rounded-xl p-3 text-xs space-y-1">
+                      {/* As respostas comerciais do produtor — decisão com tudo na mesa. */}
+                      <p className="text-beetz-dark/70">
+                        💰 Repasse ao produtor: <strong>{ev.commission_percentage ?? 0}%</strong>
+                        {ev.min_sales_target != null && <> · Mínimo de vendas: <strong>{currency(Number(ev.min_sales_target))}</strong></>}
+                        {ev.sales_amount ? <> · Estimadas: {currency(Number(ev.sales_amount))}</> : null}
+                      </p>
+                      {(ev.has_other_beverage_partners != null || ev.has_official_beer != null) && (
+                        <p className="text-beetz-dark/70 pb-1 border-b border-beetz-dark/10">
+                          🍺 Outros parceiros de bebida: <strong>{ev.has_other_beverage_partners ? `Sim — ${ev.beverage_partners_notes ?? ''}` : 'Não'}</strong>
+                          {' · '}Cerveja oficial: <strong>{ev.has_official_beer ? `Sim — ${ev.official_beer_brand ?? ''}` : 'Não'}</strong>
+                        </p>
+                      )}
                       {!dets ? (
                         <p className="text-beetz-dark/40">Carregando o pedido...</p>
                       ) : dets.length === 0 ? (

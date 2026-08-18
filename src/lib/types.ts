@@ -175,6 +175,12 @@ export interface EventItem {
   // Eventos que NASCERAM como proposta do painel do produtor: Pendente até a
   // Diretoria decidir (admin → Propostas). Null = evento interno normal.
   proposal_status?: 'Pendente' | 'Aprovada' | 'Recusada' | null
+  // Perguntas comerciais da proposta (respondidas pelo produtor no wizard).
+  min_sales_target?: number | null
+  has_other_beverage_partners?: boolean | null
+  beverage_partners_notes?: string | null
+  has_official_beer?: boolean | null
+  official_beer_brand?: string | null
   zapsign_doc_token: string | null
   zapsign_signer_token: string | null
   zapsign_sign_url: string | null
@@ -1001,6 +1007,9 @@ export interface AppSettings {
   // Interruptor do painel do produtor: false fecha a entrada de NOVAS
   // propostas (as existentes seguem visíveis).
   proposals_open?: boolean | null
+  // Percentual PADRÃO do produtor sobre as vendas (a casa trabalha com 40).
+  // Definido no admin → Propostas; o formulário do produtor usa esse valor.
+  proposal_producer_percent?: number | null
   updated_at: string
 }
 
