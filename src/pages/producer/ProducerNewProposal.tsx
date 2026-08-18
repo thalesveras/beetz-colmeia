@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { Check, Plus, Send, Trash2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Check, Plus, Trash2 } from 'lucide-react'
 import { useProducerAuth } from '../../contexts/ProducerAuthContext'
 import {
   createEventAsProducer, createEventModality, createEventStaffingRequirement,
@@ -8,20 +8,16 @@ import {
 import { supabase } from '../../lib/supabaseClient'
 import type { AppSettings, ServiceModality } from '../../lib/types'
 
-// A proposta agora é uma CONVERSA com a Beetz — um roteiro guiado em formato
-// de chat, não um formulário. A Beetz pergunta, o produtor responde com
-// chips e campos simples, e cada serviço só puxa as perguntas que ele exige:
-//   · Aluguel (grade, mesa...): só a quantidade — preço da casa no admin.
-//   · Máquinas/Totem: quantidades + cupom de desconto (taxas do admin).
-//   · Operação de bares: produtos desejados + funções da equipe + o 60/40
-//     (a Beetz é sócia da operação) + perguntas de bebida.
-// No final: resumo, envio e assinatura (o e-mail já chegou validado pelo
-// link mágico do login).
+// Proposta do produtor — formulário ENXUTO em 3 passos:
+//   1. O evento (só o essencial; o flyer preenche por OCR)
+//   2. Serviços (vitrine com preço; cada serviço abre só as SUAS perguntas)
+//   3. Condições & envio (todas as condições comerciais às claras + assinar)
+// As condições (sociedade 60/40, cláusula de meta, taxas e aluguéis) ficam
+// SEMPRE visíveis num quadro fixo — nada de surpresa na hora de assinar.
 
-const inputClass = 'w-full border border-beetz-dark/15 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
-// Input do CHAT: 16px no mínimo — abaixo disso o iOS dá zoom na tela toda
-// quando o campo ganha foco (a praga clássica do formulário no iPhone).
-const inputChat = 'w-full border border-beetz-dark/15 rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
+const STEPS = ['O evento', 'Serviços', 'Condições e envio']
+const inputClass = 'w-full border border-beetz-dark/15 rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
+const ROTULO = 'text-sm font-semibold block mb-1.5'
 
 function currency(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -103,85 +99,53 @@ function extrairDoFlyer(texto: string): FlyerExtraido {
   return out
 }
 
-// ---- O roteiro da conversa ----
-type Etapa =
-  | 'flyer' | 'nome' | 'data' | 'local' | 'cidade' | 'endereco'
-  | 'servicos' | 'qtd_fixa' | 'maquinas' | 'totens' | 'cupom'
-  | 'produtos' | 'outros_bares' | 'funcoes' | 'minimo' | 'parceiros' | 'cerveja'
-  | 'resumo' | 'enviando' | 'fim'
+const ehMaquina = (m: ServiceModality) => /m[áa]quin|totem|autoatend|cart[ãa]o/i.test(m.name)
+const FUNCOES_COMUNS = ['Garçom', 'Caixa', 'Barman', 'Líder de bar', 'Segurança']
+const PRODUTOS_TIPOS = ['Cerveja', 'Drinks', 'Destilados', 'Energético', 'Refrigerante & Água', 'Vinho/Espumante']
 
-interface Msg { de: 'b' | 'p'; texto: string }
 interface StaffRow { role_label: string; quantity: number }
 
-const ehMaquina = (m: ServiceModality) => /m[áa]quin|totem|autoatend|cart[ãa]o/i.test(m.name)
-const FUNCOES_COMUNS = ['Garçom', 'Caixa', 'Barman', 'Líder de bar', 'Repositor', 'Segurança']
-// Tipos de produto da operação de bar — chips de 1 toque; "outros" no campo livre.
-const PRODUTOS_TIPOS = ['Cerveja', 'Drinks', 'Destilados', 'Energético', 'Refrigerante & Água', 'Vinho/Espumante', 'Caipirinha']
+// Par Sim/Não compacto.
+function SimNao({ valor, onPick }: { valor: boolean | null; onPick: (v: boolean) => void }) {
+  return (
+    <div className="flex gap-2">
+      {[{ v: false, r: 'Não' }, { v: true, r: 'Sim' }].map(({ v, r }) => (
+        <button
+          type="button" key={r} onClick={() => onPick(v)}
+          className={`text-sm font-semibold px-5 py-2 rounded-xl border transition-colors ${
+            valor === v ? 'bg-beetz-yellow border-beetz-yellow text-beetz-dark' : 'border-beetz-dark/15 text-beetz-dark/60 hover:bg-beetz-gray'
+          }`}
+        >
+          {r}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function Stepper({ valor, onChange, min = 0 }: { valor: number; onChange: (n: number) => void; min?: number }) {
+  return (
+    <div className="flex items-center gap-1 bg-white border border-beetz-dark/15 rounded-xl p-1">
+      <button type="button" onClick={() => onChange(Math.max(min, valor - 1))} className="w-9 h-9 rounded-lg font-extrabold text-lg text-beetz-dark/60 hover:bg-beetz-gray">−</button>
+      <span className="w-10 text-center font-extrabold text-sm">{valor}</span>
+      <button type="button" onClick={() => onChange(valor + 1)} className="w-9 h-9 rounded-lg font-extrabold text-lg text-beetz-dark/60 hover:bg-beetz-gray">+</button>
+    </div>
+  )
+}
 
 export default function ProducerNewProposal() {
   const { producerId } = useProducerAuth()
-
-  const [msgs, setMsgs] = useState<Msg[]>([])
-  const [etapa, setEtapa] = useState<Etapa>('flyer')
-  const fimRef = useRef<HTMLDivElement | null>(null)
-  useEffect(() => { fimRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }) }, [msgs, etapa])
-
-  // TECLADO SEMPRE PRONTO: quando a Beetz pergunta algo de digitar, o campo
-  // já ganha foco — no celular o teclado abre sozinho (e entre perguntas de
-  // texto seguidas ele nem fecha, porque o input é o mesmo e nunca desmonta).
-  // O pequeno atraso deixa o input montar; o segundo scroll compensa o
-  // teclado que acabou de subir e cobriu a última mensagem.
-  const entradaRef = useRef<HTMLInputElement | null>(null)
-  const [hasOtherPartnersFoco, setHasOtherPartnersFoco] = useState(0) // gatilho de refoco pros inputs condicionais
-  useEffect(() => {
-    const t1 = setTimeout(() => entradaRef.current?.focus(), 80)
-    const t2 = setTimeout(() => fimRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }), 350)
-    return () => { clearTimeout(t1); clearTimeout(t2) }
-  }, [etapa, hasOtherPartnersFoco])
-
-  // Botões da barra de resposta NÃO roubam o foco do input (mousedown com
-  // preventDefault): sem isso, cada toque em "Confirmar" fecha o teclado.
-  const naoRoubaFoco = (e: { preventDefault: () => void }) => e.preventDefault()
+  const [step, setStep] = useState(0)
+  const [erro, setErro] = useState<string | null>(null)
 
   // Config da casa
   const [modalities, setModalities] = useState<ServiceModality[]>([])
   const [cfg, setCfg] = useState<AppSettings | null>(null)
   const [propostasAbertas, setPropostasAbertas] = useState(true)
-
-  // Dados coletados
-  const [flyerData, setFlyerData] = useState<string | null>(null)
-  const [flyerBusy, setFlyerBusy] = useState(false)
-  const [name, setName] = useState('')
-  const [eventDate, setEventDate] = useState('')
-  const [location, setLocation] = useState('')
-  const [city, setCity] = useState('')
-  const [address, setAddress] = useState('')
-  const [escolhidas, setEscolhidas] = useState<string[]>([])
-  const [qts, setQts] = useState<Record<string, number>>({})
-  const [filaFixas, setFilaFixas] = useState<string[]>([])
-  const [maquinasQtd, setMaquinasQtd] = useState(1)
-  const [totensQtd, setTotensQtd] = useState(0)
-  const [cupom, setCupom] = useState('')
-  const [cupomAplicado, setCupomAplicado] = useState(false)
-  const [produtosDesejados, setProdutosDesejados] = useState('')
-  const [tiposProdutos, setTiposProdutos] = useState<string[]>([])
-  const [hasOtherBars, setHasOtherBars] = useState<boolean | null>(null)
-  const [otherBarsNotes, setOtherBarsNotes] = useState('')
-  const [staffRows, setStaffRows] = useState<StaffRow[]>([])
-  const [novaFuncao, setNovaFuncao] = useState('')
-  const [novaQtd, setNovaQtd] = useState(1)
-  const [minSalesTarget, setMinSalesTarget] = useState(0)
-  const [hasOtherPartners, setHasOtherPartners] = useState<boolean | null>(null)
-  const [partnersNotes, setPartnersNotes] = useState('')
-  const [hasOfficialBeer, setHasOfficialBeer] = useState<boolean | null>(null)
-  const [officialBeerBrand, setOfficialBeerBrand] = useState('')
-
-  const [campo, setCampo] = useState('')
-  const [erro, setErro] = useState<string | null>(null)
-  const [signUrl, setSignUrl] = useState<string | null>(null)
-
   const mf = cfg?.machine_fees ?? null
   const percentProdutor = Number(cfg?.proposal_producer_percent ?? 40)
+  const goalTh = Number(cfg?.proposal_goal_threshold ?? 70)
+  const goalPen = Number(cfg?.proposal_goal_penalty ?? 10)
 
   useEffect(() => {
     Promise.all([listServiceModalities().catch(() => [] as ServiceModality[]), getAppSettings().catch(() => null)])
@@ -190,209 +154,81 @@ export default function ProducerNewProposal() {
         setCfg(c)
         setPropostasAbertas(c?.proposals_open ?? true)
       })
-    setMsgs([
-      { de: 'b', texto: 'Oi! 🐝 Eu sou a Beetz. Vamos montar sua proposta de evento juntos — é rapidinho.' },
-      { de: 'b', texto: 'Se você já tem o flyer do evento, me manda que eu leio e adianto os dados. Se não tiver, é só pular.' }
-    ])
   }, [])
 
-  function fala(texto: string) {
-    setMsgs((prev) => [...prev, { de: 'b', texto }])
-  }
-  function respondo(texto: string) {
-    setMsgs((prev) => [...prev, { de: 'p', texto }])
-  }
+  // Passo 1 — o evento (só o essencial)
+  const [flyerData, setFlyerData] = useState<string | null>(null)
+  const [flyerBusy, setFlyerBusy] = useState(false)
+  const [flyerInfo, setFlyerInfo] = useState<string | null>(null)
+  const [name, setName] = useState('')
+  const [eventDate, setEventDate] = useState('')
+  const [location, setLocation] = useState('')
+  const [city, setCity] = useState('')
+  const [address, setAddress] = useState('')
+
+  // Passo 2 — serviços e suas perguntas
+  const [escolhidas, setEscolhidas] = useState<string[]>([])
+  const [qts, setQts] = useState<Record<string, number>>({})
+  const [totensQtd, setTotensQtd] = useState(0)
+  const [cupom, setCupom] = useState('')
+  const [cupomAplicado, setCupomAplicado] = useState(false)
+  const [cupomMsg, setCupomMsg] = useState<string | null>(null)
+  const [tiposProdutos, setTiposProdutos] = useState<string[]>([])
+  const [produtosOutros, setProdutosOutros] = useState('')
+  const [hasOtherBars, setHasOtherBars] = useState<boolean | null>(null)
+  const [otherBarsNotes, setOtherBarsNotes] = useState('')
+  const [staffRows, setStaffRows] = useState<StaffRow[]>([])
+  const [novaFuncao, setNovaFuncao] = useState('')
+  const [minSalesTarget, setMinSalesTarget] = useState(0)
+  const [hasOtherPartners, setHasOtherPartners] = useState<boolean | null>(null)
+  const [partnersNotes, setPartnersNotes] = useState('')
+  const [hasOfficialBeer, setHasOfficialBeer] = useState<boolean | null>(null)
+  const [officialBeerBrand, setOfficialBeerBrand] = useState('')
+
+  // Envio
+  const [submitting, setSubmitting] = useState(false)
+  const [signUrl, setSignUrl] = useState<string | null>(null)
+  const [done, setDone] = useState(false)
 
   const temOperacao = escolhidas.some((id) => modalities.find((m) => m.id === id)?.price_type === 'percent')
   const temMaquinas = escolhidas.some((id) => { const m = modalities.find((x) => x.id === id); return m ? ehMaquina(m) : false })
+  const fixasEscolhidas = escolhidas
+    .map((id) => modalities.find((m) => m.id === id))
+    .filter((m): m is ServiceModality => !!m && m.price_type !== 'percent')
+  const totalFixo = fixasEscolhidas.reduce((s, m) => s + (m.default_price != null ? (qts[m.id] ?? 1) * m.default_price : 0), 0)
+  const feesAtivas = mf ? (cupomAplicado ? mf.coupon : mf.standard) : null
 
-  // ---- Transições do roteiro ----
-  function irPara(prox: Etapa) {
-    setErro(null)
-    setCampo('')
-    if (prox === 'nome') fala('Qual o nome do evento?')
-    if (prox === 'data') fala('Que dia vai ser?')
-    if (prox === 'local') fala('Em qual local/espaço?')
-    if (prox === 'cidade') fala('Em qual cidade?')
-    if (prox === 'endereco') fala('Me passa o endereço completo do local.')
-    if (prox === 'servicos') fala('O que você precisa da Beetz? Pode marcar mais de um. 👇')
-    if (prox === 'maquinas') fala('Quantas máquinas de cartão você precisa?')
-    if (prox === 'totens') fala('E totens de autoatendimento — quantos?')
-    if (prox === 'cupom') fala('Você tem cupom de desconto nas taxas? Se tiver, digita ele aqui — se não, é só pular.')
-    if (prox === 'produtos') fala('Sobre a operação de bares: que tipos de produtos o evento precisa? Marca os que fizerem sentido. 👇')
-    if (prox === 'outros_bares') fala('Vai ter outra operação de bar dentro do evento (além da Beetz)?')
-    if (prox === 'funcoes') fala('E de equipe, o que a operação precisa? Adiciona as funções e quantidades. 👇')
-    if (prox === 'minimo') fala('Agora a meta: quanto o evento deve vender (R$)? É com base nela que fechamos o combinado.')
-    if (prox === 'parceiros') fala('Vão ter outros parceiros de bebida no evento?')
-    if (prox === 'cerveja') fala('O evento tem cerveja oficial?')
-    if (prox === 'resumo') fala('Fechou! Dá uma conferida no resumo antes de enviar. 👇')
-    setEtapa(prox)
-  }
-
-  // Depois dos serviços: fila de quantidades das modalidades FIXAS
-  // (não-máquina), depois máquinas → totem → cupom, depois operação.
-  function proximoDepoisServicos(fila: string[]) {
-    if (fila.length > 0) {
-      const m = modalities.find((x) => x.id === fila[0])!
-      fala(`Quant${m.unit_label === 'grade' ? 'as grades' : `os(as) ${m.unit_label}s`} de "${m.name}" você precisa?`)
-      setFilaFixas(fila)
-      setEtapa('qtd_fixa')
-      setErro(null)
-      return
-    }
-    if (temMaquinas) { irPara('maquinas'); return }
-    if (temOperacao) { irPara('produtos'); return }
-    irPara('resumo')
-  }
-
-  function depoisDasMaquinas() {
-    if (temOperacao) irPara('produtos')
-    else irPara('resumo')
-  }
-
-  // ---- Handlers por etapa ----
   async function handleFlyer(file: File) {
     setFlyerBusy(true)
+    setFlyerInfo(null)
     try {
       const dataUrl = await encolherFlyer(file)
       setFlyerData(dataUrl)
-      respondo('📸 (flyer enviado)')
-      fala('Recebi! Deixa eu ler a arte... 🔎')
       const T = await loadTesseract()
       const result = await T.recognize(dataUrl, 'por', {})
       const ex = extrairDoFlyer(String(result?.data?.text ?? ''))
       let n = 0
-      if (ex.name) { setName(ex.name); n++ }
-      if (ex.eventDate) { setEventDate(ex.eventDate); n++ }
-      if (ex.city) { setCity(ex.city); n++ }
-      if (ex.location) { setLocation(ex.location); n++ }
-      fala(n > 0 ? `Consegui adiantar ${n} dado${n > 1 ? 's' : ''} da arte — confirma comigo nos próximos passos. ✨` : 'A arte tá linda, mas não consegui ler os dados — me conta você. 😄')
+      if (ex.name && !name.trim()) { setName(ex.name); n++ }
+      if (ex.eventDate && !eventDate) { setEventDate(ex.eventDate); n++ }
+      if (ex.city && !city.trim()) { setCity(ex.city); n++ }
+      if (ex.location && !location.trim()) { setLocation(ex.location); n++ }
+      setFlyerInfo(n > 0 ? `✨ Li o flyer e preenchi ${n} campo${n > 1 ? 's' : ''} — confere abaixo.` : 'Flyer anexado — ele vai junto na proposta.')
     } catch {
-      fala('Não consegui ler a arte agora — sem problema, o flyer vai junto na proposta. Me conta os dados:')
+      setFlyerInfo('Flyer anexado — ele vai junto na proposta.')
     } finally {
       setFlyerBusy(false)
-      irPara('nome')
     }
   }
 
-  function enviarTexto() {
-    const v = campo.trim()
-    if (etapa === 'nome') {
-      const valor = v || name
-      if (!valor) { setErro('Me diz o nome do evento. 🙂'); return }
-      setName(valor)
-      respondo(valor)
-      irPara('data')
-      return
-    }
-    if (etapa === 'local') {
-      const valor = v || location
-      if (!valor) { setErro('Preciso do local/espaço.'); return }
-      setLocation(valor)
-      respondo(valor)
-      irPara('cidade')
-      return
-    }
-    if (etapa === 'cidade') {
-      const valor = v || city
-      if (!valor) { setErro('Preciso da cidade.'); return }
-      setCity(valor)
-      respondo(valor)
-      irPara('endereco')
-      return
-    }
-    if (etapa === 'endereco') {
-      if (!v) { setErro('Preciso do endereço completo.'); return }
-      setAddress(v)
-      respondo(v)
-      irPara('servicos')
-      return
-    }
-  }
-
-  // Produtos da operação: chips de tipos + complemento livre.
-  function confirmarProdutos() {
-    const livre = campo.trim()
-    if (tiposProdutos.length === 0 && !livre) { setErro('Marca ao menos um tipo de produto. 🍻'); return }
-    const texto = [...tiposProdutos, livre].filter(Boolean).join(', ')
-    setProdutosDesejados(texto)
-    respondo(texto)
-    irPara('outros_bares')
-  }
-
-  function respostaOutrosBares(v: boolean) {
-    setHasOtherBars(v)
-    if (!v) {
-      respondo('Não — só a Beetz')
-      setOtherBarsNotes('')
-      irPara('funcoes')
-    } else {
-      respondo('Sim')
-      fala('Quais operações? (quem mais vai vender bebida lá dentro)')
-      setHasOtherPartnersFoco((n) => n + 1)
-    }
-  }
-
-  function confirmarOutrosBaresNotas() {
-    if (!otherBarsNotes.trim()) { setErro('Me conta quais operações. 🙂'); return }
-    respondo(otherBarsNotes)
-    irPara('funcoes')
-  }
-
-  function confirmarData() {
-    if (!eventDate) { setErro('Escolhe a data do evento.'); return }
-    respondo(new Date(eventDate + 'T12:00:00').toLocaleDateString('pt-BR'))
-    irPara('local')
-  }
-
-  function confirmarServicos() {
-    if (escolhidas.length === 0) { setErro('Marca pelo menos um serviço. 🙂'); return }
-    const nomes = escolhidas.map((id) => modalities.find((m) => m.id === id)?.name ?? '').filter(Boolean)
-    respondo(nomes.join(' + '))
-    // Fila de quantidade: só as fixas que NÃO são máquina (máquina tem bloco próprio).
-    const fila = escolhidas.filter((id) => {
-      const m = modalities.find((x) => x.id === id)
-      return m && m.price_type !== 'percent' && !ehMaquina(m)
-    })
-    proximoDepoisServicos(fila)
-  }
-
-  function confirmarQtdFixa() {
-    const id = filaFixas[0]
-    const m = modalities.find((x) => x.id === id)!
-    const q = qts[id] ?? 1
-    respondo(`${q} ${m.unit_label}${q > 1 ? 's' : ''}`)
-    const resto = filaFixas.slice(1)
-    proximoDepoisServicos(resto)
-  }
-
-  function confirmarMaquinas() {
-    respondo(`${maquinasQtd} máquina${maquinasQtd > 1 ? 's' : ''}`)
-    irPara('totens')
-  }
-
-  function confirmarTotens() {
-    respondo(totensQtd > 0 ? `${totensQtd} totem${totensQtd > 1 ? 's' : ''}` : 'Sem totem')
-    irPara('cupom')
-  }
-
-  function aplicarCupom(pular: boolean) {
-    if (pular || !cupom.trim()) {
-      respondo('Sem cupom')
-      setCupomAplicado(false)
-      if (mf) fala(`Fechado! Taxas padrão da casa: ${mf.standard.debit_pix}% débito/pix, ${mf.standard.credit}% crédito, ${mf.standard.cash}% dinheiro — sem taxa de gestão. Aluguel mensal: máquina ${currency(mf.machine_rent)} · totem ${currency(mf.totem_rent)}.`)
-      depoisDasMaquinas()
-      return
-    }
+  function aplicarCupom() {
     const codigo = cupom.trim().toUpperCase()
-    respondo(codigo)
-    if (mf && codigo === (mf.coupon_code ?? '').toUpperCase() && mf.coupon_code) {
+    if (!codigo) { setCupomAplicado(false); setCupomMsg(null); return }
+    if (mf && mf.coupon_code && codigo === mf.coupon_code.toUpperCase()) {
       setCupomAplicado(true)
-      fala(`🎉 Cupom válido! Suas taxas: ${mf.coupon.debit_pix}% débito e pix, ${mf.coupon.credit}% crédito e ${mf.coupon.management}% de gestão. Aluguel mensal: máquina ${currency(mf.machine_rent)} · totem ${currency(mf.totem_rent)}.`)
-      depoisDasMaquinas()
+      setCupomMsg(`🎉 Cupom aplicado — taxas com desconto (veja nas condições).`)
     } else {
       setCupomAplicado(false)
-      setErro('Esse cupom não confere — tenta de novo ou pula.')
+      setCupomMsg('Cupom não confere — as taxas seguem as padrão.')
     }
   }
 
@@ -400,75 +236,52 @@ export default function ProducerNewProposal() {
     const r = (rotulo ?? novaFuncao).trim()
     if (!r) return
     setStaffRows((prev) => {
-      const existente = prev.find((x) => x.role_label.toLowerCase() === r.toLowerCase())
-      if (existente) return prev.map((x) => (x === existente ? { ...x, quantity: x.quantity + (rotulo ? 1 : novaQtd) } : x))
-      return [...prev, { role_label: r, quantity: rotulo ? 1 : novaQtd }]
+      const ex = prev.find((x) => x.role_label.toLowerCase() === r.toLowerCase())
+      if (ex) return prev.map((x) => (x === ex ? { ...x, quantity: x.quantity + 1 } : x))
+      return [...prev, { role_label: r, quantity: 1 }]
     })
     setNovaFuncao('')
-    setNovaQtd(1)
   }
 
-  function confirmarFuncoes() {
-    if (staffRows.length === 0) { setErro('Adiciona ao menos uma função — a operação precisa de gente. 🐝'); return }
-    respondo(staffRows.map((s) => `${s.quantity}× ${s.role_label}`).join(', '))
-    fala(`Sobre a sociedade: nessa operação a Beetz entra como sócia do bar — ${100 - percentProdutor}% Beetz / ${percentProdutor}% você, sobre as vendas. A estrutura, equipe e insumos são por nossa conta. 🤝`)
-    irPara('minimo')
-  }
-
-  function confirmarMinimo() {
-    if (!minSalesTarget || minSalesTarget <= 0) { setErro('Me diz a meta de vendas.'); return }
-    respondo(currency(minSalesTarget))
-    // A cláusula de performance da casa, dita com todas as letras — o número
-    // exato do gatilho e o que acontece se não bater.
-    const th = Number(cfg?.proposal_goal_threshold ?? 70)
-    const pen = Number(cfg?.proposal_goal_penalty ?? 10)
-    fala(`Combinado então: o evento precisa fazer ao menos ${th}% dessa meta (${currency(minSalesTarget * th / 100)}). Se ficar abaixo, o seu repasse cai ${pen} pontos — de ${percentProdutor}% pra ${Math.max(0, percentProdutor - pen)}%. Isso fica registrado na proposta. 📝`)
-    irPara('parceiros')
-  }
-
-  function respostaParceiros(v: boolean) {
-    setHasOtherPartners(v)
-    if (!v) {
-      respondo('Não')
-      setPartnersNotes('')
-      irPara('cerveja')
-    } else {
-      respondo('Sim')
-      fala('Quais parceiros?')
-      setHasOtherPartnersFoco((n) => n + 1) // o campo que acabou de aparecer já vem com o teclado
+  function validar(): string | null {
+    if (step === 0) {
+      if (!name.trim() || !eventDate || !location.trim() || !city.trim()) return 'Preencha nome, data, local e cidade.'
     }
-  }
-
-  function confirmarParceirosNotas() {
-    if (!partnersNotes.trim()) { setErro('Me conta quais parceiros. 🙂'); return }
-    respondo(partnersNotes)
-    irPara('cerveja')
-  }
-
-  function respostaCerveja(v: boolean) {
-    setHasOfficialBeer(v)
-    if (!v) {
-      respondo('Não')
-      setOfficialBeerBrand('')
-      irPara('resumo')
-    } else {
-      respondo('Sim')
-      fala('Qual a marca?')
-      setHasOtherPartnersFoco((n) => n + 1)
+    if (step === 1) {
+      if (escolhidas.length === 0) return 'Escolha ao menos um serviço.'
+      if (temOperacao) {
+        if (tiposProdutos.length === 0 && !produtosOutros.trim()) return 'Operação de bar: marque os produtos desejados.'
+        if (hasOtherBars === null) return 'Operação de bar: responda se há outras operações no evento.'
+        if (hasOtherBars && !otherBarsNotes.trim()) return 'Conte quais outras operações.'
+        if (staffRows.length === 0) return 'Operação de bar: adicione as funções da equipe.'
+        if (!minSalesTarget || minSalesTarget <= 0) return 'Operação de bar: informe a meta de vendas.'
+        if (hasOtherPartners === null) return 'Responda se há outros parceiros de bebida.'
+        if (hasOtherPartners && !partnersNotes.trim()) return 'Conte quais parceiros.'
+        if (hasOfficialBeer === null) return 'Responda se há cerveja oficial.'
+        if (hasOfficialBeer && !officialBeerBrand.trim()) return 'Informe a marca da cerveja oficial.'
+      }
     }
+    return null
   }
 
-  function confirmarCervejaMarca() {
-    if (!officialBeerBrand.trim()) { setErro('Qual a marca? 🍺'); return }
-    respondo(officialBeerBrand)
-    irPara('resumo')
+  function avancar() {
+    const e = validar()
+    if (e) { setErro(e); return }
+    setErro(null)
+    setStep((s) => Math.min(2, s + 1))
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  // ---- Envio ----
-  async function enviarProposta() {
+  function voltar() {
+    setErro(null)
+    setStep((s) => Math.max(0, s - 1))
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  async function enviar() {
     if (!producerId) return
-    setEtapa('enviando')
-    fala('Enviando sua proposta... 🐝')
+    setSubmitting(true)
+    setErro(null)
     try {
       let flyerUrl: string | null = null
       if (flyerData) {
@@ -477,16 +290,17 @@ export default function ProducerNewProposal() {
           const path = `${producerId}/flyer-${Date.now()}.jpg`
           const { error: upErr } = await supabase.storage.from('avatars').upload(path, blob, { contentType: 'image/jpeg', upsert: true })
           if (!upErr) flyerUrl = supabase.storage.from('avatars').getPublicUrl(path).data.publicUrl
-        } catch { /* sem flyer, segue */ }
+        } catch { /* segue sem flyer */ }
       }
 
       const feesAplicadas = temMaquinas && mf
         ? { mode: cupomAplicado ? 'coupon' : 'standard', fees: cupomAplicado ? mf.coupon : mf.standard, machine_rent: mf.machine_rent, totem_rent: mf.totem_rent, coupon: cupomAplicado ? mf.coupon_code : null }
         : null
+      const produtosTexto = [...tiposProdutos, produtosOutros.trim()].filter(Boolean).join(', ')
 
       const event = await createEventAsProducer(producerId, {
         name, event_date: eventDate, location, city, status: 'Planejado', leader_id: null,
-        address, flyer_url: flyerUrl,
+        address: address.trim() || null, flyer_url: flyerUrl,
         sales_amount: 0,
         commission_percentage: temOperacao ? percentProdutor : 0,
         min_sales_target: temOperacao ? minSalesTarget || null : null,
@@ -495,397 +309,364 @@ export default function ProducerNewProposal() {
         has_official_beer: temOperacao ? hasOfficialBeer : null,
         official_beer_brand: temOperacao && hasOfficialBeer ? officialBeerBrand.trim() || null : null,
         proposal_fees: feesAplicadas,
-        proposal_products: temOperacao ? produtosDesejados.trim() || null : null,
+        proposal_products: temOperacao ? produtosTexto || null : null,
         proposal_totems: temMaquinas ? totensQtd : null,
         proposal_coupon: cupomAplicado && mf ? mf.coupon_code : null,
         has_other_bar_operations: temOperacao ? hasOtherBars : null,
         other_bar_operations_notes: temOperacao && hasOtherBars ? otherBarsNotes.trim() || null : null,
-        // Snapshot da cláusula: os números combinados HOJE ficam no evento.
-        goal_threshold_percent: temOperacao ? Number(cfg?.proposal_goal_threshold ?? 70) : null,
-        goal_penalty_percent: temOperacao ? Number(cfg?.proposal_goal_penalty ?? 10) : null
+        goal_threshold_percent: temOperacao ? goalTh : null,
+        goal_penalty_percent: temOperacao ? goalPen : null
       })
 
-      for (const id of escolhidas) {
-        const m = modalities.find((x) => x.id === id)
-        if (!m) continue
-        const quantidade = ehMaquina(m) ? maquinasQtd : m.price_type === 'percent' ? 1 : (qts[id] ?? 1)
-        const preco = m.default_price ?? 0
-        await createEventModality({
-          event_id: event.id, modality_id: id, quantity: quantidade,
-          unit_price: preco, notes: null
-        })
-      }
-
-      for (const row of staffRows) {
-        await createEventStaffingRequirement({
-          event_id: event.id, role_id: null, role_label: row.role_label, quantity: row.quantity,
-          unit_cost: null, notes: null
-        })
-      }
-
-      const result = await requestContractSignature(event.id)
-      setSignUrl(result.sign_url)
-      fala('Proposta enviada! 🎉 Agora é só assinar — seu e-mail já foi validado pelo link mágico do login.')
-      setEtapa('fim')
+      // Daqui pra baixo a proposta JÁ EXISTE: qualquer tropeço não pode
+      // derrubar o envio (senão um "tentar de novo" duplicaria o evento).
+      try {
+        for (const id of escolhidas) {
+          const m = modalities.find((x) => x.id === id)
+          if (!m) continue
+          await createEventModality({
+            event_id: event.id, modality_id: id,
+            quantity: m.price_type === 'percent' ? 1 : (qts[id] ?? 1),
+            unit_price: m.default_price ?? 0, notes: null
+          })
+        }
+        for (const row of staffRows) {
+          await createEventStaffingRequirement({
+            event_id: event.id, role_id: null, role_label: row.role_label, quantity: row.quantity,
+            unit_cost: null, notes: null
+          })
+        }
+        const result = await requestContractSignature(event.id)
+        setSignUrl(result.sign_url)
+      } catch { /* assinatura chega por e-mail; a Beetz completa o resto */ }
+      setDone(true)
     } catch (err) {
-      fala(`Ops, algo travou no envio: ${err instanceof Error ? err.message : 'tenta de novo'}. Nada do que você respondeu se perdeu — toca em Enviar de novo.`)
-      setEtapa('resumo')
+      setErro(err instanceof Error ? err.message : 'Não foi possível enviar. Nada foi perdido — tente de novo.')
+    } finally {
+      setSubmitting(false)
     }
   }
 
-  // ---- Bloqueio quando as propostas estão pausadas ----
+  // ---- O quadro de CONDIÇÕES — sempre às claras, atualiza com as escolhas ----
+  const condicoes: string[] = []
+  if (temOperacao) {
+    condicoes.push(`Sociedade na operação de bar: ${100 - percentProdutor}% Beetz / ${percentProdutor}% produtor, sobre as vendas.`)
+    condicoes.push(minSalesTarget > 0
+      ? `Meta de vendas: ${currency(minSalesTarget)}. Abaixo de ${goalTh}% dela (${currency(minSalesTarget * goalTh / 100)}), o repasse do produtor cai ${goalPen} pontos (${percentProdutor}% → ${Math.max(0, percentProdutor - goalPen)}%).`
+      : `Cláusula de meta: o evento deve atingir ao menos ${goalTh}% da meta declarada — abaixo disso o repasse cai ${goalPen} pontos.`)
+  }
+  if (temMaquinas && mf && feesAtivas) {
+    condicoes.push(`Taxas${cupomAplicado ? ` (cupom ${mf.coupon_code})` : ' padrão'}: ${feesAtivas.debit_pix}% débito/pix · ${feesAtivas.credit}% crédito · ${feesAtivas.cash}% dinheiro · ${feesAtivas.management}% gestão.`)
+    condicoes.push(`Aluguel mensal: máquina de cartão ${currency(mf.machine_rent)}${totensQtd > 0 ? ` · totem ${currency(mf.totem_rent)}` : ''}.`)
+  }
+  if (fixasEscolhidas.some((m) => m.default_price == null)) {
+    condicoes.push('Itens "sob consulta" têm o valor confirmado pela Beetz na aprovação.')
+  }
+
   if (!propostasAbertas) {
     return (
       <div className="max-w-lg mx-auto bg-white rounded-2xl p-8 shadow-soft border border-beetz-dark/5 text-center space-y-3">
         <p className="text-4xl">⏸️</p>
         <h1 className="text-xl font-extrabold">Propostas pausadas</h1>
-        <p className="text-sm text-beetz-dark/60">
-          A Beetz não está recebendo novas propostas neste momento. Assim que reabrir, é só voltar aqui.
-        </p>
+        <p className="text-sm text-beetz-dark/60">A Beetz não está recebendo novas propostas neste momento.</p>
       </div>
     )
   }
 
-  // ---- Render ----
-  const stepperInput = (valor: number, setValor: (n: number) => void, min = 0) => (
-    <div className="flex items-center gap-1 bg-white border border-beetz-dark/15 rounded-xl p-1">
-      <button type="button" onClick={() => setValor(Math.max(min, valor - 1))} className="w-10 h-10 rounded-lg font-extrabold text-lg text-beetz-dark/60 hover:bg-beetz-gray">−</button>
-      <span className="w-12 text-center font-extrabold">{valor}</span>
-      <button type="button" onClick={() => setValor(valor + 1)} className="w-10 h-10 rounded-lg font-extrabold text-lg text-beetz-dark/60 hover:bg-beetz-gray">+</button>
-    </div>
-  )
-
-  const botaoOk = (rotulo: string, onClick: () => void) => (
-    <button
-      onMouseDown={naoRoubaFoco}
-      onClick={onClick}
-      className="honey-gradient text-beetz-dark font-bold px-5 py-3 rounded-xl text-sm active:scale-[0.98] transition-transform shrink-0 min-h-[48px]"
-    >
-      {rotulo}
-    </button>
-  )
+  if (done) {
+    return (
+      <div className="max-w-lg mx-auto bg-white rounded-2xl p-8 shadow-soft border border-beetz-dark/5 text-center space-y-4">
+        <div className="w-14 h-14 rounded-full bg-green-100 text-green-600 flex items-center justify-center mx-auto"><Check size={28} /></div>
+        <h1 className="text-xl font-extrabold">Proposta enviada!</h1>
+        {signUrl ? (
+          <>
+            <p className="text-sm text-beetz-dark/60">Falta só a assinatura — seu e-mail já foi validado pelo login.</p>
+            <a href={signUrl} target="_blank" rel="noreferrer" className="inline-block honey-gradient text-beetz-dark font-bold px-6 py-3 rounded-xl">
+              🖊️ Assinar a proposta
+            </a>
+          </>
+        ) : (
+          <p className="text-sm text-beetz-dark/60">O link de assinatura chega no seu e-mail em instantes.</p>
+        )}
+        <p className="text-xs text-beetz-dark/45">A Beetz analisa e responde por aqui e por e-mail.</p>
+      </div>
+    )
+  }
 
   return (
-    <div className="max-w-2xl mx-auto flex flex-col" style={{ minHeight: 'calc(100dvh - 140px)' }}>
-      <div className="mb-3">
-        <h1 className="text-xl font-extrabold">Nova proposta 🐝</h1>
-        <p className="text-xs text-beetz-dark/50">Uma conversa rápida com a Beetz — responde no seu ritmo.</p>
+    <div className="max-w-2xl mx-auto space-y-5">
+      <div>
+        <h1 className="text-2xl font-extrabold">Nova proposta</h1>
+        <div className="flex items-center gap-2 mt-2">
+          {STEPS.map((s, i) => (
+            <div key={s} className="flex items-center gap-2">
+              <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${i === step ? 'bg-beetz-dark text-white' : i < step ? 'bg-beetz-yellow text-beetz-dark' : 'bg-beetz-gray text-beetz-dark/40'}`}>
+                {i + 1}. {s}
+              </span>
+              {i < STEPS.length - 1 && <span className="text-beetz-dark/20">—</span>}
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* A conversa */}
-      <div className="flex-1 space-y-2.5 pb-4">
-        {msgs.map((m, i) => (
-          <div key={i} className={`flex ${m.de === 'b' ? 'justify-start' : 'justify-end'}`}>
-            {m.de === 'b' && <span className="text-lg mr-2 mt-0.5 shrink-0">🐝</span>}
-            <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-              m.de === 'b' ? 'bg-beetz-dark text-white rounded-tl-sm' : 'bg-beetz-yellow text-beetz-dark font-semibold rounded-tr-sm'
-            }`}>
-              {m.texto}
-            </div>
-          </div>
-        ))}
+      <div className="bg-white rounded-3xl shadow-soft border border-beetz-dark/5 p-5 md:p-7 space-y-5">
+        {/* ============ PASSO 1 — O EVENTO (só o essencial) ============ */}
+        {step === 0 && (
+          <>
+            <label className={`block border-2 border-dashed rounded-2xl p-4 cursor-pointer transition-colors ${
+              flyerData ? 'border-beetz-yellow bg-beetz-yellow/10' : 'border-beetz-dark/15 hover:border-beetz-yellow'
+            } ${flyerBusy ? 'opacity-70 pointer-events-none' : ''}`}>
+              <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleFlyer(f) }} />
+              <div className="flex items-center gap-3">
+                {flyerData
+                  ? <img src={flyerData} alt="Flyer" className="w-12 h-16 rounded-lg object-cover border border-beetz-dark/10 shrink-0" />
+                  : <span className="text-2xl shrink-0">📸</span>}
+                <div className="min-w-0">
+                  <p className="font-bold text-sm">{flyerBusy ? 'Lendo o flyer...' : flyerData ? 'Flyer anexado — toque pra trocar' : 'Envie o flyer e os dados entram sozinhos'}</p>
+                  {flyerInfo && !flyerBusy && <p className="text-xs text-beetz-dark/55 mt-0.5">{flyerInfo}</p>}
+                </div>
+              </div>
+            </label>
 
-        {/* Resumo como cartão dentro da conversa */}
-        {(etapa === 'resumo' || etapa === 'enviando') && (
-          <div className="bg-white border border-beetz-dark/10 rounded-2xl p-4 text-sm space-y-1.5">
-            <p className="font-extrabold">{name}</p>
-            <p className="text-beetz-dark/60 text-xs">
-              {eventDate ? new Date(eventDate + 'T12:00:00').toLocaleDateString('pt-BR') : ''} · {location} · {city}
-            </p>
-            <div className="border-t border-beetz-dark/8 pt-1.5 space-y-1">
+            <div>
+              <label className={ROTULO}>Nome do evento *</label>
+              <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} />
+            </div>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div>
+                <label className={ROTULO}>Data *</label>
+                <input type="date" className={inputClass} value={eventDate} onChange={(e) => setEventDate(e.target.value)} />
+              </div>
+              <div>
+                <label className={ROTULO}>Cidade *</label>
+                <input className={inputClass} value={city} onChange={(e) => setCity(e.target.value)} />
+              </div>
+            </div>
+            <div>
+              <label className={ROTULO}>Local/espaço *</label>
+              <input className={inputClass} value={location} onChange={(e) => setLocation(e.target.value)} />
+            </div>
+            <div>
+              <label className={ROTULO}>Endereço <span className="font-normal text-beetz-dark/40">(opcional)</span></label>
+              <input className={inputClass} placeholder="Rua, número, bairro" value={address} onChange={(e) => setAddress(e.target.value)} />
+            </div>
+          </>
+        )}
+
+        {/* ============ PASSO 2 — SERVIÇOS (cada um com as suas perguntas) ============ */}
+        {step === 1 && (
+          <div className="space-y-3">
+            <p className="text-sm text-beetz-dark/60">Marque o que você precisa — os preços são os da Beetz.</p>
+            {modalities.map((m) => {
+              const on = escolhidas.includes(m.id)
+              const percent = m.price_type === 'percent'
+              const maquina = ehMaquina(m)
+              const rotuloPreco = percent
+                ? `${100 - percentProdutor}/${percentProdutor}`
+                : m.default_price != null ? `${currency(m.default_price)} / ${m.unit_label}` : 'Sob consulta'
+              return (
+                <div key={m.id} className={`border rounded-2xl transition-colors overflow-hidden ${on ? 'border-beetz-yellow bg-beetz-yellow/10' : 'border-beetz-dark/10 hover:border-beetz-dark/25'}`}>
+                  <label className="flex items-start gap-3 cursor-pointer p-4">
+                    <input type="checkbox" className="mt-1" checked={on} onChange={() => setEscolhidas((prev) => (on ? prev.filter((x) => x !== m.id) : [...prev, m.id]))} />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-sm">{m.name}</p>
+                      {m.description && <p className="text-xs text-beetz-dark/50 mt-0.5">{m.description}</p>}
+                    </div>
+                    <span className={`shrink-0 text-xs font-bold px-2.5 py-1.5 rounded-full ${m.default_price != null || percent ? 'bg-beetz-yellow/40 text-beetz-dark' : 'bg-beetz-gray text-beetz-dark/50'}`}>
+                      {rotuloPreco}
+                    </span>
+                  </label>
+
+                  {/* Perguntas SÓ do serviço marcado — nada além do necessário. */}
+                  {on && !percent && (
+                    <div className="px-4 pb-4 pl-11 space-y-3">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <Stepper valor={qts[m.id] ?? 1} onChange={(n) => setQts((prev) => ({ ...prev, [m.id]: Math.max(1, n) }))} min={1} />
+                        <span className="text-xs text-beetz-dark/50 font-medium">{m.unit_label}{(qts[m.id] ?? 1) > 1 ? 's' : ''}</span>
+                        {m.default_price != null
+                          ? <span className="ml-auto text-sm font-extrabold">{currency((qts[m.id] ?? 1) * m.default_price)}</span>
+                          : <span className="ml-auto text-xs font-semibold text-beetz-dark/45">valor confirmado na aprovação</span>}
+                      </div>
+                      {maquina && (
+                        <>
+                          <div className="flex flex-wrap items-center gap-3">
+                            <span className="text-xs font-semibold text-beetz-dark/60 w-28">Totens:</span>
+                            <Stepper valor={totensQtd} onChange={setTotensQtd} min={0} />
+                            {mf && totensQtd > 0 && <span className="text-xs text-beetz-dark/50">{currency(mf.totem_rent)}/mês por totem</span>}
+                          </div>
+                          <div className="flex gap-2">
+                            <input
+                              className={`${inputClass} uppercase`} placeholder="Cupom de desconto (opcional)"
+                              autoCapitalize="characters" value={cupom}
+                              onChange={(e) => setCupom(e.target.value.toUpperCase())}
+                              onBlur={aplicarCupom}
+                              onKeyDown={(e) => { if (e.key === 'Enter') aplicarCupom() }}
+                            />
+                          </div>
+                          {cupomMsg && <p className={`text-xs font-semibold ${cupomAplicado ? 'text-green-700' : 'text-amber-700'}`}>{cupomMsg}</p>}
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {on && percent && (
+                    <div className="px-4 pb-4 pl-11 space-y-4">
+                      <div>
+                        <label className={ROTULO}>Produtos desejados *</label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {PRODUTOS_TIPOS.map((t) => {
+                            const sel = tiposProdutos.includes(t)
+                            return (
+                              <button key={t} type="button"
+                                onClick={() => setTiposProdutos((prev) => (sel ? prev.filter((x) => x !== t) : [...prev, t]))}
+                                className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors ${sel ? 'bg-beetz-yellow border-beetz-yellow' : 'bg-white border-beetz-dark/15 text-beetz-dark/60'}`}>
+                                {t}
+                              </button>
+                            )
+                          })}
+                        </div>
+                        <input className={`${inputClass} mt-2`} placeholder="Outros (opcional)" value={produtosOutros} onChange={(e) => setProdutosOutros(e.target.value)} />
+                      </div>
+                      <div>
+                        <label className={ROTULO}>Há outras operações de bar no evento? *</label>
+                        <SimNao valor={hasOtherBars} onPick={(v) => { setHasOtherBars(v); if (!v) setOtherBarsNotes('') }} />
+                        {hasOtherBars && <input className={`${inputClass} mt-2`} placeholder="Quais?" value={otherBarsNotes} onChange={(e) => setOtherBarsNotes(e.target.value)} />}
+                      </div>
+                      <div>
+                        <label className={ROTULO}>Equipe necessária *</label>
+                        <div className="flex flex-wrap gap-1.5 mb-2">
+                          {FUNCOES_COMUNS.map((f) => (
+                            <button key={f} type="button" onClick={() => addFuncao(f)} className="text-xs font-semibold border border-dashed border-beetz-dark/25 text-beetz-dark/60 px-3 py-1.5 rounded-full hover:bg-beetz-yellow/20">
+                              + {f}
+                            </button>
+                          ))}
+                        </div>
+                        {staffRows.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 mb-2">
+                            {staffRows.map((s) => (
+                              <span key={s.role_label} className="flex items-center gap-1.5 text-xs font-bold bg-white border border-beetz-dark/10 px-3 py-1.5 rounded-full">
+                                {s.quantity}× {s.role_label}
+                                <button type="button" onClick={() => addFuncao(s.role_label)} className="text-beetz-dark/40 hover:text-beetz-dark font-extrabold">+</button>
+                                <button type="button" onClick={() => setStaffRows((prev) => prev.filter((x) => x !== s))} className="text-beetz-dark/40 hover:text-red-600"><Trash2 size={12} /></button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <div className="flex gap-2">
+                          <input className={inputClass} placeholder="Outra função..." value={novaFuncao} onChange={(e) => setNovaFuncao(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addFuncao() } }} />
+                          <button type="button" onClick={() => addFuncao()} className="bg-beetz-dark text-white px-4 rounded-xl shrink-0"><Plus size={16} /></button>
+                        </div>
+                      </div>
+                      <div className="grid sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className={ROTULO}>Meta de vendas (R$) *</label>
+                          <input type="number" min={0} step="0.01" inputMode="decimal" className={inputClass} value={minSalesTarget || ''} onChange={(e) => setMinSalesTarget(Number(e.target.value))} />
+                        </div>
+                        <div>
+                          <label className={ROTULO}>Cerveja oficial? *</label>
+                          <SimNao valor={hasOfficialBeer} onPick={(v) => { setHasOfficialBeer(v); if (!v) setOfficialBeerBrand('') }} />
+                          {hasOfficialBeer && <input className={`${inputClass} mt-2`} placeholder="Qual marca?" value={officialBeerBrand} onChange={(e) => setOfficialBeerBrand(e.target.value)} />}
+                        </div>
+                      </div>
+                      <div>
+                        <label className={ROTULO}>Outros parceiros de bebida? *</label>
+                        <SimNao valor={hasOtherPartners} onPick={(v) => { setHasOtherPartners(v); if (!v) setPartnersNotes('') }} />
+                        {hasOtherPartners && <input className={`${inputClass} mt-2`} placeholder="Quais?" value={partnersNotes} onChange={(e) => setPartnersNotes(e.target.value)} />}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* ============ PASSO 3 — CONDIÇÕES ÀS CLARAS + ENVIO ============ */}
+        {step === 2 && (
+          <div className="space-y-4">
+            <div>
+              <p className="font-extrabold">{name}</p>
+              <p className="text-sm text-beetz-dark/55">
+                {eventDate ? new Date(eventDate + 'T12:00:00').toLocaleDateString('pt-BR') : ''} · {location} · {city}
+              </p>
+            </div>
+
+            <div className="border border-beetz-dark/8 rounded-2xl divide-y divide-beetz-dark/5">
               {escolhidas.map((id) => {
                 const m = modalities.find((x) => x.id === id)
                 if (!m) return null
-                if (m.price_type === 'percent') {
-                  return <p key={id}>• {m.name} — sociedade {100 - percentProdutor}% Beetz / {percentProdutor}% você</p>
-                }
-                const q = ehMaquina(m) ? maquinasQtd : (qts[id] ?? 1)
+                const q = qts[id] ?? 1
                 return (
-                  <p key={id}>
-                    • {m.name} — {q} {m.unit_label}{q > 1 ? 's' : ''}
-                    {m.default_price != null ? ` × ${currency(m.default_price)} = ${currency(q * m.default_price)}` : ' · sob consulta'}
-                  </p>
+                  <div key={id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                    <span className="font-semibold">{m.name}{m.price_type !== 'percent' ? ` — ${q} ${m.unit_label}${q > 1 ? 's' : ''}` : ''}</span>
+                    <span className="font-bold shrink-0">
+                      {m.price_type === 'percent' ? `${100 - percentProdutor}/${percentProdutor}` : m.default_price != null ? currency(q * m.default_price) : 'sob consulta'}
+                    </span>
+                  </div>
                 )
               })}
-              {temMaquinas && totensQtd > 0 && <p>• Totem de autoatendimento — {totensQtd}</p>}
-              {temMaquinas && mf && (
-                <p className="text-xs text-beetz-dark/55">
-                  Taxas{cupomAplicado ? ` (cupom ${mf.coupon_code})` : ' padrão'}: {(cupomAplicado ? mf.coupon : mf.standard).debit_pix}% déb/pix · {(cupomAplicado ? mf.coupon : mf.standard).credit}% créd · {(cupomAplicado ? mf.coupon : mf.standard).cash}% dinheiro · {(cupomAplicado ? mf.coupon : mf.standard).management}% gestão — aluguel mensal: máquina {currency(mf.machine_rent)}{totensQtd > 0 ? ` · totem ${currency(mf.totem_rent)}` : ''}
-                </p>
+              {temMaquinas && totensQtd > 0 && (
+                <div className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                  <span className="font-semibold">Totem de autoatendimento — {totensQtd}</span>
+                  <span className="font-bold shrink-0">{mf ? `${currency(mf.totem_rent)}/mês cada` : ''}</span>
+                </div>
               )}
-              {temOperacao && (
-                <>
-                  <p className="text-xs text-beetz-dark/55">Produtos: {produtosDesejados}</p>
-                  <p className="text-xs text-beetz-dark/55">Outras operações de bar: {hasOtherBars ? `Sim — ${otherBarsNotes}` : 'Não, só a Beetz'}</p>
-                  <p className="text-xs text-beetz-dark/55">Equipe: {staffRows.map((s) => `${s.quantity}× ${s.role_label}`).join(', ')}</p>
-                  <p className="text-xs text-beetz-dark/55">
-                    Meta de vendas: {currency(minSalesTarget)} · Parceiros de bebida: {hasOtherPartners ? `Sim — ${partnersNotes}` : 'Não'} · Cerveja oficial: {hasOfficialBeer ? `Sim — ${officialBeerBrand}` : 'Não'}
-                  </p>
-                  <p className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-2 py-1.5">
-                    📝 Cláusula: abaixo de {Number(cfg?.proposal_goal_threshold ?? 70)}% da meta ({currency(minSalesTarget * Number(cfg?.proposal_goal_threshold ?? 70) / 100)}), o repasse cai {Number(cfg?.proposal_goal_penalty ?? 10)} pontos ({percentProdutor}% → {Math.max(0, percentProdutor - Number(cfg?.proposal_goal_penalty ?? 10))}%).
-                  </p>
-                </>
+              {totalFixo > 0 && (
+                <div className="flex items-center justify-between gap-3 px-4 py-3 text-sm bg-beetz-gray/40">
+                  <span className="font-bold">Total dos serviços de valor fixo</span>
+                  <span className="font-extrabold">{currency(totalFixo)}</span>
+                </div>
               )}
             </div>
-          </div>
-        )}
 
-        {etapa === 'fim' && signUrl && (
-          <div className="bg-white border border-beetz-dark/10 rounded-2xl p-5 text-center space-y-3">
-            <div className="w-12 h-12 rounded-full bg-green-100 text-green-600 flex items-center justify-center mx-auto"><Check size={24} /></div>
-            <p className="font-bold text-sm">Falta só a assinatura!</p>
-            <a href={signUrl} target="_blank" rel="noreferrer" className="inline-block honey-gradient text-beetz-dark font-bold px-6 py-3 rounded-xl text-sm">
-              🖊️ Assinar a proposta
-            </a>
-            <p className="text-[11px] text-beetz-dark/45">A Beetz analisa e te responde por aqui e por e-mail.</p>
-          </div>
-        )}
-
-        <div ref={fimRef} />
-      </div>
-
-      {/* Área de resposta — muda conforme a pergunta da vez. Gruda no fundo,
-          acompanha o teclado (100dvh) e respeita a barra do iPhone. */}
-      <div className="sticky bottom-0 bg-beetz-gray/95 backdrop-blur-sm -mx-4 px-4 py-3 space-y-2" style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 12px)' }}>
-        {erro && <p className="text-xs text-red-600 font-semibold">{erro}</p>}
-
-        {etapa === 'flyer' && (
-          <div className="flex gap-2">
-            <label className={`flex-1 honey-gradient text-beetz-dark font-bold px-4 py-3 rounded-xl text-sm text-center cursor-pointer ${flyerBusy ? 'opacity-60 pointer-events-none' : ''}`}>
-              {flyerBusy ? 'Lendo o flyer...' : '📸 Enviar o flyer'}
-              <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleFlyer(f) }} />
-            </label>
-            <button onClick={() => { respondo('Sem flyer por enquanto'); irPara('nome') }} className="px-4 py-3 rounded-xl text-sm font-semibold text-beetz-dark/60 bg-white border border-beetz-dark/10">
-              Pular
-            </button>
-          </div>
-        )}
-
-        {(etapa === 'nome' || etapa === 'local' || etapa === 'cidade' || etapa === 'endereco') && (
-          <div className="flex gap-2">
-            <input
-              ref={entradaRef}
-              className={inputChat}
-              enterKeyHint="send"
-              placeholder={
-                etapa === 'nome' ? (name ? `Li "${name}" no flyer — confirma ou corrige` : 'Nome do evento...')
-                : etapa === 'local' ? (location || 'Local/espaço...')
-                : etapa === 'cidade' ? (city || 'Cidade...')
-                : 'Rua, número, bairro...'
-              }
-              value={campo}
-              onChange={(e) => setCampo(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') enviarTexto() }}
-              autoFocus
-            />
-            <button onMouseDown={naoRoubaFoco} onClick={enviarTexto} className="honey-gradient text-beetz-dark px-4 rounded-xl shrink-0 min-h-[48px]"><Send size={18} /></button>
-          </div>
-        )}
-
-        {etapa === 'data' && (
-          <div className="flex gap-2">
-            <input type="date" className={inputClass} value={eventDate} onChange={(e) => setEventDate(e.target.value)} />
-            {botaoOk('Confirmar', confirmarData)}
-          </div>
-        )}
-
-        {etapa === 'servicos' && (
-          <div className="space-y-2">
-            <div className="flex flex-wrap gap-1.5">
-              {modalities.map((m) => {
-                const on = escolhidas.includes(m.id)
-                const rotuloPreco = m.price_type === 'percent'
-                  ? `${100 - percentProdutor}/${percentProdutor}`
-                  : m.default_price != null ? currency(m.default_price) : 'sob consulta'
-                return (
-                  <button
-                    key={m.id}
-                    onClick={() => setEscolhidas((prev) => (on ? prev.filter((x) => x !== m.id) : [...prev, m.id]))}
-                    className={`text-xs font-semibold px-3 py-2 rounded-xl border transition-colors ${
-                      on ? 'bg-beetz-yellow border-beetz-yellow text-beetz-dark' : 'bg-white border-beetz-dark/12 text-beetz-dark/70'
-                    }`}
-                  >
-                    {m.name} <span className="text-beetz-dark/40">({rotuloPreco})</span>
-                  </button>
-                )
-              })}
-            </div>
-            {botaoOk('É isso →', confirmarServicos)}
-          </div>
-        )}
-
-        {etapa === 'qtd_fixa' && filaFixas[0] && (
-          <div className="flex items-center gap-2">
-            {stepperInput(qts[filaFixas[0]] ?? 1, (n) => setQts((prev) => ({ ...prev, [filaFixas[0]]: n })), 1)}
-            <span className="text-xs text-beetz-dark/50 flex-1">
-              {(() => { const m = modalities.find((x) => x.id === filaFixas[0]); return m?.default_price != null ? `× ${currency(m.default_price)} = ${currency((qts[filaFixas[0]] ?? 1) * m.default_price)}` : 'preço sob consulta' })()}
-            </span>
-            {botaoOk('Confirmar', confirmarQtdFixa)}
-          </div>
-        )}
-
-        {etapa === 'maquinas' && (
-          <div className="flex items-center gap-2">
-            {stepperInput(maquinasQtd, setMaquinasQtd, 1)}
-            {mf && <span className="text-xs text-beetz-dark/50 flex-1">aluguel {currency(mf.machine_rent)}/mês por máquina</span>}
-            {botaoOk('Confirmar', confirmarMaquinas)}
-          </div>
-        )}
-
-        {etapa === 'totens' && (
-          <div className="flex items-center gap-2">
-            {stepperInput(totensQtd, setTotensQtd, 0)}
-            {mf && <span className="text-xs text-beetz-dark/50 flex-1">aluguel {currency(mf.totem_rent)}/mês por totem</span>}
-            {botaoOk('Confirmar', confirmarTotens)}
-          </div>
-        )}
-
-        {etapa === 'cupom' && (
-          <div className="flex gap-2">
-            <input
-              ref={entradaRef}
-              className={`${inputChat} uppercase`}
-              enterKeyHint="go"
-              autoCapitalize="characters"
-              placeholder="CUPOM (se tiver)"
-              value={cupom}
-              onChange={(e) => setCupom(e.target.value.toUpperCase())}
-              onKeyDown={(e) => { if (e.key === 'Enter') aplicarCupom(false) }}
-            />
-            {botaoOk('Aplicar', () => aplicarCupom(false))}
-            <button onMouseDown={naoRoubaFoco} onClick={() => aplicarCupom(true)} className="px-4 rounded-xl text-sm font-semibold text-beetz-dark/60 bg-white border border-beetz-dark/10 shrink-0 min-h-[48px]">
-              Pular
-            </button>
-          </div>
-        )}
-
-        {etapa === 'produtos' && (
-          <div className="space-y-2">
-            <div className="flex flex-wrap gap-1.5">
-              {PRODUTOS_TIPOS.map((t) => {
-                const on = tiposProdutos.includes(t)
-                return (
-                  <button
-                    key={t}
-                    onClick={() => setTiposProdutos((prev) => (on ? prev.filter((x) => x !== t) : [...prev, t]))}
-                    className={`text-xs font-semibold px-3 py-2 rounded-xl border transition-colors ${
-                      on ? 'bg-beetz-yellow border-beetz-yellow text-beetz-dark' : 'bg-white border-beetz-dark/12 text-beetz-dark/70'
-                    }`}
-                  >
-                    {t}
-                  </button>
-                )
-              })}
-            </div>
-            <div className="flex gap-2">
-              <input
-                ref={entradaRef}
-                className={inputChat}
-                enterKeyHint="send"
-                placeholder="Outros produtos? (opcional)"
-                value={campo}
-                onChange={(e) => setCampo(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') confirmarProdutos() }}
-              />
-              {botaoOk('É isso →', confirmarProdutos)}
-            </div>
-          </div>
-        )}
-
-        {etapa === 'outros_bares' && (
-          hasOtherBars === true ? (
-            <div className="flex gap-2">
-              <input ref={entradaRef} className={inputChat} enterKeyHint="send" placeholder="Quais operações vendem lá dentro?" value={otherBarsNotes} onChange={(e) => setOtherBarsNotes(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') confirmarOutrosBaresNotas() }} autoFocus />
-              {botaoOk('Confirmar', confirmarOutrosBaresNotas)}
-            </div>
-          ) : (
-            <div className="flex gap-2">
-              {botaoOk('Sim', () => respostaOutrosBares(true))}
-              <button onClick={() => respostaOutrosBares(false)} className="px-6 rounded-xl text-sm font-semibold bg-white border border-beetz-dark/10 min-h-[48px]">Não, só a Beetz</button>
-            </div>
-          )
-        )}
-
-        {etapa === 'funcoes' && (
-          <div className="space-y-2">
-            <div className="flex flex-wrap gap-1.5">
-              {FUNCOES_COMUNS.map((f) => (
-                <button key={f} onClick={() => addFuncao(f)} className="text-xs font-semibold border border-dashed border-beetz-dark/25 text-beetz-dark/70 px-3 py-1.5 rounded-full hover:bg-beetz-yellow/20">
-                  + {f}
-                </button>
-              ))}
-            </div>
-            {staffRows.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {staffRows.map((s) => (
-                  <span key={s.role_label} className="flex items-center gap-1.5 text-xs font-bold bg-white border border-beetz-dark/10 px-3 py-1.5 rounded-full">
-                    {s.quantity}× {s.role_label}
-                    <button onClick={() => setStaffRows((prev) => prev.filter((x) => x !== s))} className="text-beetz-dark/40 hover:text-red-600"><Trash2 size={12} /></button>
-                  </span>
-                ))}
-              </div>
+            {temOperacao && (
+              <p className="text-sm text-beetz-dark/60">
+                Operação de bar: {[...tiposProdutos, produtosOutros.trim()].filter(Boolean).join(', ')} ·
+                equipe {staffRows.map((s) => `${s.quantity}× ${s.role_label}`).join(', ')} ·
+                outras operações: {hasOtherBars ? otherBarsNotes : 'não'} ·
+                parceiros: {hasOtherPartners ? partnersNotes : 'não'} ·
+                cerveja oficial: {hasOfficialBeer ? officialBeerBrand : 'não'}
+              </p>
             )}
-            <div className="flex gap-2">
-              <input className={inputClass} placeholder="Outra função..." value={novaFuncao} onChange={(e) => setNovaFuncao(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addFuncao() }} />
-              {stepperInput(novaQtd, setNovaQtd, 1)}
-              <button onClick={() => addFuncao()} className="bg-beetz-dark text-white p-3 rounded-xl shrink-0"><Plus size={16} /></button>
-            </div>
-            {botaoOk('Equipe fechada →', confirmarFuncoes)}
           </div>
         )}
 
-        {etapa === 'minimo' && (
-          <div className="flex gap-2">
-            <input
-              ref={entradaRef}
-              type="number" min={0} step="0.01" inputMode="decimal" enterKeyHint="done"
-              className={inputChat} placeholder="Ex.: 15000"
-              value={minSalesTarget || ''}
-              onChange={(e) => setMinSalesTarget(Number(e.target.value))}
-              onKeyDown={(e) => { if (e.key === 'Enter') confirmarMinimo() }}
-            />
-            {botaoOk('Confirmar', confirmarMinimo)}
+        {/* ============ CONDIÇÕES DA BEETZ — sempre às claras ============ */}
+        {condicoes.length > 0 && step >= 1 && (
+          <div className="bg-beetz-dark text-white rounded-2xl p-5">
+            <p className="text-xs font-bold uppercase tracking-wider text-beetz-yellow mb-2.5">Condições da Beetz</p>
+            <ul className="space-y-1.5">
+              {condicoes.map((c, i) => (
+                <li key={i} className="text-sm leading-relaxed flex gap-2">
+                  <span className="text-beetz-yellow shrink-0">•</span>
+                  <span className="text-white/85">{c}</span>
+                </li>
+              ))}
+            </ul>
+            {step === 2 && (
+              <p className="text-[11px] text-white/50 mt-3 pt-2.5 border-t border-white/10">
+                Ao enviar e assinar, você concorda com as condições acima — elas ficam registradas na proposta.
+              </p>
+            )}
           </div>
         )}
 
-        {etapa === 'parceiros' && (
-          hasOtherPartners === true ? (
-            <div className="flex gap-2">
-              <input ref={entradaRef} className={inputChat} enterKeyHint="send" placeholder="Quais? Ex.: gin oficial, energético..." value={partnersNotes} onChange={(e) => setPartnersNotes(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') confirmarParceirosNotas() }} autoFocus />
-              {botaoOk('Confirmar', confirmarParceirosNotas)}
-            </div>
-          ) : (
-            <div className="flex gap-2">
-              {botaoOk('Sim', () => respostaParceiros(true))}
-              <button onClick={() => respostaParceiros(false)} className="px-6 rounded-xl text-sm font-semibold bg-white border border-beetz-dark/10 min-h-[48px]">Não</button>
-            </div>
-          )
-        )}
+        {erro && <p className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-xl px-4 py-3">{erro}</p>}
 
-        {etapa === 'cerveja' && (
-          hasOfficialBeer === true ? (
-            <div className="flex gap-2">
-              <input ref={entradaRef} className={inputChat} enterKeyHint="send" placeholder="Qual marca?" value={officialBeerBrand} onChange={(e) => setOfficialBeerBrand(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') confirmarCervejaMarca() }} autoFocus />
-              {botaoOk('Confirmar', confirmarCervejaMarca)}
-            </div>
-          ) : (
-            <div className="flex gap-2">
-              {botaoOk('Sim', () => respostaCerveja(true))}
-              <button onClick={() => respostaCerveja(false)} className="px-6 rounded-xl text-sm font-semibold bg-white border border-beetz-dark/10 min-h-[48px]">Não</button>
-            </div>
-          )
-        )}
-
-        {etapa === 'resumo' && (
-          <div className="flex gap-2">
-            {botaoOk('✅ Enviar proposta e assinar', enviarProposta)}
-            <button onClick={() => window.location.reload()} className="px-4 py-2.5 rounded-xl text-sm font-semibold text-beetz-dark/50 bg-white border border-beetz-dark/10 shrink-0">
-              Recomeçar
+        <div className="flex items-center justify-between pt-2 border-t border-beetz-dark/5">
+          <button type="button" onClick={voltar} disabled={step === 0} className="px-4 py-2.5 rounded-xl font-semibold text-sm text-beetz-dark/60 disabled:opacity-0">
+            ← Voltar
+          </button>
+          {step < 2 ? (
+            <button type="button" onClick={avancar} className="honey-gradient text-beetz-dark font-bold px-6 py-3 rounded-xl active:scale-[0.99] transition-transform">
+              Avançar →
             </button>
-          </div>
-        )}
-
-        {etapa === 'enviando' && <p className="text-sm font-semibold text-beetz-dark/50 text-center py-1">Enviando... 🐝</p>}
+          ) : (
+            <button type="button" onClick={enviar} disabled={submitting} className="honey-gradient text-beetz-dark font-bold px-6 py-3 rounded-xl disabled:opacity-60 active:scale-[0.99] transition-transform">
+              {submitting ? 'Enviando...' : '🖊️ Enviar e assinar'}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )
