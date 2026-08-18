@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Check, ChevronDown, Plus, Trash2, X } from 'lucide-react'
+import { Check, ChevronDown, Pencil, Plus, Trash2, X } from 'lucide-react'
 import {
   createServiceModality, deleteServiceModality, getAppSettings, listEventModalities, listEvents,
   listProducerNames, listServiceModalities, updateAppSettings, updateEvent, updateServiceModality
@@ -55,6 +55,9 @@ export default function ProposalsSection() {
       setModalities(mods)
       setProposalsOpen(cfg?.proposals_open ?? true)
       setPercent(String(cfg?.proposal_producer_percent ?? 40))
+      setTaxaDp(String(cfg?.proposal_fee_debit_pix ?? 0))
+      setTaxaCr(String(cfg?.proposal_fee_credit ?? 0))
+      setTaxaGe(String(cfg?.proposal_fee_management ?? 0))
     } finally {
       setLoading(false)
     }
@@ -119,6 +122,31 @@ export default function ProposalsSection() {
     }
   }
 
+  // Taxas da operação — aparecem no formulário e ficam congeladas na proposta.
+  const [taxaDp, setTaxaDp] = useState('0')
+  const [taxaCr, setTaxaCr] = useState('0')
+  const [taxaGe, setTaxaGe] = useState('0')
+  const [taxasBusy, setTaxasBusy] = useState(false)
+  const [taxasOk, setTaxasOk] = useState(false)
+
+  async function salvarTaxas() {
+    const dp = Number(taxaDp.replace(',', '.'))
+    const cr = Number(taxaCr.replace(',', '.'))
+    const ge = Number(taxaGe.replace(',', '.'))
+    if ([dp, cr, ge].some((v) => !Number.isFinite(v) || v < 0 || v > 100)) { setError('Taxas precisam estar entre 0 e 100.'); return }
+    setTaxasBusy(true)
+    setError(null)
+    try {
+      await updateAppSettings({ proposal_fee_debit_pix: dp, proposal_fee_credit: cr, proposal_fee_management: ge })
+      setTaxasOk(true)
+      setTimeout(() => setTaxasOk(false), 2500)
+    } catch {
+      setError('Não deu pra salvar as taxas agora.')
+    } finally {
+      setTaxasBusy(false)
+    }
+  }
+
   async function salvarPercent() {
     const v = Number(percent.replace(',', '.'))
     if (!Number.isFinite(v) || v <= 0 || v > 100) { setError('Percentual precisa estar entre 1 e 100.'); return }
@@ -138,18 +166,55 @@ export default function ProposalsSection() {
   // ---- Catálogo de modalidades (o cardápio do formulário de proposta) ----
   const [novoNome, setNovoNome] = useState('')
   const [novaUnidade, setNovaUnidade] = useState('un')
+  const [novoPreco, setNovoPreco] = useState('')
   const [modBusy, setModBusy] = useState<string | null>(null)
+
+  // Edição inline: nome, unidade e o PREÇO DA CASA (que o produtor aceita).
+  const [editId, setEditId] = useState<string | null>(null)
+  const [eNome, setENome] = useState('')
+  const [eUnidade, setEUnidade] = useState('')
+  const [ePreco, setEPreco] = useState('')
+
+  function abrirEdicao(m: ServiceModality) {
+    setEditId(m.id)
+    setENome(m.name)
+    setEUnidade(m.unit_label)
+    setEPreco(m.default_price != null ? String(m.default_price) : '')
+  }
+
+  async function salvarEdicao(m: ServiceModality) {
+    const precoNum = ePreco.trim() === '' ? null : Number(ePreco.replace(',', '.'))
+    if (precoNum != null && (!Number.isFinite(precoNum) || precoNum < 0)) { setError('Preço inválido.'); return }
+    setModBusy(m.id)
+    setError(null)
+    try {
+      await updateServiceModality(m.id, {
+        name: eNome.trim() || m.name,
+        unit_label: eUnidade.trim() || m.unit_label,
+        default_price: precoNum
+      } as Partial<ServiceModality>)
+      setModalities(await listServiceModalities())
+      setEditId(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Não deu pra salvar a modalidade.')
+    } finally {
+      setModBusy(null)
+    }
+  }
 
   async function addModalidade() {
     const nome = novoNome.trim()
     if (!nome) return
+    const precoNum = novoPreco.trim() === '' ? null : Number(novoPreco.replace(',', '.'))
     setModBusy('nova')
     try {
       await createServiceModality({
         name: nome, description: null, requires_staffing: false, requires_products: false,
-        unit_label: novaUnidade.trim() || 'un', sort_order: (modalities[modalities.length - 1]?.sort_order ?? 0) + 1
-      })
+        unit_label: novaUnidade.trim() || 'un', sort_order: (modalities[modalities.length - 1]?.sort_order ?? 0) + 1,
+        default_price: precoNum != null && Number.isFinite(precoNum) ? precoNum : null
+      } as Parameters<typeof createServiceModality>[0])
       setNovoNome('')
+      setNovoPreco('')
       setModalities(await listServiceModalities())
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Não deu pra criar a modalidade.')
@@ -227,6 +292,40 @@ export default function ProposalsSection() {
           >
             {percentBusy ? 'Salvando...' : percentOk ? 'Salvo ✓' : 'Salvar'}
           </button>
+        </div>
+      </div>
+
+      {/* Taxas da operação: aparecem no formulário do produtor e ficam
+          CONGELADAS na proposta enviada (snapshot). */}
+      <div className="bg-white rounded-2xl p-5 shadow-soft border border-beetz-dark/5">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+          <div className="min-w-0">
+            <h2 className="font-bold">Taxas da operação</h2>
+            <p className="text-xs text-beetz-dark/50 mt-0.5">
+              O produtor vê e aceita ao enviar a proposta — o aceite fica registrado no evento.
+            </p>
+          </div>
+          <button
+            onClick={salvarTaxas}
+            disabled={taxasBusy}
+            className="text-xs font-bold bg-beetz-dark text-white px-3.5 py-2 rounded-xl disabled:opacity-50"
+          >
+            {taxasBusy ? 'Salvando...' : taxasOk ? 'Salvo ✓' : 'Salvar taxas'}
+          </button>
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <label className="text-xs font-semibold block mb-1 text-beetz-dark/60">Débito/Pix (%)</label>
+            <input className={`${inputClass} w-full text-center font-bold`} inputMode="decimal" value={taxaDp} onChange={(e) => setTaxaDp(e.target.value)} />
+          </div>
+          <div>
+            <label className="text-xs font-semibold block mb-1 text-beetz-dark/60">Crédito (%)</label>
+            <input className={`${inputClass} w-full text-center font-bold`} inputMode="decimal" value={taxaCr} onChange={(e) => setTaxaCr(e.target.value)} />
+          </div>
+          <div>
+            <label className="text-xs font-semibold block mb-1 text-beetz-dark/60">Gestão (%)</label>
+            <input className={`${inputClass} w-full text-center font-bold`} inputMode="decimal" value={taxaGe} onChange={(e) => setTaxaGe(e.target.value)} />
+          </div>
         </div>
       </div>
 
@@ -338,30 +437,59 @@ export default function ProposalsSection() {
         </p>
         <div className="bg-white rounded-2xl shadow-soft border border-beetz-dark/5 divide-y divide-beetz-dark/5">
           {modalities.map((m) => (
-            <div key={m.id} className="flex flex-wrap items-center gap-2 p-3">
-              <p className="font-semibold text-sm flex-1 min-w-[140px]">{m.name} <span className="text-beetz-dark/40 font-normal text-xs">({m.unit_label})</span></p>
-              <button
-                onClick={() => toggleFlag(m, 'requires_staffing')}
-                disabled={modBusy === m.id}
-                className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border transition-colors ${m.requires_staffing ? 'bg-beetz-yellow border-beetz-yellow' : 'border-beetz-dark/15 text-beetz-dark/40'}`}
-              >
-                Escala
-              </button>
-              <button
-                onClick={() => toggleFlag(m, 'requires_products')}
-                disabled={modBusy === m.id}
-                className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border transition-colors ${m.requires_products ? 'bg-beetz-yellow border-beetz-yellow' : 'border-beetz-dark/15 text-beetz-dark/40'}`}
-              >
-                Produtos
-              </button>
-              <button
-                onClick={() => removerModalidade(m)}
-                disabled={modBusy === m.id}
-                className="text-beetz-dark/30 hover:text-red-600 p-1.5 rounded-lg hover:bg-red-50"
-                title="Tirar do formulário"
-              >
-                <Trash2 size={14} />
-              </button>
+            <div key={m.id} className="p-3">
+              {editId === m.id ? (
+                /* Edição inline: nome, unidade e preço da casa. */
+                <div className="flex flex-wrap items-center gap-2">
+                  <input className={`${inputClass} flex-1 min-w-[140px]`} value={eNome} onChange={(e) => setENome(e.target.value)} placeholder="Nome" />
+                  <input className={`${inputClass} w-20`} value={eUnidade} onChange={(e) => setEUnidade(e.target.value)} placeholder="unidade" title="Como se conta: un, hora, máquina..." />
+                  <input className={`${inputClass} w-28`} value={ePreco} onChange={(e) => setEPreco(e.target.value)} inputMode="decimal" placeholder="Preço R$" title="Preço da casa — o produtor aceita este valor no formulário. Vazio = produtor digita." />
+                  <button onClick={() => salvarEdicao(m)} disabled={modBusy === m.id} className="text-xs font-bold bg-beetz-dark text-white px-3 py-2 rounded-xl disabled:opacity-50">
+                    {modBusy === m.id ? '...' : 'Salvar'}
+                  </button>
+                  <button onClick={() => setEditId(null)} className="text-beetz-dark/40 hover:text-beetz-dark p-1.5 rounded-lg hover:bg-beetz-gray"><X size={14} /></button>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="font-semibold text-sm flex-1 min-w-[140px]">
+                    {m.name} <span className="text-beetz-dark/40 font-normal text-xs">({m.unit_label})</span>
+                    {m.default_price != null && (
+                      <span className="ml-1.5 text-[11px] font-bold bg-beetz-yellow/25 text-beetz-dark px-2 py-0.5 rounded-full">
+                        {currency(m.default_price)} / {m.unit_label}
+                      </span>
+                    )}
+                  </p>
+                  <button
+                    onClick={() => toggleFlag(m, 'requires_staffing')}
+                    disabled={modBusy === m.id}
+                    className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border transition-colors ${m.requires_staffing ? 'bg-beetz-yellow border-beetz-yellow' : 'border-beetz-dark/15 text-beetz-dark/40'}`}
+                  >
+                    Escala
+                  </button>
+                  <button
+                    onClick={() => toggleFlag(m, 'requires_products')}
+                    disabled={modBusy === m.id}
+                    className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border transition-colors ${m.requires_products ? 'bg-beetz-yellow border-beetz-yellow' : 'border-beetz-dark/15 text-beetz-dark/40'}`}
+                  >
+                    Produtos
+                  </button>
+                  <button
+                    onClick={() => abrirEdicao(m)}
+                    className="text-beetz-dark/40 hover:text-beetz-dark p-1.5 rounded-lg hover:bg-beetz-gray"
+                    title="Editar nome, unidade e preço da casa"
+                  >
+                    <Pencil size={14} />
+                  </button>
+                  <button
+                    onClick={() => removerModalidade(m)}
+                    disabled={modBusy === m.id}
+                    className="text-beetz-dark/30 hover:text-red-600 p-1.5 rounded-lg hover:bg-red-50"
+                    title="Tirar do formulário"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              )}
             </div>
           ))}
           <div className="flex flex-wrap items-center gap-2 p-3">
@@ -373,11 +501,19 @@ export default function ProposalsSection() {
               onKeyDown={(e) => { if (e.key === 'Enter') addModalidade() }}
             />
             <input
-              className={`${inputClass} w-24`}
+              className={`${inputClass} w-20`}
               placeholder="unidade"
               value={novaUnidade}
               onChange={(e) => setNovaUnidade(e.target.value)}
               title="Como se conta: un, hora, pessoa..."
+            />
+            <input
+              className={`${inputClass} w-28`}
+              placeholder="Preço R$"
+              inputMode="decimal"
+              value={novoPreco}
+              onChange={(e) => setNovoPreco(e.target.value)}
+              title="Preço da casa — vazio deixa o produtor digitar"
             />
             <button
               onClick={addModalidade}

@@ -181,6 +181,9 @@ export interface EventItem {
   beverage_partners_notes?: string | null
   has_official_beer?: boolean | null
   official_beer_brand?: string | null
+  // Snapshot das taxas ACEITAS no envio da proposta (mudança futura de taxa
+  // não reescreve combinado antigo).
+  proposal_fees?: { debit_pix: number; credit: number; management: number } | null
   zapsign_doc_token: string | null
   zapsign_signer_token: string | null
   zapsign_sign_url: string | null
@@ -235,6 +238,9 @@ export interface ServiceModality {
   requires_products: boolean
   unit_label: string
   sort_order: number
+  // Preço padrão da casa: quando preenchido, o formulário de proposta já
+  // traz o valor travado — o produtor aceita, não digita.
+  default_price?: number | null
   created_at: string
 }
 
@@ -1010,6 +1016,10 @@ export interface AppSettings {
   // Percentual PADRÃO do produtor sobre as vendas (a casa trabalha com 40).
   // Definido no admin → Propostas; o formulário do produtor usa esse valor.
   proposal_producer_percent?: number | null
+  // Taxas da operação exibidas (e aceitas) na proposta do produtor.
+  proposal_fee_debit_pix?: number | null
+  proposal_fee_credit?: number | null
+  proposal_fee_management?: number | null
   updated_at: string
 }
 

@@ -232,11 +232,19 @@ export default function ProducerNewProposal() {
   // e não deixa enviar. Se a leitura falhar, assume aberto — configuração
   // nunca derruba o painel.
   const [propostasAbertas, setPropostasAbertas] = useState(true)
+  // Taxas da operação (débito/pix, crédito, gestão) — regra da casa, aceitas
+  // junto com a proposta e congeladas no evento (snapshot).
+  const [fees, setFees] = useState({ debit_pix: 0, credit: 0, management: 0 })
   useEffect(() => {
     getAppSettings().then((cfg) => {
       setPropostasAbertas(cfg?.proposals_open ?? true)
       // Percentual oficial da casa — o formulário exige este valor.
       if (cfg?.proposal_producer_percent != null) setCommissionPercentage(Number(cfg.proposal_producer_percent))
+      setFees({
+        debit_pix: Number(cfg?.proposal_fee_debit_pix ?? 0),
+        credit: Number(cfg?.proposal_fee_credit ?? 0),
+        management: Number(cfg?.proposal_fee_management ?? 0)
+      })
     }).catch(() => {})
   }, [])
 
@@ -247,7 +255,8 @@ export default function ProducerNewProposal() {
     setSelected((prev) => {
       const next = { ...prev }
       if (next[m.id]) delete next[m.id]
-      else next[m.id] = { quantity: 1, unit_price: 0, notes: '' }
+      // Preço padrão da casa já entra preenchido — o produtor aceita.
+      else next[m.id] = { quantity: 1, unit_price: m.default_price ?? 0, notes: '' }
       return next
     })
   }
@@ -337,7 +346,9 @@ export default function ProducerNewProposal() {
         has_other_beverage_partners: hasOtherPartners,
         beverage_partners_notes: hasOtherPartners ? partnersNotes.trim() || null : null,
         has_official_beer: hasOfficialBeer,
-        official_beer_brand: hasOfficialBeer ? officialBeerBrand.trim() || null : null
+        official_beer_brand: hasOfficialBeer ? officialBeerBrand.trim() || null : null,
+        // Snapshot das taxas aceitas — o combinado de hoje não muda amanhã.
+        proposal_fees: fees
       })
 
       for (const [modalityId, cfg] of Object.entries(selected)) {
@@ -515,11 +526,17 @@ export default function ProducerNewProposal() {
                         />
                       </div>
                       <div>
-                        <label className="text-xs font-medium block mb-1">Preço unitário</label>
+                        <label className="text-xs font-medium block mb-1">
+                          Preço unitário{m.default_price != null && <span className="text-beetz-dark/40"> · preço da casa</span>}
+                        </label>
+                        {/* Com preço padrão cadastrado, o valor é da CASA — o
+                            produtor aceita, não edita. Sem padrão, digita. */}
                         <input
-                          type="number" min={0} step="0.01" className={inputClass}
+                          type="number" min={0} step="0.01"
+                          className={`${inputClass} ${m.default_price != null ? 'bg-beetz-gray/70 font-bold' : ''}`}
                           value={selected[m.id].unit_price}
-                          onChange={(e) => updateModalitySel(m.id, { unit_price: Number(e.target.value) })}
+                          readOnly={m.default_price != null}
+                          onChange={(e) => { if (m.default_price == null) updateModalitySel(m.id, { unit_price: Number(e.target.value) }) }}
                         />
                       </div>
                       <div className="col-span-2 sm:col-span-1">
@@ -575,6 +592,29 @@ export default function ProducerNewProposal() {
               <span className="text-sm font-medium text-beetz-dark/60">Repasse estimado ao produtor ({commissionPercentage}%)</span>
               <span className="font-bold">{currency(salesAmount * (commissionPercentage / 100))}</span>
             </div>
+
+            {/* Taxas da operação — transparentes ANTES de enviar; o aceite
+                fica congelado na proposta. */}
+            {(fees.debit_pix > 0 || fees.credit > 0 || fees.management > 0) && (
+              <div className="bg-white border border-beetz-dark/10 rounded-2xl p-4">
+                <p className="text-xs font-bold uppercase tracking-wide text-beetz-dark/40 mb-2">Taxas da operação</p>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="bg-beetz-gray rounded-xl py-2.5">
+                    <p className="font-extrabold">{fees.debit_pix}%</p>
+                    <p className="text-[11px] text-beetz-dark/50">Débito/Pix</p>
+                  </div>
+                  <div className="bg-beetz-gray rounded-xl py-2.5">
+                    <p className="font-extrabold">{fees.credit}%</p>
+                    <p className="text-[11px] text-beetz-dark/50">Crédito</p>
+                  </div>
+                  <div className="bg-beetz-gray rounded-xl py-2.5">
+                    <p className="font-extrabold">{fees.management}%</p>
+                    <p className="text-[11px] text-beetz-dark/50">Gestão</p>
+                  </div>
+                </div>
+                <p className="text-[11px] text-beetz-dark/45 mt-2">Ao enviar a proposta, você concorda com as taxas acima — elas ficam registradas no combinado.</p>
+              </div>
+            )}
 
             {/* Perguntas comerciais — a Diretoria decide com isso na mesa. */}
             <div className="border-t border-beetz-dark/10 pt-4 space-y-4">
