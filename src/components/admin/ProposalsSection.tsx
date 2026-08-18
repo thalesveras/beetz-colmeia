@@ -55,9 +55,7 @@ export default function ProposalsSection() {
       setModalities(mods)
       setProposalsOpen(cfg?.proposals_open ?? true)
       setPercent(String(cfg?.proposal_producer_percent ?? 40))
-      setTaxaDp(String(cfg?.proposal_fee_debit_pix ?? 0))
-      setTaxaCr(String(cfg?.proposal_fee_credit ?? 0))
-      setTaxaGe(String(cfg?.proposal_fee_management ?? 0))
+      if (cfg?.machine_fees) setMf({ ...MF_PADRAO, ...cfg.machine_fees, standard: { ...MF_PADRAO.standard, ...cfg.machine_fees.standard }, coupon: { ...MF_PADRAO.coupon, ...cfg.machine_fees.coupon } })
     } finally {
       setLoading(false)
     }
@@ -122,26 +120,33 @@ export default function ProposalsSection() {
     }
   }
 
-  // Taxas da operação — aparecem no formulário e ficam congeladas na proposta.
-  const [taxaDp, setTaxaDp] = useState('0')
-  const [taxaCr, setTaxaCr] = useState('0')
-  const [taxaGe, setTaxaGe] = useState('0')
+  // Máquinas & Totem: taxas padrão (5% em tudo, gestão 0), taxas COM CUPOM
+  // (2% débito/pix, 5% crédito, 1% gestão), código do cupom e aluguéis.
+  const MF_PADRAO = {
+    standard: { debit_pix: 5, credit: 5, cash: 5, management: 0 },
+    coupon: { debit_pix: 2, credit: 5, cash: 5, management: 1 },
+    coupon_code: 'BEETZ', machine_rent: 100, totem_rent: 800
+  }
+  const [mf, setMf] = useState(MF_PADRAO)
   const [taxasBusy, setTaxasBusy] = useState(false)
   const [taxasOk, setTaxasOk] = useState(false)
 
+  function setMfNum(grupo: 'standard' | 'coupon', campo: 'debit_pix' | 'credit' | 'cash' | 'management', valor: string) {
+    const v = Number(valor.replace(',', '.'))
+    setMf((prev) => ({ ...prev, [grupo]: { ...prev[grupo], [campo]: Number.isFinite(v) ? v : 0 } }))
+  }
+
   async function salvarTaxas() {
-    const dp = Number(taxaDp.replace(',', '.'))
-    const cr = Number(taxaCr.replace(',', '.'))
-    const ge = Number(taxaGe.replace(',', '.'))
-    if ([dp, cr, ge].some((v) => !Number.isFinite(v) || v < 0 || v > 100)) { setError('Taxas precisam estar entre 0 e 100.'); return }
+    const nums = [...Object.values(mf.standard), ...Object.values(mf.coupon), mf.machine_rent, mf.totem_rent]
+    if (nums.some((v) => !Number.isFinite(v) || v < 0)) { setError('Confira os números — nada negativo.'); return }
     setTaxasBusy(true)
     setError(null)
     try {
-      await updateAppSettings({ proposal_fee_debit_pix: dp, proposal_fee_credit: cr, proposal_fee_management: ge })
+      await updateAppSettings({ machine_fees: mf })
       setTaxasOk(true)
       setTimeout(() => setTaxasOk(false), 2500)
     } catch {
-      setError('Não deu pra salvar as taxas agora.')
+      setError('Não deu pra salvar as regras agora.')
     } finally {
       setTaxasBusy(false)
     }
@@ -318,14 +323,15 @@ export default function ProposalsSection() {
         </div>
       </div>
 
-      {/* Taxas da operação: aparecem no formulário do produtor e ficam
-          CONGELADAS na proposta enviada (snapshot). */}
+      {/* Máquinas & Totem: as regras comerciais que a conversa de proposta
+          usa — padrão da casa, cupom de desconto e aluguéis mensais. Tudo
+          fica CONGELADO na proposta enviada (snapshot). */}
       <div className="bg-white rounded-2xl p-5 shadow-soft border border-beetz-dark/5">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div className="min-w-0">
-            <h2 className="font-bold">Taxas da operação</h2>
+            <h2 className="font-bold">Máquinas de cartão & Totem</h2>
             <p className="text-xs text-beetz-dark/50 mt-0.5">
-              O produtor vê e aceita ao enviar a proposta — o aceite fica registrado no evento.
+              Taxas padrão, cupom de desconto e aluguéis mensais — o produtor vê e aceita na conversa da proposta.
             </p>
           </div>
           <button
@@ -333,21 +339,58 @@ export default function ProposalsSection() {
             disabled={taxasBusy}
             className="text-xs font-bold bg-beetz-dark text-white px-3.5 py-2 rounded-xl disabled:opacity-50"
           >
-            {taxasBusy ? 'Salvando...' : taxasOk ? 'Salvo ✓' : 'Salvar taxas'}
+            {taxasBusy ? 'Salvando...' : taxasOk ? 'Salvo ✓' : 'Salvar regras'}
           </button>
         </div>
-        <div className="grid grid-cols-3 gap-3">
+
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div className="border border-beetz-dark/10 rounded-2xl p-4">
+            <p className="text-xs font-bold uppercase tracking-wide text-beetz-dark/40 mb-2">Padrão da casa (sem cupom)</p>
+            <div className="grid grid-cols-2 gap-2">
+              {([['debit_pix', 'Débito/Pix'], ['credit', 'Crédito'], ['cash', 'Dinheiro'], ['management', 'Gestão']] as const).map(([k, r]) => (
+                <div key={k}>
+                  <label className="text-[11px] font-semibold block mb-1 text-beetz-dark/50">{r} (%)</label>
+                  <input className={`${inputClass} w-full text-center font-bold`} inputMode="decimal"
+                    value={String(mf.standard[k])} onChange={(e) => setMfNum('standard', k, e.target.value)} />
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="border-2 border-beetz-yellow/60 bg-beetz-yellow/5 rounded-2xl p-4">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <p className="text-xs font-bold uppercase tracking-wide text-beetz-dark/40">Com cupom de desconto</p>
+              <input
+                className={`${inputClass} w-28 text-center font-extrabold uppercase`}
+                value={mf.coupon_code}
+                onChange={(e) => setMf((prev) => ({ ...prev, coupon_code: e.target.value.toUpperCase().trim() }))}
+                placeholder="CÓDIGO"
+                title="O código que o produtor digita na conversa pra ganhar estas taxas"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {([['debit_pix', 'Débito/Pix'], ['credit', 'Crédito'], ['cash', 'Dinheiro'], ['management', 'Gestão']] as const).map(([k, r]) => (
+                <div key={k}>
+                  <label className="text-[11px] font-semibold block mb-1 text-beetz-dark/50">{r} (%)</label>
+                  <input className={`${inputClass} w-full text-center font-bold`} inputMode="decimal"
+                    value={String(mf.coupon[k])} onChange={(e) => setMfNum('coupon', k, e.target.value)} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 mt-3">
           <div>
-            <label className="text-xs font-semibold block mb-1 text-beetz-dark/60">Débito/Pix (%)</label>
-            <input className={`${inputClass} w-full text-center font-bold`} inputMode="decimal" value={taxaDp} onChange={(e) => setTaxaDp(e.target.value)} />
+            <label className="text-[11px] font-semibold block mb-1 text-beetz-dark/50">Aluguel mensal — máquina de cartão (R$)</label>
+            <input className={`${inputClass} w-full text-center font-bold`} inputMode="decimal"
+              value={String(mf.machine_rent)}
+              onChange={(e) => { const v = Number(e.target.value.replace(',', '.')); setMf((p) => ({ ...p, machine_rent: Number.isFinite(v) ? v : 0 })) }} />
           </div>
           <div>
-            <label className="text-xs font-semibold block mb-1 text-beetz-dark/60">Crédito (%)</label>
-            <input className={`${inputClass} w-full text-center font-bold`} inputMode="decimal" value={taxaCr} onChange={(e) => setTaxaCr(e.target.value)} />
-          </div>
-          <div>
-            <label className="text-xs font-semibold block mb-1 text-beetz-dark/60">Gestão (%)</label>
-            <input className={`${inputClass} w-full text-center font-bold`} inputMode="decimal" value={taxaGe} onChange={(e) => setTaxaGe(e.target.value)} />
+            <label className="text-[11px] font-semibold block mb-1 text-beetz-dark/50">Aluguel mensal — totem (R$)</label>
+            <input className={`${inputClass} w-full text-center font-bold`} inputMode="decimal"
+              value={String(mf.totem_rent)}
+              onChange={(e) => { const v = Number(e.target.value.replace(',', '.')); setMf((p) => ({ ...p, totem_rent: Number.isFinite(v) ? v : 0 })) }} />
           </div>
         </div>
       </div>

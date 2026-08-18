@@ -182,8 +182,13 @@ export interface EventItem {
   has_official_beer?: boolean | null
   official_beer_brand?: string | null
   // Snapshot das taxas ACEITAS no envio da proposta (mudança futura de taxa
-  // não reescreve combinado antigo).
-  proposal_fees?: { debit_pix: number; credit: number; management: number } | null
+  // não reescreve combinado antigo). Shape livre — a conversa grava o pacote
+  // aplicado (taxas + aluguéis + cupom, quando houver).
+  proposal_fees?: Record<string, unknown> | null
+  // Respostas da conversa: produtos desejados na operação, totens e cupom.
+  proposal_products?: string | null
+  proposal_totems?: number | null
+  proposal_coupon?: string | null
   zapsign_doc_token: string | null
   zapsign_signer_token: string | null
   zapsign_sign_url: string | null
@@ -1023,6 +1028,15 @@ export interface AppSettings {
   proposal_fee_debit_pix?: number | null
   proposal_fee_credit?: number | null
   proposal_fee_management?: number | null
+  // Regras de máquinas/totem (conversa de proposta): taxas padrão e com
+  // cupom, código do cupom e aluguéis mensais — tudo configurável no admin.
+  machine_fees?: {
+    standard: { debit_pix: number; credit: number; cash: number; management: number }
+    coupon: { debit_pix: number; credit: number; cash: number; management: number }
+    coupon_code: string
+    machine_rent: number
+    totem_rent: number
+  } | null
   updated_at: string
 }
 
