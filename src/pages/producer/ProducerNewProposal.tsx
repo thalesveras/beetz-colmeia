@@ -19,6 +19,9 @@ import type { AppSettings, ServiceModality } from '../../lib/types'
 // link mágico do login).
 
 const inputClass = 'w-full border border-beetz-dark/15 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
+// Input do CHAT: 16px no mínimo — abaixo disso o iOS dá zoom na tela toda
+// quando o campo ganha foco (a praga clássica do formulário no iPhone).
+const inputChat = 'w-full border border-beetz-dark/15 rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
 
 function currency(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -120,6 +123,23 @@ export default function ProducerNewProposal() {
   const [etapa, setEtapa] = useState<Etapa>('flyer')
   const fimRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => { fimRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }) }, [msgs, etapa])
+
+  // TECLADO SEMPRE PRONTO: quando a Beetz pergunta algo de digitar, o campo
+  // já ganha foco — no celular o teclado abre sozinho (e entre perguntas de
+  // texto seguidas ele nem fecha, porque o input é o mesmo e nunca desmonta).
+  // O pequeno atraso deixa o input montar; o segundo scroll compensa o
+  // teclado que acabou de subir e cobriu a última mensagem.
+  const entradaRef = useRef<HTMLInputElement | null>(null)
+  const [hasOtherPartnersFoco, setHasOtherPartnersFoco] = useState(0) // gatilho de refoco pros inputs condicionais
+  useEffect(() => {
+    const t1 = setTimeout(() => entradaRef.current?.focus(), 80)
+    const t2 = setTimeout(() => fimRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }), 350)
+    return () => { clearTimeout(t1); clearTimeout(t2) }
+  }, [etapa, hasOtherPartnersFoco])
+
+  // Botões da barra de resposta NÃO roubam o foco do input (mousedown com
+  // preventDefault): sem isso, cada toque em "Confirmar" fecha o teclado.
+  const naoRoubaFoco = (e: { preventDefault: () => void }) => e.preventDefault()
 
   // Config da casa
   const [modalities, setModalities] = useState<ServiceModality[]>([])
@@ -382,6 +402,7 @@ export default function ProducerNewProposal() {
     } else {
       respondo('Sim')
       fala('Quais parceiros?')
+      setHasOtherPartnersFoco((n) => n + 1) // o campo que acabou de aparecer já vem com o teclado
     }
   }
 
@@ -400,6 +421,7 @@ export default function ProducerNewProposal() {
     } else {
       respondo('Sim')
       fala('Qual a marca?')
+      setHasOtherPartnersFoco((n) => n + 1)
     }
   }
 
@@ -496,7 +518,11 @@ export default function ProducerNewProposal() {
   )
 
   const botaoOk = (rotulo: string, onClick: () => void) => (
-    <button onClick={onClick} className="honey-gradient text-beetz-dark font-bold px-5 py-2.5 rounded-xl text-sm active:scale-[0.99] transition-transform shrink-0">
+    <button
+      onMouseDown={naoRoubaFoco}
+      onClick={onClick}
+      className="honey-gradient text-beetz-dark font-bold px-5 py-3 rounded-xl text-sm active:scale-[0.98] transition-transform shrink-0 min-h-[48px]"
+    >
       {rotulo}
     </button>
   )
@@ -576,8 +602,9 @@ export default function ProducerNewProposal() {
         <div ref={fimRef} />
       </div>
 
-      {/* Área de resposta — muda conforme a pergunta da vez */}
-      <div className="sticky bottom-0 bg-beetz-gray/95 backdrop-blur-sm -mx-4 px-4 py-3 space-y-2">
+      {/* Área de resposta — muda conforme a pergunta da vez. Gruda no fundo,
+          acompanha o teclado (100dvh) e respeita a barra do iPhone. */}
+      <div className="sticky bottom-0 bg-beetz-gray/95 backdrop-blur-sm -mx-4 px-4 py-3 space-y-2" style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 12px)' }}>
         {erro && <p className="text-xs text-red-600 font-semibold">{erro}</p>}
 
         {etapa === 'flyer' && (
@@ -595,7 +622,9 @@ export default function ProducerNewProposal() {
         {(etapa === 'nome' || etapa === 'local' || etapa === 'cidade' || etapa === 'endereco' || etapa === 'produtos') && (
           <div className="flex gap-2">
             <input
-              className={inputClass}
+              ref={entradaRef}
+              className={inputChat}
+              enterKeyHint="send"
               placeholder={
                 etapa === 'nome' ? (name ? `Li "${name}" no flyer — confirma ou corrige` : 'Nome do evento...')
                 : etapa === 'local' ? (location || 'Local/espaço...')
@@ -608,7 +637,7 @@ export default function ProducerNewProposal() {
               onKeyDown={(e) => { if (e.key === 'Enter') enviarTexto() }}
               autoFocus
             />
-            <button onClick={enviarTexto} className="honey-gradient text-beetz-dark p-3 rounded-xl shrink-0"><Send size={18} /></button>
+            <button onMouseDown={naoRoubaFoco} onClick={enviarTexto} className="honey-gradient text-beetz-dark px-4 rounded-xl shrink-0 min-h-[48px]"><Send size={18} /></button>
           </div>
         )}
 
@@ -673,14 +702,17 @@ export default function ProducerNewProposal() {
         {etapa === 'cupom' && (
           <div className="flex gap-2">
             <input
-              className={`${inputClass} uppercase`}
+              ref={entradaRef}
+              className={`${inputChat} uppercase`}
+              enterKeyHint="go"
+              autoCapitalize="characters"
               placeholder="CUPOM (se tiver)"
               value={cupom}
               onChange={(e) => setCupom(e.target.value.toUpperCase())}
               onKeyDown={(e) => { if (e.key === 'Enter') aplicarCupom(false) }}
             />
             {botaoOk('Aplicar', () => aplicarCupom(false))}
-            <button onClick={() => aplicarCupom(true)} className="px-4 py-2.5 rounded-xl text-sm font-semibold text-beetz-dark/60 bg-white border border-beetz-dark/10 shrink-0">
+            <button onMouseDown={naoRoubaFoco} onClick={() => aplicarCupom(true)} className="px-4 rounded-xl text-sm font-semibold text-beetz-dark/60 bg-white border border-beetz-dark/10 shrink-0 min-h-[48px]">
               Pular
             </button>
           </div>
@@ -716,7 +748,14 @@ export default function ProducerNewProposal() {
 
         {etapa === 'minimo' && (
           <div className="flex gap-2">
-            <input type="number" min={0} step="0.01" className={inputClass} placeholder="Ex.: 15000" value={minSalesTarget || ''} onChange={(e) => setMinSalesTarget(Number(e.target.value))} />
+            <input
+              ref={entradaRef}
+              type="number" min={0} step="0.01" inputMode="decimal" enterKeyHint="done"
+              className={inputChat} placeholder="Ex.: 15000"
+              value={minSalesTarget || ''}
+              onChange={(e) => setMinSalesTarget(Number(e.target.value))}
+              onKeyDown={(e) => { if (e.key === 'Enter') confirmarMinimo() }}
+            />
             {botaoOk('Confirmar', confirmarMinimo)}
           </div>
         )}
@@ -724,13 +763,13 @@ export default function ProducerNewProposal() {
         {etapa === 'parceiros' && (
           hasOtherPartners === true ? (
             <div className="flex gap-2">
-              <input className={inputClass} placeholder="Quais? Ex.: gin oficial, energético..." value={partnersNotes} onChange={(e) => setPartnersNotes(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') confirmarParceirosNotas() }} autoFocus />
+              <input ref={entradaRef} className={inputChat} enterKeyHint="send" placeholder="Quais? Ex.: gin oficial, energético..." value={partnersNotes} onChange={(e) => setPartnersNotes(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') confirmarParceirosNotas() }} autoFocus />
               {botaoOk('Confirmar', confirmarParceirosNotas)}
             </div>
           ) : (
             <div className="flex gap-2">
               {botaoOk('Sim', () => respostaParceiros(true))}
-              <button onClick={() => respostaParceiros(false)} className="px-5 py-2.5 rounded-xl text-sm font-semibold bg-white border border-beetz-dark/10">Não</button>
+              <button onClick={() => respostaParceiros(false)} className="px-6 rounded-xl text-sm font-semibold bg-white border border-beetz-dark/10 min-h-[48px]">Não</button>
             </div>
           )
         )}
@@ -738,13 +777,13 @@ export default function ProducerNewProposal() {
         {etapa === 'cerveja' && (
           hasOfficialBeer === true ? (
             <div className="flex gap-2">
-              <input className={inputClass} placeholder="Qual marca?" value={officialBeerBrand} onChange={(e) => setOfficialBeerBrand(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') confirmarCervejaMarca() }} autoFocus />
+              <input ref={entradaRef} className={inputChat} enterKeyHint="send" placeholder="Qual marca?" value={officialBeerBrand} onChange={(e) => setOfficialBeerBrand(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') confirmarCervejaMarca() }} autoFocus />
               {botaoOk('Confirmar', confirmarCervejaMarca)}
             </div>
           ) : (
             <div className="flex gap-2">
               {botaoOk('Sim', () => respostaCerveja(true))}
-              <button onClick={() => respostaCerveja(false)} className="px-5 py-2.5 rounded-xl text-sm font-semibold bg-white border border-beetz-dark/10">Não</button>
+              <button onClick={() => respostaCerveja(false)} className="px-6 rounded-xl text-sm font-semibold bg-white border border-beetz-dark/10 min-h-[48px]">Não</button>
             </div>
           )
         )}
