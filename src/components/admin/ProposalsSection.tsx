@@ -391,7 +391,12 @@ export default function ProposalsSection() {
                             const m = modalities.find((x) => x.id === d.modality_id)
                             return (
                               <p key={d.id} className="text-beetz-dark/70">
-                                • {m?.name ?? 'Modalidade'} — {d.quantity} {m?.unit_label ?? 'un'} × {currency(d.unit_price)} = <strong>{currency(d.total)}</strong>
+                                • {m?.name ?? 'Modalidade'} — {d.quantity} {m?.unit_label ?? 'un'}{' '}
+                                {d.unit_price > 0 ? (
+                                  <>× {currency(d.unit_price)} = <strong>{currency(d.total)}</strong></>
+                                ) : (
+                                  <strong className="text-amber-700">· SOB CONSULTA — defina o valor ao aprovar</strong>
+                                )}
                                 {d.notes ? <span className="text-beetz-dark/45"> · {d.notes}</span> : null}
                               </p>
                             )

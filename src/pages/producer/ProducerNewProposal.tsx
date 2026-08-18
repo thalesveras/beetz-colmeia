@@ -250,6 +250,9 @@ export default function ProducerNewProposal() {
 
   const needsStaffing = Object.keys(selected).some((id) => modalities.find((m) => m.id === id)?.requires_staffing)
   const totalModalidades = Object.entries(selected).reduce((sum, [, cfg]) => sum + cfg.quantity * cfg.unit_price, 0)
+  // Itens sem preço da casa entram como "sob consulta" — a Beetz confirma o
+  // valor na aprovação. O produtor nunca digita preço.
+  const itensSobConsulta = Object.keys(selected).filter((id) => (modalities.find((m) => m.id === id)?.default_price ?? null) == null).length
 
   function toggleModality(m: ServiceModality) {
     setSelected((prev) => {
@@ -503,58 +506,88 @@ export default function ProducerNewProposal() {
 
         {step === 1 && (
           <div className="space-y-3">
-            <p className="text-sm text-beetz-dark/60">Escolha uma ou mais modalidades — pode combinar várias no mesmo evento.</p>
+            <p className="text-sm text-beetz-dark/60">Escolha uma ou mais modalidades — pode combinar várias no mesmo evento. Os preços são os da Beetz.</p>
+            {/* Vitrine de marketplace: o PREÇO aparece no card antes mesmo de
+                marcar — ninguém escolhe serviço sem ver quanto custa. O
+                produtor NUNCA digita preço: com preço da casa, aceita; sem,
+                vira "sob consulta" e a Beetz confirma na aprovação. */}
             {modalities.map((m) => {
               const isSelected = !!selected[m.id]
+              const temPreco = m.default_price != null
               return (
-                <div key={m.id} className={`border rounded-xl p-4 transition-colors ${isSelected ? 'border-beetz-yellow bg-beetz-yellow/10' : 'border-beetz-dark/10'}`}>
-                  <label className="flex items-start gap-3 cursor-pointer">
+                <div key={m.id} className={`border rounded-2xl transition-colors overflow-hidden ${isSelected ? 'border-beetz-yellow bg-beetz-yellow/10' : 'border-beetz-dark/10 hover:border-beetz-dark/25'}`}>
+                  <label className="flex items-start gap-3 cursor-pointer p-4">
                     <input type="checkbox" className="mt-1" checked={isSelected} onChange={() => toggleModality(m)} />
-                    <div>
+                    <div className="min-w-0 flex-1">
                       <p className="font-semibold text-sm">{m.name}</p>
-                      {m.description && <p className="text-xs text-beetz-dark/50">{m.description}</p>}
+                      {m.description && <p className="text-xs text-beetz-dark/50 mt-0.5">{m.description}</p>}
                     </div>
+                    <span className={`shrink-0 text-xs font-bold px-2.5 py-1.5 rounded-full ${temPreco ? 'bg-beetz-yellow/40 text-beetz-dark' : 'bg-beetz-gray text-beetz-dark/50'}`}>
+                      {temPreco ? `${currency(m.default_price!)} / ${m.unit_label}` : 'Sob consulta'}
+                    </span>
                   </label>
+
                   {isSelected && (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-3 pl-6">
-                      <div>
-                        <label className="text-xs font-medium block mb-1">Quantidade ({m.unit_label})</label>
-                        <input
-                          type="number" min={0} step="0.01" className={inputClass}
-                          value={selected[m.id].quantity}
-                          onChange={(e) => updateModalitySel(m.id, { quantity: Number(e.target.value) })}
-                        />
+                    <div className="px-4 pb-4 pl-11 space-y-3">
+                      {/* Quantidade com stepper do tamanho do polegar. */}
+                      <div className="flex flex-wrap items-center gap-3">
+                        <div className="flex items-center gap-1 bg-white border border-beetz-dark/15 rounded-xl p-1">
+                          <button
+                            type="button"
+                            onClick={() => updateModalitySel(m.id, { quantity: Math.max(1, selected[m.id].quantity - 1) })}
+                            className="w-9 h-9 rounded-lg font-extrabold text-lg text-beetz-dark/60 hover:bg-beetz-gray"
+                          >
+                            −
+                          </button>
+                          <input
+                            type="number" min={1} step={1}
+                            className="w-14 text-center font-bold text-sm focus:outline-none bg-transparent"
+                            value={selected[m.id].quantity}
+                            onChange={(e) => updateModalitySel(m.id, { quantity: Math.max(1, Number(e.target.value) || 1) })}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => updateModalitySel(m.id, { quantity: selected[m.id].quantity + 1 })}
+                            className="w-9 h-9 rounded-lg font-extrabold text-lg text-beetz-dark/60 hover:bg-beetz-gray"
+                          >
+                            +
+                          </button>
+                        </div>
+                        <span className="text-xs text-beetz-dark/50 font-medium">{m.unit_label}{selected[m.id].quantity > 1 ? 's' : ''}</span>
+                        {/* Subtotal da linha, ao vivo — a conta na cara. */}
+                        {temPreco ? (
+                          <span className="ml-auto text-sm font-extrabold">
+                            {selected[m.id].quantity} × {currency(m.default_price!)} = {currency(selected[m.id].quantity * selected[m.id].unit_price)}
+                          </span>
+                        ) : (
+                          <span className="ml-auto text-xs font-semibold text-beetz-dark/45">A Beetz confirma o valor na aprovação</span>
+                        )}
                       </div>
-                      <div>
-                        <label className="text-xs font-medium block mb-1">
-                          Preço unitário{m.default_price != null && <span className="text-beetz-dark/40"> · preço da casa</span>}
-                        </label>
-                        {/* Com preço padrão cadastrado, o valor é da CASA — o
-                            produtor aceita, não edita. Sem padrão, digita. */}
-                        <input
-                          type="number" min={0} step="0.01"
-                          className={`${inputClass} ${m.default_price != null ? 'bg-beetz-gray/70 font-bold' : ''}`}
-                          value={selected[m.id].unit_price}
-                          readOnly={m.default_price != null}
-                          onChange={(e) => { if (m.default_price == null) updateModalitySel(m.id, { unit_price: Number(e.target.value) }) }}
-                        />
-                      </div>
-                      <div className="col-span-2 sm:col-span-1">
-                        <label className="text-xs font-medium block mb-1">Observações</label>
-                        <input
-                          className={inputClass} value={selected[m.id].notes}
-                          onChange={(e) => updateModalitySel(m.id, { notes: e.target.value })}
-                        />
-                      </div>
+                      <input
+                        className={inputClass}
+                        placeholder="Observações (opcional) — ex.: horário de montagem, ponto de energia..."
+                        value={selected[m.id].notes}
+                        onChange={(e) => updateModalitySel(m.id, { notes: e.target.value })}
+                      />
                     </div>
                   )}
                 </div>
               )
             })}
+
             {Object.keys(selected).length > 0 && (
-              <div className="bg-beetz-gray rounded-xl px-4 py-3 flex justify-between items-center">
-                <span className="text-sm font-medium text-beetz-dark/60">Total estimado das modalidades</span>
-                <span className="font-bold">{currency(totalModalidades)}</span>
+              <div className="bg-beetz-dark text-white rounded-2xl px-5 py-4 flex flex-wrap justify-between items-center gap-2">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-white/50">Total das modalidades</p>
+                  {itensSobConsulta > 0 && (
+                    <p className="text-[11px] text-amber-300 mt-0.5">
+                      + {itensSobConsulta} {itensSobConsulta === 1 ? 'item' : 'itens'} sob consulta (fora da soma)
+                    </p>
+                  )}
+                </div>
+                <span className="text-2xl font-extrabold text-beetz-yellow">
+                  {totalModalidades > 0 ? currency(totalModalidades) : itensSobConsulta > 0 ? 'Sob consulta' : currency(0)}
+                </span>
               </div>
             )}
           </div>
