@@ -342,9 +342,10 @@ export default function ProducerNewProposal() {
             unit_cost: null, notes: null
           })
         }
-        // Dispara o e-mail padrão Beetz com o resumo e as condições (sem
-        // assinatura externa: o aceite é o próprio envio da proposta).
-        await requestContractSignature(event.id)
+        // Dispara o e-mail padrão Beetz com o resumo e as condições em
+        // SEGUNDO PLANO (sem await): o produtor vê o sucesso na hora e o
+        // SMTP não segura a tela. O aceite é o próprio envio da proposta.
+        requestContractSignature(event.id).catch(() => { /* registro fica pela fila */ })
       } catch { /* a Beetz completa o resto pela fila */ }
       setDone(true)
     } catch (err) {
