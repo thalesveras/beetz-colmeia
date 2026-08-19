@@ -13,14 +13,18 @@ const statusColors: Record<ContractStatus, string> = {
 }
 
 export default function ProducerDashboard() {
-  const { producerId, producer } = useProducerAuth()
+  const { producerId, producer, loading: authLoading } = useProducerAuth()
   const [events, setEvents] = useState<EventItem[]>([])
   const [loading, setLoading] = useState(true)
 
+  // Eventos apontam pra FICHA (producer.id), não pro id do login — ficha nova
+  // tem id próprio e a busca pelo login voltava sempre vazia.
+  const fichaId = producer?.id ?? null
   useEffect(() => {
-    if (!producerId) return
-    listEventsForProducer(producerId).then(setEvents).finally(() => setLoading(false))
-  }, [producerId])
+    if (authLoading) return
+    if (!producerId || !fichaId) { setEvents([]); setLoading(false); return }
+    listEventsForProducer(fichaId).then(setEvents).finally(() => setLoading(false))
+  }, [producerId, fichaId, authLoading])
 
   return (
     <div className="space-y-6">

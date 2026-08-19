@@ -134,7 +134,9 @@ function Stepper({ valor, onChange, min = 0 }: { valor: number; onChange: (n: nu
 }
 
 export default function ProducerNewProposal() {
-  const { producerId } = useProducerAuth()
+  // producerId é o id do LOGIN; o evento aponta pra FICHA (producer.id).
+  // Confundir os dois estoura a FK events_producer_id_fkey em ficha nova.
+  const { producerId, producer } = useProducerAuth()
   const [step, setStep] = useState(0)
   const [erro, setErro] = useState<string | null>(null)
 
@@ -278,7 +280,12 @@ export default function ProducerNewProposal() {
   }
 
   async function enviar() {
+    const fichaId = producer?.id ?? null
     if (!producerId) return
+    if (!fichaId) {
+      setErro('Sua ficha de produtor ainda não está completa. Preencha seus dados no painel e tente de novo.')
+      return
+    }
     setSubmitting(true)
     setErro(null)
     try {
@@ -297,7 +304,7 @@ export default function ProducerNewProposal() {
         : null
       const produtosTexto = [...tiposProdutos, produtosOutros.trim()].filter(Boolean).join(', ')
 
-      const event = await createEventAsProducer(producerId, {
+      const event = await createEventAsProducer(fichaId, {
         name, event_date: eventDate, location, city, status: 'Planejado', leader_id: null,
         address: address.trim() || null, flyer_url: flyerUrl,
         sales_amount: 0,
@@ -358,8 +365,9 @@ export default function ProducerNewProposal() {
   if (temMaquinas && mf && feesAtivas) {
     condicoes.push(`Taxas${cupomAplicado ? ` (cupom ${mf.coupon_code})` : ' padrão'}: ${feesAtivas.debit_pix}% débito/pix · ${feesAtivas.credit}% crédito · ${feesAtivas.cash}% dinheiro · ${feesAtivas.management}% gestão.`)
     // Máquina é cobrada pelo preço do catálogo (R$/máquina, já no total) —
-    // só o totem tem aluguel mensal como condição à parte.
-    if (totensQtd > 0) condicoes.push(`Aluguel mensal do totem: ${currency(mf.totem_rent)} cada.`)
+    // só o totem tem aluguel mensal como condição à parte. Aluguel zerado no
+    // admin = cortesia: não vira linha de condição.
+    if (totensQtd > 0 && mf.totem_rent > 0) condicoes.push(`Aluguel mensal do totem: ${currency(mf.totem_rent)} cada.`)
   }
   if (fixasEscolhidas.some((m) => m.default_price == null)) {
     condicoes.push('Itens "sob consulta" têm o valor confirmado pela Beetz na aprovação.')
