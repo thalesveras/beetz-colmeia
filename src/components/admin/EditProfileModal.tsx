@@ -131,8 +131,8 @@ export default function EditProfileModal({ profile, onClose, onSaved }: Props) {
           </div>
 
           <div className="border-t border-beetz-dark/10 pt-4 grid sm:grid-cols-2 gap-3">
-            <Field label="Nome da mãe"><input className={inputClass} value={form.mother_name} onChange={(e) => set('mother_name', e.target.value)} /></Field>
-            <Field label="Nome do pai"><input className={inputClass} value={form.father_name} onChange={(e) => set('father_name', e.target.value)} /></Field>
+            <Field label="Nome da mãe"><input className={inputClass} placeholder="Opcional" value={form.mother_name} onChange={(e) => set('mother_name', e.target.value)} /></Field>
+            <Field label="Nome do pai"><input className={inputClass} placeholder="Opcional" value={form.father_name} onChange={(e) => set('father_name', e.target.value)} /></Field>
             <Field label="Contato de emergência (nome)"><input className={inputClass} value={form.emergency_contact_name} onChange={(e) => set('emergency_contact_name', e.target.value)} /></Field>
             <Field label="Contato de emergência (telefone)"><input className={inputClass} value={form.emergency_contact_phone} onChange={(e) => set('emergency_contact_phone', e.target.value)} /></Field>
           </div>

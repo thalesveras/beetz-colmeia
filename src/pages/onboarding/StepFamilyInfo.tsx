@@ -12,14 +12,20 @@ export default function StepFamilyInfo({ data, update }: Props) {
   return (
     <div className="space-y-4">
       <div className="grid sm:grid-cols-2 gap-4">
-        <Field label="Nome da mãe"><input className={inputClass} value={data.mother_name || ''} onChange={(e) => update({ mother_name: e.target.value })} /></Field>
-        <Field label="Nome do pai"><input className={inputClass} value={data.father_name || ''} onChange={(e) => update({ father_name: e.target.value })} /></Field>
+        {/* Nem toda família tem os dois — o "se preferir, deixe em branco" no
+            próprio campo poupa quem não tem pai (ou mãe) de qualquer
+            constrangimento, sem destacar ninguém. */}
+        <Field label="Nome da mãe"><input className={inputClass} placeholder="Se preferir, deixe em branco" value={data.mother_name || ''} onChange={(e) => update({ mother_name: e.target.value })} /></Field>
+        <Field label="Nome do pai"><input className={inputClass} placeholder="Se preferir, deixe em branco" value={data.father_name || ''} onChange={(e) => update({ father_name: e.target.value })} /></Field>
       </div>
       <div className="grid sm:grid-cols-2 gap-4">
         <Field label="Contato de emergência"><input className={inputClass} value={data.emergency_contact_name || ''} onChange={(e) => update({ emergency_contact_name: e.target.value })} /></Field>
         <Field label="Telefone de emergência"><input className={inputClass} placeholder="(00) 00000-0000" value={data.emergency_contact_phone || ''} onChange={(e) => update({ emergency_contact_phone: e.target.value })} /></Field>
       </div>
-      <p className="text-xs text-beetz-dark/50">Essas informações ficam visíveis apenas para a administração da Beetz, em caso de emergência.</p>
+      <p className="text-xs text-beetz-dark/50">
+        Essas informações ficam visíveis apenas para a administração da Beetz, em caso de emergência.
+        Se algum campo não se aplicar a você, é só deixar em branco.
+      </p>
     </div>
   )
 }
