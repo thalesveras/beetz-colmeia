@@ -2034,6 +2034,16 @@ export async function getCashReconciliation(): Promise<CashReconRow[]> {
   })) as CashReconRow[]
 }
 
+// Logins vinculados a fichas de produtor: o admin usa pra marcar esses perfis
+// como "Produtor externo" (acesso é pelo portal) em vez de "Sem departamento" —
+// e pra ninguém dar departamento (= acesso interno) a produtor por engano.
+export async function getProducerAuthIds(): Promise<Set<string>> {
+  if (isDemoMode) return new Set()
+  const { data, error } = await supabase.rpc('producer_auth_ids')
+  if (error) throw error
+  return new Set(((data ?? []) as unknown[]).map((r) => (typeof r === 'string' ? r : String((r as Record<string, unknown>).producer_auth_ids))))
+}
+
 // ---------- Configurações: Regras do /cadastro ----------
 // Nada aqui altera dados de perfis — só as regras do formulário.
 

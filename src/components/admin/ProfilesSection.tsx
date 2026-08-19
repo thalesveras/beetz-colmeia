@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Lock, Pencil, Search, Trash2 } from 'lucide-react'
-import { adminDeleteProfile, listDepartments, listProfiles, updateProfileDepartment } from '../../lib/dataService'
+import { adminDeleteProfile, getProducerAuthIds, listDepartments, listProfiles, updateProfileDepartment } from '../../lib/dataService'
 import type { Department, Profile } from '../../lib/types'
 import { ACCESS_ROLE_LABELS, computeAccessRole } from '../../lib/permissions'
 import Avatar from '../ui/Avatar'
@@ -20,11 +20,17 @@ export default function ProfilesSection() {
   const [search, setSearch] = useState('')
   const [departmentFilter, setDepartmentFilter] = useState('')
 
+  const [producerIds, setProducerIds] = useState<Set<string>>(new Set())
+
   async function load() {
     setLoading(true)
-    const [p, d] = await Promise.all([listProfiles(), listDepartments()])
+    const [p, d, prod] = await Promise.all([
+      listProfiles(), listDepartments(),
+      getProducerAuthIds().catch(() => new Set<string>())
+    ])
     setProfiles(p)
     setDepartments(d)
+    setProducerIds(prod)
     setLoading(false)
   }
 
@@ -57,11 +63,17 @@ export default function ProfilesSection() {
     }
   }
 
+  // Login do portal do produtor: tem ficha em Produtores e NÃO é colaborador —
+  // não entra no "Sem departamento" (departamento = acesso interno da equipe).
+  const ehProdutor = (p: Profile) => !p.department_id && producerIds.has(p.id)
+
   // 'sem' é sentinela: mostra quem AINDA não tem departamento — é essa turma
   // que precisa de ajuste, e antes ela não tinha filtro pra aparecer sozinha.
-  const semDepartamento = profiles.filter((p) => !p.department_id).length
+  const produtores = profiles.filter(ehProdutor).length
+  const semDepartamento = profiles.filter((p) => !p.department_id && !producerIds.has(p.id)).length
   const filteredProfiles = profiles.filter((p) => {
-    if (departmentFilter === 'sem') { if (p.department_id) return false }
+    if (departmentFilter === 'sem') { if (p.department_id || ehProdutor(p)) return false }
+    else if (departmentFilter === 'produtor') { if (!ehProdutor(p)) return false }
     else if (departmentFilter && p.department_id !== departmentFilter) return false
     if (search && !`${p.first_name} ${p.last_name}`.toLowerCase().includes(search.toLowerCase())) return false
     return true
@@ -115,6 +127,19 @@ export default function ProfilesSection() {
               ⚠️ Sem departamento ({semDepartamento})
             </button>
           )}
+          {produtores > 0 && (
+            <button
+              onClick={() => setDepartmentFilter('produtor')}
+              title="Logins do portal do produtor — têm ficha em Produtores e acessam produtor.beetz.bar. Não são colaboradores e não precisam de departamento."
+              className={`text-sm font-semibold px-3.5 py-2 rounded-xl transition-colors ${
+                departmentFilter === 'produtor'
+                  ? 'bg-beetz-dark text-white'
+                  : 'bg-beetz-yellow/25 text-beetz-dark border border-beetz-yellow/60 hover:bg-beetz-yellow/40'
+              }`}
+            >
+              🤝 Produtores ({produtores})
+            </button>
+          )}
         </div>
         <p className="text-xs text-beetz-dark/40">{filteredProfiles.length} de {profiles.length} perfil(s)</p>
       </div>
@@ -149,6 +174,15 @@ export default function ProfilesSection() {
                   <div className="flex items-center gap-1.5 text-sm text-beetz-dark/50 border border-beetz-dark/10 bg-beetz-gray/50 rounded-xl px-3 py-2" title="Por segurança, o departamento de quem é Diretoria não pode ser trocado por aqui — evita perda acidental de acesso.">
                     <Lock size={13} />
                     <span>{departments.find((d) => d.id === p.department_id)?.icon} {departments.find((d) => d.id === p.department_id)?.name}</span>
+                  </div>
+                ) : ehProdutor(p) ? (
+                  /* Produtor externo: o acesso dele é o portal do produtor — não
+                     recebe departamento (departamento = acesso interno da equipe). */
+                  <div
+                    className="flex items-center gap-1.5 text-sm font-semibold text-beetz-dark border border-beetz-yellow/60 bg-beetz-yellow/15 rounded-xl px-3 py-2"
+                    title="Login do portal do produtor (produtor.beetz.bar) — tem ficha na página Produtores. Não dê departamento: departamento é o que dá acesso interno da equipe."
+                  >
+                    🤝 <span>Produtor externo · portal</span>
                   </div>
                 ) : (
                   <select
