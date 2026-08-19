@@ -32,6 +32,7 @@ export default function RepassesTab({ eventId, canManage }: { eventId: string; c
   const [newDate, setNewDate] = useState(new Date().toISOString().slice(0, 10))
   const [newNotes, setNewNotes] = useState('')
   const [newReceipt, setNewReceipt] = useState<string | null>(null)
+  const [newCash, setNewCash] = useState(false)
   const [saving, setSaving] = useState(false)
   const [selected, setSelected] = useState<EventRepasse | null>(null)
 
@@ -68,13 +69,14 @@ export default function RepassesTab({ eventId, canManage }: { eventId: string; c
     setSaving(true)
     await createEventRepasse({
       event_id: eventId, amount: newAmount, paid_at: newDate, notes: newNotes.trim() || null,
-      receipt_data: newReceipt, created_by: userId ?? null
+      receipt_data: newReceipt, paid_in_cash: newCash, created_by: userId ?? null
     })
     setSaving(false)
     setNewAmount(0)
     setNewDate(new Date().toISOString().slice(0, 10))
     setNewNotes('')
     setNewReceipt(null)
+    setNewCash(false)
     load()
   }
 
@@ -97,6 +99,13 @@ export default function RepassesTab({ eventId, canManage }: { eventId: string; c
           <div className="col-span-2 sm:col-span-4">
             <label className="text-sm font-medium block mb-1">Comprovante</label>
             <SmartReceiptField value={newReceipt} onChange={setNewReceipt} onExtracted={applyExtract} />
+            {/* Repasse em ESPÉCIE sai do caixa do evento: a conferência do
+                /financeiro desconta esse valor do saldo a entrar. */}
+            <label className="flex items-center gap-2 mt-2.5 text-sm font-medium cursor-pointer select-none">
+              <input type="checkbox" checked={newCash} onChange={(e) => setNewCash(e.target.checked)} />
+              💵 Pago em dinheiro
+              <span className="text-xs text-beetz-dark/45 font-normal">(desconta do saldo a entrar no caixa)</span>
+            </label>
           </div>
           <div>
             <label className="text-sm font-medium block mb-1">Valor (R$)</label>
@@ -133,7 +142,12 @@ export default function RepassesTab({ eventId, canManage }: { eventId: string; c
               className={`w-full text-left flex items-center gap-3 p-4 ${canManage ? 'hover:bg-beetz-gray/50 active:bg-beetz-gray transition-colors' : 'cursor-default'}`}
             >
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-sm">{currency(r.amount)}{r.receipt_data ? ' 📎' : ''}</p>
+                <p className="font-semibold text-sm">
+                  {currency(r.amount)}{r.receipt_data ? ' 📎' : ''}
+                  {r.paid_in_cash && (
+                    <span className="ml-1.5 text-[10px] font-bold uppercase tracking-wide bg-beetz-yellow/40 text-beetz-dark px-1.5 py-0.5 rounded-full">💵 dinheiro</span>
+                  )}
+                </p>
                 <p className="text-xs text-beetz-dark/50 truncate">
                   {formatDate(r.paid_at)} · Registrado por: {creatorName(r.created_by)}
                   {r.notes ? ` · ${r.notes}` : ''}
@@ -169,6 +183,7 @@ function EditRepasseModal({ repasse, registeredBy, onClose, onSaved }: {
   const [paidAt, setPaidAt] = useState(repasse.paid_at)
   const [notes, setNotes] = useState(repasse.notes ?? '')
   const [receipt, setReceipt] = useState<string | null>(repasse.receipt_data ?? null)
+  const [cash, setCash] = useState(repasse.paid_in_cash ?? false)
   const [zoomOpen, setZoomOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -187,7 +202,7 @@ function EditRepasseModal({ repasse, registeredBy, onClose, onSaved }: {
     if (!(value > 0)) { setError('Informe um valor maior que zero.'); return }
     setSaving(true); setError(null)
     try {
-      await updateEventRepasse(repasse.id, { amount: value, paid_at: paidAt, notes: notes.trim() || null, receipt_data: receipt })
+      await updateEventRepasse(repasse.id, { amount: value, paid_at: paidAt, notes: notes.trim() || null, receipt_data: receipt, paid_in_cash: cash })
       onSaved()
     } catch (e: any) {
       setError(e?.message ?? 'Não foi possível salvar.')
@@ -236,6 +251,13 @@ function EditRepasseModal({ repasse, registeredBy, onClose, onSaved }: {
           <div>
             <label className="text-sm font-medium block mb-1">Observações</label>
             <input className={inputClass} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Opcional" />
+          </div>
+          <div>
+            <label className="flex items-center gap-2 text-sm font-medium cursor-pointer select-none">
+              <input type="checkbox" checked={cash} onChange={(e) => setCash(e.target.checked)} />
+              💵 Pago em dinheiro
+            </label>
+            <p className="text-xs text-beetz-dark/45 mt-1">Marcado, o valor desconta do saldo a entrar no caixa na conferência do Financeiro.</p>
           </div>
           <div>
             <label className="text-sm font-medium block mb-1">Comprovante</label>

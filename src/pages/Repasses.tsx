@@ -232,7 +232,10 @@ export default function Repasses() {
                         </td>
                         <td className="p-3 text-xs text-beetz-dark/60">{r.notes || '—'}</td>
                         <td className="p-3 text-xs text-beetz-dark/60">{profileName(r.created_by)}</td>
-                        <td className="p-3 text-right font-bold whitespace-nowrap">{currency(r.amount)}</td>
+                        <td className="p-3 text-right font-bold whitespace-nowrap">
+                          {r.paid_in_cash && <span className="mr-1.5 text-[10px] font-bold uppercase tracking-wide bg-beetz-yellow/40 text-beetz-dark px-1.5 py-0.5 rounded-full">💵</span>}
+                          {currency(r.amount)}
+                        </td>
                       </tr>
                     )
                   })}

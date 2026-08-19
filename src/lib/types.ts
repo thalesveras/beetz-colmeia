@@ -678,6 +678,9 @@ export interface EventRepasse {
   notes: string | null
   // Print do PIX/transferência (base64) — o comprovante mora no lançamento.
   receipt_data?: string | null
+  // true = repasse pago em ESPÉCIE: desconta do saldo a entrar no caixa
+  // na conferência do /financeiro (visão Caixa).
+  paid_in_cash?: boolean
   created_by: string | null
   created_at: string
 }

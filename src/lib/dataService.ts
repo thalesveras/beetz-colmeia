@@ -2017,6 +2017,8 @@ export interface CashReconRow {
   cash_in: number
   cash_out: number
   cash_out_pendente: number
+  // Repasses à produtora marcados como pagos em dinheiro — saem do caixa.
+  cash_repasses: number
 }
 
 export async function getCashReconciliation(): Promise<CashReconRow[]> {
@@ -2027,7 +2029,8 @@ export async function getCashReconciliation(): Promise<CashReconRow[]> {
     ...r,
     cash_in: Number(r.cash_in ?? 0),
     cash_out: Number(r.cash_out ?? 0),
-    cash_out_pendente: Number(r.cash_out_pendente ?? 0)
+    cash_out_pendente: Number(r.cash_out_pendente ?? 0),
+    cash_repasses: Number(r.cash_repasses ?? 0)
   })) as CashReconRow[]
 }
 
@@ -3098,7 +3101,7 @@ export async function deleteEventProduct(id: string): Promise<void> {
 
 // Corrigir um repasse lançado errado (valor, data ou observação).
 export async function updateEventRepasse(
-  id: string, patch: Partial<Pick<EventRepasse, 'amount' | 'paid_at' | 'notes' | 'receipt_data'>>
+  id: string, patch: Partial<Pick<EventRepasse, 'amount' | 'paid_at' | 'notes' | 'receipt_data' | 'paid_in_cash'>>
 ): Promise<EventRepasse> {
   if (isDemoMode) {
     const idx = demoState.eventRepasses.findIndex((r) => r.id === id)
@@ -3132,7 +3135,7 @@ export async function listAllEventRepasses(eventId?: string | string[]): Promise
     return ids.length > 0 ? all.filter((r) => ids.includes(r.event_id)) : all
   }
   let query = supabase.from('event_repasses')
-    .select('id,event_id,amount,paid_at,notes,created_by,created_at')
+    .select('id,event_id,amount,paid_at,notes,paid_in_cash,created_by,created_at')
     .order('paid_at', { ascending: false })
   if (ids.length > 0) query = query.in('event_id', ids)
   const { data, error } = await query

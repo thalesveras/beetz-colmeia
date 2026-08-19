@@ -212,7 +212,8 @@ export default function FinanceDashboard() {
         (!evStatus || r.event_status === evStatus) &&
         (!q || r.event_name.toLowerCase().includes(q))
       )
-      .map((r) => ({ ...r, saldo: r.cash_in - r.cash_out }))
+      // Repasse pago em dinheiro também saiu do caixa do evento — desconta.
+      .map((r) => ({ ...r, saldo: r.cash_in - r.cash_out - r.cash_repasses }))
   }, [cashRows, month, evStatus, search])
 
   const totaisCaixa = useMemo(() => {
@@ -220,7 +221,8 @@ export default function FinanceDashboard() {
     const cobrir = caixaFiltrados.filter((r) => r.saldo < 0).reduce((s, r) => s + Math.abs(r.saldo), 0)
     const entrada = caixaFiltrados.reduce((s, r) => s + r.cash_in, 0)
     const saida = caixaFiltrados.reduce((s, r) => s + r.cash_out, 0)
-    return { devolver, cobrir, entrada, saida, geral: entrada - saida }
+    const repasses = caixaFiltrados.reduce((s, r) => s + r.cash_repasses, 0)
+    return { devolver, cobrir, entrada, saida, repasses, geral: entrada - saida - repasses }
   }, [caixaFiltrados])
 
   const activeFilters = visao === 'despesas'
@@ -379,8 +381,16 @@ export default function FinanceDashboard() {
               <p className="text-xs text-beetz-dark/50 mt-1.5">A incluir no caixa ({caixaFiltrados.filter((r) => r.saldo < 0).length} eventos)</p>
             </div>
             <div className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5">
-              <p className="text-lg font-extrabold leading-tight">{formatMoney(totaisCaixa.entrada)}<span className="text-beetz-dark/35 font-semibold text-sm"> − {formatMoney(totaisCaixa.saida)}</span></p>
-              <p className="text-xs text-beetz-dark/50 mt-1.5">Recebido em dinheiro − despesas em dinheiro</p>
+              <p className="text-lg font-extrabold leading-tight">
+                {formatMoney(totaisCaixa.entrada)}
+                <span className="text-beetz-dark/35 font-semibold text-sm"> − {formatMoney(totaisCaixa.saida)}</span>
+                {totaisCaixa.repasses > 0 && (
+                  <span className="text-beetz-dark/35 font-semibold text-sm"> − {formatMoney(totaisCaixa.repasses)}</span>
+                )}
+              </p>
+              <p className="text-xs text-beetz-dark/50 mt-1.5">
+                Recebido − despesas em dinheiro{totaisCaixa.repasses > 0 ? ' − repasses em dinheiro' : ''}
+              </p>
             </div>
           </div>
 
@@ -412,6 +422,7 @@ export default function FinanceDashboard() {
                           o número tem que ser auditável de olho. */}
                       <p className="text-[11px] text-beetz-dark/50 mt-0.5 tabular-nums">
                         💵 {formatMoneyFull(r.cash_in)} recebido − {formatMoneyFull(r.cash_out)} em despesas
+                        {r.cash_repasses > 0.004 && <> − {formatMoneyFull(r.cash_repasses)} em repasses</>}
                       </p>
                     </div>
                     <div className="text-right shrink-0">
@@ -437,8 +448,9 @@ export default function FinanceDashboard() {
           </div>
 
           <p className="text-[11px] text-beetz-dark/40">
-            Entram na conta: valores em <strong>Dinheiro</strong> dos recebimentos dos caixas (fechamentos não rejeitados) e todas as
-            despesas do evento com forma de pagamento <strong>Dinheiro</strong>. Nada é alterado — é só conferência.
+            Entram na conta: valores em <strong>Dinheiro</strong> dos recebimentos dos caixas (fechamentos não rejeitados), as
+            despesas do evento com forma de pagamento <strong>Dinheiro</strong> e os <strong>repasses à produtora marcados como
+            pagos em dinheiro</strong> (na aba Repasses do evento). Nada é alterado — é só conferência.
           </p>
         </>
       )}
