@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { Camera, Check, X } from 'lucide-react'
-import { generateScalePayments, staffCheckIn, staffCheckOut } from '../../lib/dataService'
+import { staffCheckIn, staffCheckOut } from '../../lib/dataService'
 import type { EventStaffingApplication, EventStaffingRequirement } from '../../lib/types'
 
 // Validação de ENTRADA e SAÍDA da equipe por QR, na porta do evento.
 //   Entrada: gerente escaneia o QR do colaborador confirmado → registra o
-//     check-in, pergunta o equipamento (maquininha) pra garçom/caixa — com
-//     leitura do QR do próprio equipamento — e ATIVA o pagamento da pessoa.
+//     check-in e pergunta o equipamento (maquininha) pra garçom/caixa — com
+//     leitura do QR do próprio equipamento.
 //   Saída: mesmo QR → registra o check-out e dá baixa na devolução.
+// PAGAMENTO NÃO acontece aqui: regra da casa é pagar a escala sempre DEPOIS,
+// via repasse/acerto — o botão "Gerar pagamentos" segue sendo o caminho.
 // Leitura via jsQR (CDN, carregado só aqui) + câmera traseira; sem câmera,
 // o código pode ser digitado à mão.
 
@@ -144,10 +146,7 @@ export default function CheckinScanner({ eventId, apps, requirements, personName
     setErro(null)
     try {
       await staffCheckIn(alvo.id, userId, equip.trim() || null)
-      // "Validar a escala ativa o pagamento": gera a despesa SÓ desta pessoa
-      // (idempotente — repetir o scan não duplica nada).
-      try { await generateScalePayments(eventId, userId, alvo.id) } catch { /* comissão sem base ainda etc. */ }
-      setMsg(`✅ Entrada de ${personName(alvo.profile_id)} registrada${equip.trim() ? ` · equipamento ${equip.trim()}` : ''} · pagamento ativado.`)
+      setMsg(`✅ Entrada de ${personName(alvo.profile_id)} registrada${equip.trim() ? ` · equipamento ${equip.trim()}` : ''}.`)
       setAlvo(null)
       setEquip('')
       setFase('scan-pessoa')
@@ -307,7 +306,7 @@ export default function CheckinScanner({ eventId, apps, requirements, personName
                     disabled={busy}
                     className="w-full flex items-center justify-center gap-1.5 honey-gradient text-beetz-dark font-bold py-3 rounded-xl disabled:opacity-60"
                   >
-                    <Check size={16} /> {busy ? 'Registrando...' : 'Confirmar entrada e ativar pagamento'}
+                    <Check size={16} /> {busy ? 'Registrando...' : 'Confirmar entrada'}
                   </button>
                 </>
               ) : (

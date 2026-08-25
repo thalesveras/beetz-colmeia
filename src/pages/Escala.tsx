@@ -461,8 +461,8 @@ export default function Escala() {
 
 // Crachá digital do confirmado: QR com o id da candidatura + horário de
 // chegada (1h antes do início). O gerente/técnico escaneia na entrada — isso
-// valida a presença e libera o pagamento; na saída, o mesmo QR dá baixa na
-// devolução do equipamento.
+// valida a presença e o equipamento; na saída, o mesmo QR dá baixa na
+// devolução. Pagamento é sempre DEPOIS (via repasse/acerto), nunca na porta.
 function QrEntradaModal({ slot, onClose }: { slot: OpenStaffingSlot; onClose: () => void }) {
   const qrRef = useRef<HTMLDivElement>(null)
   const [qrErro, setQrErro] = useState(false)
@@ -525,8 +525,8 @@ function QrEntradaModal({ slot, onClose }: { slot: OpenStaffingSlot; onClose: ()
 
           <p className="text-xs text-beetz-dark/55 leading-relaxed">
             Apresente este código ao <strong>gerente ou técnico na entrada</strong> — ele valida
-            sua presença e libera seu pagamento. Na saída, o mesmo código registra a devolução
-            do equipamento.
+            sua presença. Na saída, o mesmo código registra a devolução do equipamento.
+            O pagamento é acertado após o evento, como sempre.
           </p>
 
           <button onClick={onClose} className="w-full bg-beetz-dark text-white font-bold py-3 rounded-xl">

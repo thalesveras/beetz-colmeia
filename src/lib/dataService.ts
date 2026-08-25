@@ -3759,9 +3759,9 @@ export async function previewScalePayments(eventId: string): Promise<ScalePaymen
 // acertada em DINHEIRO no caixa (controle interno 'Acertado'/'Devendo')
 // vira despesa separada Paga em Dinheiro; o restante vira Pendente.
 // Índices únicos parciais no banco seguram clique duplo em cada tipo.
-// onlyAppId: gera o pagamento de UMA pessoa só — é o que o check-in por QR
-// usa pra "ativar o pagamento" na hora da entrada (idempotente: o índice
-// único por candidatura segura repetição).
+// onlyAppId: gera o pagamento de UMA pessoa só (idempotente: o índice único
+// por candidatura segura repetição). O pagamento da escala é SEMPRE pós-evento
+// — o check-in por QR não usa isso; fica disponível pra acertos individuais.
 export async function generateScalePayments(eventId: string, createdBy: string | null, onlyAppId?: string): Promise<{
   created: number; createdCash: number; skippedExisting: number; skippedNoValue: number; skippedNoSales: number
 }> {
