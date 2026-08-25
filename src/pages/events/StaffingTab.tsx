@@ -17,6 +17,7 @@ import type {
 } from '../../lib/types'
 import Avatar from '../../components/ui/Avatar'
 import StaffingRequirementsEditor from './StaffingRequirementsEditor'
+import CheckinScanner from './CheckinScanner'
 
 // Vagas do evento e quem está nelas.
 //
@@ -56,6 +57,8 @@ export default function StaffingTab({ eventId, canManage, canFinance = false, on
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Scanner de QR da porta: valida entrada/saída da equipe no dia do evento.
+  const [showScanner, setShowScanner] = useState(false)
 
   // Valor por pessoa: herda o da vaga, mas o líder pode ajustar caso a caso.
   const [editingValueId, setEditingValueId] = useState<string | null>(null)
@@ -313,6 +316,29 @@ export default function StaffingTab({ eventId, canManage, canFinance = false, on
   return (
     <div className="space-y-4">
       {error && <p className="text-sm text-red-600">{error}</p>}
+
+      {/* Porta do evento: o gerente/técnico escaneia o QR de cada confirmado —
+          entrada (com equipamento e pagamento) e saída (com devolução). */}
+      {canManage && (
+        <button
+          onClick={() => setShowScanner(true)}
+          className="w-full sm:w-auto flex items-center justify-center gap-2 dark-gradient text-white font-bold px-5 py-3 rounded-2xl text-sm"
+        >
+          📷 Validar entrada/saída (QR)
+        </button>
+      )}
+
+      {showScanner && (
+        <CheckinScanner
+          eventId={eventId}
+          apps={applications}
+          requirements={requirements}
+          personName={personName}
+          userId={userId}
+          onClose={() => setShowScanner(false)}
+          onChanged={() => { load(); onTeamChanged?.() }}
+        />
+      )}
 
       {/* Fila de decisão num lugar só: confirma tudo que cabe nas vagas com
           um toque, em vez de caçar botãozinho por candidato. */}
@@ -583,6 +609,22 @@ export default function StaffingTab({ eventId, canManage, canFinance = false, on
                       </div>
                       <div className="flex flex-wrap items-center gap-2 mt-1.5 pl-10">
                       {/* fim do andar 1 / começo do andar 2 */}
+                      {/* Rastro da porta: entrada, equipamento e saída da pessoa. */}
+                      {app.checkin_at && (
+                        <span className="text-[10px] font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                          🟢 {new Date(app.checkin_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      )}
+                      {app.equipment_code && (
+                        <span className="text-[10px] font-bold bg-beetz-yellow/40 text-beetz-dark px-1.5 py-0.5 rounded-full whitespace-nowrap" title={app.equipment_returned_at ? 'Equipamento devolvido' : 'Equipamento com a pessoa'}>
+                          {app.equipment_returned_at ? '↩' : '💳'} {app.equipment_code}
+                        </span>
+                      )}
+                      {app.checkout_at && (
+                        <span className="text-[10px] font-bold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                          saiu {new Date(app.checkout_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      )}
                       {/* Valor/percentual combinado: gestor vê todos; o resto
                           vê só o PRÓPRIO — combinado de colega não circula. */}
                       {app.status === 'Confirmado' && (canManage || app.profile_id === userId) && (

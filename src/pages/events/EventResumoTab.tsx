@@ -116,7 +116,9 @@ export default function EventResumoTab({ eventId, canExpenses, canCashier, canSt
           <span className={chip}><Users size={18} /></span>
           <span className="font-extrabold text-lg leading-none">{nums.confirmados}<span className="text-beetz-dark/35 text-sm font-semibold"> / {nums.vagas || '—'}</span></span>
           <span className="text-xs text-beetz-dark/50 leading-tight">
-            Equipe confirmada{nums.custoEscala > 0 ? ` · escala ${brl(nums.custoEscala)}` : ''}
+            {/* O CUSTO da escala é folha de pagamento — só quem enxerga o
+                fechamento vê o total; o resto vê só o contador de pessoas. */}
+            Equipe confirmada{canFinance && nums.custoEscala > 0 ? ` · escala ${brl(nums.custoEscala)}` : ''}
           </span>
         </button>
 

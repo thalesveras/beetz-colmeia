@@ -329,6 +329,14 @@ export interface EventStaffingApplication {
   agreed_value: number | null
   // Ajuste por pessoa quando a função é percentual (8, 9, 10...).
   agreed_percent: number | null
+  // Check-in por QR na entrada do evento (validado pelo gerente/técnico) e
+  // check-out na saída — com o equipamento (maquininha) recebido e devolvido.
+  checkin_at?: string | null
+  checkin_by?: string | null
+  checkout_at?: string | null
+  checkout_by?: string | null
+  equipment_code?: string | null
+  equipment_returned_at?: string | null
   created_at: string
 }
 

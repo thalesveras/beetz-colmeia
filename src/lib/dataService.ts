@@ -3589,6 +3589,31 @@ export async function updateStaffingApplicationPercent(id: string, agreedPercent
   if (error) throw error
 }
 
+// ---------- Check-in por QR na entrada do evento ----------
+// O gerente/técnico escaneia o QR do colaborador confirmado: ENTRADA registra
+// quem validou, quando e qual equipamento (maquininha) a pessoa recebeu;
+// SAÍDA registra o horário e dá baixa na devolução do equipamento.
+export async function staffCheckIn(appId: string, checkedBy: string | null, equipmentCode: string | null): Promise<void> {
+  if (isDemoMode) return
+  const { error } = await supabase.from('event_staffing_applications').update({
+    checkin_at: new Date().toISOString(),
+    checkin_by: checkedBy,
+    equipment_code: equipmentCode?.trim() || null
+  }).eq('id', appId)
+  if (error) throw error
+}
+
+export async function staffCheckOut(appId: string, checkedBy: string | null, hadEquipment: boolean): Promise<void> {
+  if (isDemoMode) return
+  const patch: Record<string, unknown> = {
+    checkout_at: new Date().toISOString(),
+    checkout_by: checkedBy
+  }
+  if (hadEquipment) patch.equipment_returned_at = new Date().toISOString()
+  const { error } = await supabase.from('event_staffing_applications').update(patch).eq('id', appId)
+  if (error) throw error
+}
+
 // PLANO de pagamentos da escala: a mesma conta do botão "Gerar pagamentos",
 // item a item, SEM gravar nada — alimenta o painel "Detalhes" e é a única
 // fonte do que o botão insere (prévia e execução nunca divergem).
@@ -3734,11 +3759,15 @@ export async function previewScalePayments(eventId: string): Promise<ScalePaymen
 // acertada em DINHEIRO no caixa (controle interno 'Acertado'/'Devendo')
 // vira despesa separada Paga em Dinheiro; o restante vira Pendente.
 // Índices únicos parciais no banco seguram clique duplo em cada tipo.
-export async function generateScalePayments(eventId: string, createdBy: string | null): Promise<{
+// onlyAppId: gera o pagamento de UMA pessoa só — é o que o check-in por QR
+// usa pra "ativar o pagamento" na hora da entrada (idempotente: o índice
+// único por candidatura segura repetição).
+export async function generateScalePayments(eventId: string, createdBy: string | null, onlyAppId?: string): Promise<{
   created: number; createdCash: number; skippedExisting: number; skippedNoValue: number; skippedNoSales: number
 }> {
   if (isDemoMode) return { created: 0, createdCash: 0, skippedExisting: 0, skippedNoValue: 0, skippedNoSales: 0 }
-  const plano = await previewScalePayments(eventId)
+  const planoCompleto = await previewScalePayments(eventId)
+  const plano = onlyAppId ? planoCompleto.filter((i) => i.appId === onlyAppId) : planoCompleto
   let created = 0
   let createdCash = 0
   let skippedExisting = 0

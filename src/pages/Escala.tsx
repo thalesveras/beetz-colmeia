@@ -22,6 +22,32 @@ function hojeISO() {
 
 type RecorteEscala = 'hoje' | 'proximas' | 'passadas' | 'todas'
 
+// ---- QR de entrada do colaborador confirmado ----
+// Gerado no aparelho (qrcodejs via CDN, carregado só quando alguém abre o
+// cartão). O conteúdo é o id da candidatura — o gerente escaneia na entrada,
+// valida a pessoa e libera o pagamento dela.
+async function loadQRCode(): Promise<any> {
+  const w = window as any
+  if (w.QRCode) return w.QRCode
+  await new Promise<void>((resolve, reject) => {
+    const s = document.createElement('script')
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js'
+    s.onload = () => resolve()
+    s.onerror = () => reject(new Error('Não deu pra carregar o gerador de QR.'))
+    document.head.appendChild(s)
+  })
+  return (window as any).QRCode
+}
+
+// Horário de chegada = 1 hora ANTES do início do evento ("19:00" → "18:00").
+function horaChegada(startTime: string | null): string | null {
+  if (!startTime) return null
+  const [h, m] = startTime.split(':').map(Number)
+  if (Number.isNaN(h) || Number.isNaN(m)) return null
+  const total = (h * 60 + m - 60 + 1440) % 1440
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
+}
+
 const STATUS_STYLES: Record<StaffingApplicationStatus, string> = {
   Candidatado: 'bg-amber-100 text-amber-700',
   Confirmado: 'bg-green-100 text-green-700',
@@ -55,6 +81,9 @@ export default function Escala() {
   // Contratante da vaga (produtor do evento) — reforça a ideia de
   // marketplace: toda vaga tem quem está contratando.
   const [producerNames, setProducerNames] = useState<Map<string, string>>(new Map())
+
+  // Cartão de QR aberto (candidatura confirmada → crachá de entrada).
+  const [qrSlot, setQrSlot] = useState<OpenStaffingSlot | null>(null)
 
   async function load() {
     setLoading(true)
@@ -387,7 +416,17 @@ export default function Escala() {
                 </div>
 
                 {app && app.status !== 'Recusado' ? (
-                  <div className="mt-3 sm:flex sm:justify-end">
+                  <div className="mt-3 flex flex-col sm:flex-row gap-2 sm:justify-end">
+                    {/* Confirmado ganha o crachá: QR + horário de chegada.
+                        É ele que o gerente escaneia na entrada do evento. */}
+                    {app.status === 'Confirmado' && (
+                      <button
+                        onClick={() => setQrSlot(slot)}
+                        className="w-full sm:w-auto flex items-center justify-center gap-1.5 honey-gradient text-beetz-dark font-bold px-5 py-2.5 sm:py-2 rounded-xl text-sm"
+                      >
+                        🎫 Meu QR de entrada
+                      </button>
+                    )}
                     <button
                       onClick={() => handleCancel(slot)}
                       disabled={busy}
@@ -412,6 +451,89 @@ export default function Escala() {
           })}
         </div>
       )}
+
+      {qrSlot && qrSlot.myApplication && (
+        <QrEntradaModal slot={qrSlot} onClose={() => setQrSlot(null)} />
+      )}
+    </div>
+  )
+}
+
+// Crachá digital do confirmado: QR com o id da candidatura + horário de
+// chegada (1h antes do início). O gerente/técnico escaneia na entrada — isso
+// valida a presença e libera o pagamento; na saída, o mesmo QR dá baixa na
+// devolução do equipamento.
+function QrEntradaModal({ slot, onClose }: { slot: OpenStaffingSlot; onClose: () => void }) {
+  const qrRef = useRef<HTMLDivElement>(null)
+  const [qrErro, setQrErro] = useState(false)
+  const app = slot.myApplication!
+  const chegada = horaChegada(slot.event.start_time ?? null)
+
+  useEffect(() => {
+    let alive = true
+    loadQRCode()
+      .then((QRCode: any) => {
+        if (!alive || !qrRef.current) return
+        qrRef.current.innerHTML = ''
+        new QRCode(qrRef.current, {
+          text: `beetz:app:${app.id}`,
+          width: 220, height: 220,
+          colorDark: '#050505', colorLight: '#ffffff'
+        })
+      })
+      .catch(() => { if (alive) setQrErro(true) })
+    return () => { alive = false }
+  }, [app.id])
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-0 sm:p-6" onClick={onClose}>
+      <div
+        className="bg-white w-full sm:max-w-sm rounded-t-3xl sm:rounded-3xl overflow-hidden pb-[env(safe-area-inset-bottom)]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="dark-gradient text-white px-5 py-4">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-beetz-yellow">Meu QR de entrada</p>
+          <p className="font-extrabold leading-tight mt-0.5">{slot.event.name}</p>
+          <p className="text-xs text-white/60 mt-0.5">
+            {formatDate(slot.event.event_date)} · {slot.requirement.role_label}
+          </p>
+        </div>
+
+        <div className="p-5 space-y-4 text-center">
+          {/* O horário de CHEGADA em destaque: 1 hora antes do evento. */}
+          <div className="bg-beetz-yellow/20 border border-beetz-yellow/50 rounded-2xl px-4 py-3">
+            <p className="text-xs font-semibold text-beetz-dark/60">Sua chegada</p>
+            <p className="text-2xl font-extrabold leading-tight">
+              {chegada ?? '1h antes do início'}
+            </p>
+            <p className="text-[11px] text-beetz-dark/50">
+              {chegada
+                ? `1 hora antes do evento (início às ${slot.event.start_time})`
+                : 'O horário do evento ainda não foi definido'}
+            </p>
+          </div>
+
+          <div className="flex justify-center">
+            {qrErro ? (
+              <p className="text-sm text-red-600 bg-red-50 rounded-xl px-4 py-6">
+                Não deu pra gerar o QR agora. Código manual: <span className="font-mono font-bold break-all">{app.id}</span>
+              </p>
+            ) : (
+              <div ref={qrRef} className="p-3 bg-white rounded-2xl border border-beetz-dark/10" />
+            )}
+          </div>
+
+          <p className="text-xs text-beetz-dark/55 leading-relaxed">
+            Apresente este código ao <strong>gerente ou técnico na entrada</strong> — ele valida
+            sua presença e libera seu pagamento. Na saída, o mesmo código registra a devolução
+            do equipamento.
+          </p>
+
+          <button onClick={onClose} className="w-full bg-beetz-dark text-white font-bold py-3 rounded-xl">
+            Fechar
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
