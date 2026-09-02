@@ -769,6 +769,9 @@ export interface StockLocation {
   // envio e morre com o evento. É o que permite transferir festa→festa e
   // perguntar "quanto tem na Vaquejada agora?".
   event_id: string | null
+  // Estoque CENTRAL da casa (Privilege): padrão do chat do estoque e das
+  // transferências. O banco garante no máximo um central.
+  is_central?: boolean
   created_at: string
 }
 

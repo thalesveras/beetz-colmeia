@@ -3,8 +3,9 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
 import {
   Plus, Pencil, Ban, RotateCcw, Check, X, Trash2, ChevronDown, ChevronUp, Package, Warehouse, AlertTriangle,
-  Clock3, ArrowLeftRight, ChevronLeft, ChevronRight, Filter, Wallet, CalendarDays, ListChecks
+  Clock3, ArrowLeftRight, ChevronLeft, ChevronRight, Filter, Wallet, CalendarDays, ListChecks, MessageCircle
 } from 'lucide-react'
+import StockChat from '../components/stock/StockChat'
 import {
   approveTransferRequest, createStockLocation, createTransferRequest,
   deleteStockLocation, ensureEventStockLocation, getStockBalances, listProductAvgCosts, listStockAvailability, isPositiveMovementType, listEvents, listProducts, listProfiles,
@@ -43,10 +44,12 @@ function getPageNumbers(current: number, total: number): (number | 'ellipsis')[]
 // A tela única anterior empilhava 8 seções — no celular era um pergaminho.
 // "Resumo" é a porta de entrada: números + botões grandes que levam pra aba
 // certa, pensados pro dedo (a operação usa o estoque do celular, no evento).
-type StockTabKey = 'resumo' | 'movimentacoes' | 'transferencias' | 'reservas' | 'inventario' | 'cadastros'
+type StockTabKey = 'resumo' | 'conversar' | 'movimentacoes' | 'transferencias' | 'reservas' | 'inventario' | 'cadastros'
 
 const STOCK_TABS: { key: StockTabKey; label: string; icon: typeof Wallet; managerOnly?: boolean }[] = [
   { key: 'resumo', label: 'Resumo', icon: Wallet },
+  // A porta fácil: perguntar e lançar em linguagem natural, sem caçar telas.
+  { key: 'conversar', label: '💬 Conversar', icon: MessageCircle },
   { key: 'movimentacoes', label: 'Movimentações', icon: Clock3 },
   { key: 'transferencias', label: 'Transferências', icon: ArrowLeftRight },
   { key: 'reservas', label: 'Reservas', icon: CalendarDays },
@@ -77,7 +80,7 @@ export default function Stock() {
   const [searchParams] = useSearchParams()
   useEffect(() => {
     const aba = searchParams.get('aba')
-    const validas: StockTabKey[] = ['resumo', 'movimentacoes', 'transferencias', 'reservas', 'inventario', 'cadastros']
+    const validas: StockTabKey[] = ['resumo', 'conversar', 'movimentacoes', 'transferencias', 'reservas', 'inventario', 'cadastros']
     if (aba && (validas as string[]).includes(aba)) setTab(aba as StockTabKey)
     else if (!aba) setTab('resumo')
   }, [searchParams])
@@ -642,6 +645,8 @@ export default function Stock() {
             </div>
           </section>
           </>)}
+
+          {tab === 'conversar' && <StockChat />}
 
           {tab === 'reservas' && (
             <ReservationsSection
