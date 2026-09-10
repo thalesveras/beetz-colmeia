@@ -392,6 +392,73 @@ export default function FinanceExpenses() {
     [filtered, selected]
   )
 
+  // ---- Comprovante por ARRASTO no card ----
+  // Solta o print em cima da despesa e ele vira o comprovante dela — sem
+  // abrir modal. Grava SÓ receipt_data (patch parcial: assinatura e repasse
+  // ficam intocados) e pergunta antes de substituir um existente.
+  const [dragOverId, setDragOverId] = useState<string | null>(null)
+  const [anexandoId, setAnexandoId] = useState<string | null>(null)
+  const [anexadoId, setAnexadoId] = useState<string | null>(null)
+
+  async function comprimirImagem(file: File): Promise<string> {
+    const bmp = await createImageBitmap(file)
+    const escala = Math.min(1, 1100 / Math.max(bmp.width, bmp.height))
+    const c = document.createElement('canvas')
+    c.width = Math.round(bmp.width * escala)
+    c.height = Math.round(bmp.height * escala)
+    c.getContext('2d')!.drawImage(bmp, 0, 0, c.width, c.height)
+    return c.toDataURL('image/jpeg', 0.85)
+  }
+
+  async function soltarComprovante(expId: string, file: File) {
+    if (!file.type.startsWith('image/')) { setDragOverId(null); return }
+    setAnexandoId(expId)
+    try {
+      // A lista é magra (sem anexos) — confere no banco se já existe antes.
+      const atual = await getExpenseAttachments(expId).catch(() => null)
+      if (atual?.receipt_data && !window.confirm('Essa despesa já tem comprovante. Substituir pelo novo?')) return
+      const img = await comprimirImagem(file)
+      await updateExpense(expId, { receipt_data: img })
+      setAnexadoId(expId)
+      window.setTimeout(() => setAnexadoId((c) => (c === expId ? null : c)), 2500)
+    } catch (e: any) {
+      alert(e?.message ?? 'Não deu pra anexar o comprovante.')
+    } finally {
+      setAnexandoId(null)
+      setDragOverId(null)
+    }
+  }
+
+  // ---- Ações em LOTE sobre as selecionadas ----
+  const [busyLote, setBusyLote] = useState(false)
+  async function aplicarLote(patch: Partial<Pick<Expense, 'status' | 'event_id' | 'category' | 'payment_method'>>) {
+    if (selected.size === 0) return
+    setBusyLote(true)
+    try {
+      for (const id of [...selected]) await updateExpense(id, patch)
+      await load()
+      clearSelection()
+    } catch (e: any) {
+      alert(e?.message ?? 'Não deu pra aplicar em todas.')
+    } finally {
+      setBusyLote(false)
+    }
+  }
+
+  async function excluirLote() {
+    if (!window.confirm(`Apagar ${selected.size} despesa(s)? Essa ação não tem volta.`)) return
+    setBusyLote(true)
+    try {
+      for (const id of [...selected]) await deleteExpense(id)
+      await load()
+      clearSelection()
+    } catch (e: any) {
+      alert(e?.message ?? 'Não deu pra apagar todas.')
+    } finally {
+      setBusyLote(false)
+    }
+  }
+
 
 
   function toggleSort(field: SortField) {
@@ -460,10 +527,31 @@ export default function FinanceExpenses() {
         return (
           <div
             key={exp.id}
-            className={`bg-white border rounded-xl p-4 transition-colors ${
-              isSelected ? 'border-beetz-yellow ring-2 ring-beetz-yellow/40' : 'border-beetz-dark/5'
+            onDragOver={(e) => { if (!canReviewExpense(accessRole)) return; e.preventDefault(); setDragOverId(exp.id) }}
+            onDragLeave={() => setDragOverId((c) => (c === exp.id ? null : c))}
+            onDrop={(e) => {
+              if (!canReviewExpense(accessRole)) return
+              e.preventDefault()
+              const f = e.dataTransfer.files?.[0]
+              if (f) soltarComprovante(exp.id, f)
+            }}
+            className={`relative bg-white border rounded-xl p-4 transition-colors ${
+              dragOverId === exp.id
+                ? 'border-beetz-yellow border-dashed ring-2 ring-beetz-yellow/60'
+                : isSelected ? 'border-beetz-yellow ring-2 ring-beetz-yellow/40' : 'border-beetz-dark/5'
             } ${exp.status === 'Cancelado' ? 'opacity-50' : ''}`}
           >
+            {dragOverId === exp.id && (
+              <div className="absolute inset-0 z-10 rounded-xl bg-beetz-yellow/20 flex items-center justify-center pointer-events-none">
+                <span className="bg-beetz-dark text-white text-xs font-bold px-3 py-1.5 rounded-full">📎 Solte o comprovante aqui</span>
+              </div>
+            )}
+            {anexandoId === exp.id && (
+              <span className="absolute top-2 right-2 z-10 bg-beetz-dark text-white text-[10px] font-bold px-2 py-1 rounded-full">Anexando…</span>
+            )}
+            {anexadoId === exp.id && (
+              <span className="absolute top-2 right-2 z-10 bg-green-600 text-white text-[10px] font-bold px-2 py-1 rounded-full">📎 Comprovante anexado ✓</span>
+            )}
             <div className="flex items-start gap-3">
               <input
                 type="checkbox"
@@ -954,26 +1042,62 @@ export default function FinanceExpenses() {
       )}
 
       {selected.size > 0 && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-beetz-dark text-white rounded-2xl shadow-glow px-5 py-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 max-w-[calc(100vw-2rem)]">
-          <span className="text-sm">{selected.size} selecionada(s)</span>
-          <span className="font-extrabold text-beetz-yellow">{currency(selectedTotal)}</span>
-          {/* Um comprovante só pra despesas de VÁRIOS eventos: cada
-              selecionada em aberto recebe o pagamento do restante com a
-              mesma imagem — e quita. */}
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-beetz-dark text-white rounded-2xl shadow-glow px-5 py-3 max-w-[calc(100vw-2rem)] space-y-2">
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
+            <span className="text-sm">{selected.size} selecionada(s)</span>
+            <span className="font-extrabold text-beetz-yellow">{currency(selectedTotal)}</span>
+            {/* Um comprovante só pra despesas de VÁRIOS eventos: cada
+                selecionada em aberto recebe o pagamento do restante com a
+                mesma imagem — e quita. */}
+            {canReviewExpense(accessRole) && (
+              <label className={`cursor-pointer bg-white/10 hover:bg-white/20 font-bold px-3.5 py-2 rounded-xl text-xs transition-colors ${quitandoLote ? 'opacity-50 pointer-events-none' : ''}`}>
+                {quitandoLote ? 'Quitando...' : '💸 Quitar com 1 comprovante'}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleBulkQuitar(f) }}
+                />
+              </label>
+            )}
+            <button onClick={clearSelection} className="text-xs font-semibold text-white/60 hover:text-white flex items-center gap-1">
+              <X size={13} /> Limpar
+            </button>
+          </div>
+
+          {/* Edição em LOTE: status, categoria, forma de pagamento, evento e
+              exclusão — tudo aplicado em todas as selecionadas de uma vez. */}
           {canReviewExpense(accessRole) && (
-            <label className={`cursor-pointer bg-white/10 hover:bg-white/20 font-bold px-3.5 py-2 rounded-xl text-xs transition-colors ${quitandoLote ? 'opacity-50 pointer-events-none' : ''}`}>
-              {quitandoLote ? 'Quitando...' : '💸 Quitar com 1 comprovante'}
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleBulkQuitar(f) }}
-              />
-            </label>
+            <div className={`flex flex-wrap items-center justify-center gap-1.5 pt-2 border-t border-white/10 ${busyLote ? 'opacity-50 pointer-events-none' : ''}`}>
+              <button onClick={() => aplicarLote({ status: 'Pago' })}
+                className="bg-white/10 hover:bg-white/20 text-xs font-bold px-3 py-2 rounded-xl transition-colors">
+                ✓ Marcar Pago
+              </button>
+              <button onClick={() => aplicarLote({ status: 'Pendente' })}
+                className="bg-white/10 hover:bg-white/20 text-xs font-bold px-3 py-2 rounded-xl transition-colors">
+                ⏳ Marcar Pendente
+              </button>
+              <select value="" onChange={(e) => { if (e.target.value) aplicarLote({ category: e.target.value }) }}
+                className="bg-white/10 text-white text-xs font-bold px-2.5 py-2 rounded-xl border-0 cursor-pointer [&>option]:text-beetz-dark">
+                <option value="" disabled>🏷 Categoria…</option>
+                {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+              </select>
+              <select value="" onChange={(e) => { if (e.target.value) aplicarLote({ payment_method: e.target.value }) }}
+                className="bg-white/10 text-white text-xs font-bold px-2.5 py-2 rounded-xl border-0 cursor-pointer [&>option]:text-beetz-dark">
+                <option value="" disabled>💳 Forma…</option>
+                {paymentMethods.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
+              </select>
+              <select value="" onChange={(e) => { if (e.target.value) aplicarLote({ event_id: e.target.value }) }}
+                className="bg-white/10 text-white text-xs font-bold px-2.5 py-2 rounded-xl border-0 cursor-pointer max-w-[180px] [&>option]:text-beetz-dark">
+                <option value="" disabled>📅 Mover pra evento…</option>
+                {events.map((ev) => <option key={ev.id} value={ev.id}>{eventLabel(ev)}</option>)}
+              </select>
+              <button onClick={excluirLote}
+                className="bg-red-500/20 hover:bg-red-500/35 text-red-200 text-xs font-bold px-3 py-2 rounded-xl transition-colors">
+                🗑 Excluir ({selected.size})
+              </button>
+            </div>
           )}
-          <button onClick={clearSelection} className="text-xs font-semibold text-white/60 hover:text-white flex items-center gap-1">
-            <X size={13} /> Limpar
-          </button>
         </div>
       )}
 
