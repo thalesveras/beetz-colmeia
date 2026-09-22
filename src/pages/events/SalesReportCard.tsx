@@ -21,10 +21,64 @@ function money(s: string): number {
   return Number(cleaned.replace(/\./g, '').replace(',', '.')) || 0
 }
 
-// O relatório do PDV vem em UTF-16 com BOM e primeira linha "sep=;" —
-// detecta o encoding pelos bytes iniciais e o separador pela dica do arquivo.
-// Colunas são achadas pelo nome (não pela posição): relatório que mudar a
-// ordem continua entrando.
+// O PDV já exportou o mesmo relatório de DOIS jeitos: CSV UTF-16 com "sep=;"
+// (formato antigo) e Excel .xlsx (formato novo, mesmo cabeçalho). O miolo
+// abaixo é COMUM aos dois: acha a linha de cabeçalho pelo conteúdo (tolera
+// linhas de título antes), acha as colunas pelo NOME (tolera ordem e colunas
+// novas) e lê número no estilo certo de cada formato. Mudou de novo? Só o
+// leitor de arquivo muda — o resto do pipeline (mapeamento, vínculo, oficial)
+// nem fica sabendo.
+function parseSalesRows(rows: unknown[][], decimalComPonto: boolean): ParsedSalesLine[] {
+  const str = (v: unknown) => String(v ?? '').trim()
+  const num = (v: unknown): number => {
+    if (typeof v === 'number') return v
+    const s = str(v)
+    if (!s) return 0
+    // xlsx: números crus com ponto decimal ("117.5"); CSV BR: "1.175,50".
+    return decimalComPonto ? (Number(s.replace(/[^\d.-]/g, '')) || 0) : money(s)
+  }
+
+  // Cabeçalho = primeira linha (nas 10 iniciais) com uma célula "Produto".
+  const headerIdx = rows.slice(0, 10).findIndex((r) => r.some((c) => str(c).toLowerCase().startsWith('produto')))
+  if (headerIdx < 0) throw new Error('Não achei a coluna "Produto" no arquivo — é o relatório de vendas da máquina?')
+  const header = rows[headerIdx].map((h) => str(h).toLowerCase())
+
+  const iProd = header.findIndex((h) => h.startsWith('produto'))
+  const iCat = header.findIndex((h) => h.startsWith('categoria'))
+  const iUnit = header.findIndex((h) => h.includes('unit'))
+  const iFat = header.findIndex((h) => h.includes('faturada'))
+  const iBonus = header.findIndex((h) => h.startsWith('qnt') && (h.includes('bônus') || h.includes('bonus')))
+  const iQty = header.findIndex((h) => h === 'quantidade')
+  // Vendas traz "Total Geral"; o relatório de Produção chama a mesma coluna
+  // de "Receita". Mesmo número, nomes diferentes.
+  const iTotal = header.findIndex((h) => h.includes('total geral') || h.startsWith('receita'))
+  // A COLUNA CERTA da receita: "Total faturado" = venda SEM a taxa de serviço
+  // (os 10% dos garçons, que o cliente paga por fora). "Total geral" soma a
+  // taxa — servia pro faturado aparecer maior do que a casa de fato vendeu.
+  const iNet = header.findIndex((h) => h.includes('total faturado'))
+
+  const out: ParsedSalesLine[] = []
+  for (const cols of rows.slice(headerIdx + 1)) {
+    const name = str(cols[iProd])
+    if (!name || name.toLowerCase() === 'total') continue
+    const qtyBilled = iFat >= 0 ? num(cols[iFat]) : 0
+    const qtyBonus = iBonus >= 0 ? num(cols[iBonus]) : 0
+    const quantity = iQty >= 0 ? num(cols[iQty]) : qtyBilled + qtyBonus
+    out.push({
+      pos_name: name,
+      category: iCat >= 0 ? str(cols[iCat]) || null : null,
+      unit_value: iUnit >= 0 ? num(cols[iUnit]) : null,
+      qty_billed: qtyBilled,
+      qty_bonus: qtyBonus,
+      quantity,
+      total_gross: iTotal >= 0 ? num(cols[iTotal]) : null,
+      total_net: iNet >= 0 ? num(cols[iNet]) : null
+    })
+  }
+  return out
+}
+
+// CSV (formato antigo): UTF-16 com BOM, primeira linha "sep=;".
 async function parseSalesCsv(file: File): Promise<ParsedSalesLine[]> {
   const buf = await file.arrayBuffer()
   const bytes = new Uint8Array(buf)
@@ -42,42 +96,36 @@ async function parseSalesCsv(file: File): Promise<ParsedSalesLine[]> {
     delim = rawLines[0].slice(4, 5) || ';'
     start = 1
   }
-  const header = rawLines[start].split(delim).map((h) => h.trim().toLowerCase())
-  const iProd = header.findIndex((h) => h.startsWith('produto'))
-  const iCat = header.findIndex((h) => h.startsWith('categoria'))
-  const iUnit = header.findIndex((h) => h.includes('unit'))
-  const iFat = header.findIndex((h) => h.includes('faturada'))
-  const iBonus = header.findIndex((h) => h.startsWith('qnt') && (h.includes('bônus') || h.includes('bonus')))
-  const iQty = header.findIndex((h) => h === 'quantidade')
-  // Vendas traz "Total Geral"; o relatório de Produção chama a mesma coluna
-  // de "Receita". Mesmo número, nomes diferentes.
-  const iTotal = header.findIndex((h) => h.includes('total geral') || h.startsWith('receita'))
-  // A COLUNA CERTA da receita: "Total faturado" = venda SEM a taxa de serviço
-  // (os 10% dos garçons, que o cliente paga por fora). "Total geral" soma a
-  // taxa — servia pro faturado aparecer maior do que a casa de fato vendeu.
-  const iNet = header.findIndex((h) => h.includes('total faturado'))
-  if (iProd < 0) throw new Error('Não achei a coluna "Produto" no arquivo — é o relatório de vendas da máquina?')
+  return parseSalesRows(rawLines.slice(start).map((l) => l.split(delim)), false)
+}
 
-  const out: ParsedSalesLine[] = []
-  for (const raw of rawLines.slice(start + 1)) {
-    const cols = raw.split(delim)
-    const name = (cols[iProd] ?? '').trim()
-    if (!name || name.toLowerCase() === 'total') continue
-    const qtyBilled = iFat >= 0 ? money(cols[iFat] ?? '') : 0
-    const qtyBonus = iBonus >= 0 ? money(cols[iBonus] ?? '') : 0
-    const quantity = iQty >= 0 ? money(cols[iQty] ?? '') : qtyBilled + qtyBonus
-    out.push({
-      pos_name: name,
-      category: iCat >= 0 ? (cols[iCat] ?? '').trim() || null : null,
-      unit_value: iUnit >= 0 ? money(cols[iUnit] ?? '') : null,
-      qty_billed: qtyBilled,
-      qty_bonus: qtyBonus,
-      quantity,
-      total_gross: iTotal >= 0 ? money(cols[iTotal] ?? '') : null,
-      total_net: iNet >= 0 ? money(cols[iNet] ?? '') : null
-    })
-  }
-  return out
+// Excel .xlsx (formato novo do PDV): SheetJS via CDN, carregado só quando o
+// primeiro Excel aparece — o arquivo é lido no aparelho, nada muda no servidor.
+async function loadSheetJS(): Promise<any> {
+  const w = window as any
+  if (w.XLSX) return w.XLSX
+  await new Promise<void>((resolve, reject) => {
+    const s = document.createElement('script')
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'
+    s.onload = () => resolve()
+    s.onerror = () => reject(new Error('Não deu pra carregar o leitor de Excel.'))
+    document.head.appendChild(s)
+  })
+  return (window as any).XLSX
+}
+
+async function parseSalesXlsx(file: File): Promise<ParsedSalesLine[]> {
+  const [XLSX, buf] = await Promise.all([loadSheetJS(), file.arrayBuffer()])
+  const wb = XLSX.read(buf, { type: 'array' })
+  const ws = wb.Sheets[wb.SheetNames[0]]
+  if (!ws) throw new Error('Planilha vazia ou fora do formato esperado.')
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' }) as unknown[][]
+  return parseSalesRows(rows, true)
+}
+
+// Decide o leitor pela extensão — os dois desembocam no mesmo miolo.
+async function parseSalesFile(file: File): Promise<ParsedSalesLine[]> {
+  return /\.xlsx?$/i.test(file.name) ? parseSalesXlsx(file) : parseSalesCsv(file)
 }
 
 // ---------- "IA" de vínculo: nome da máquina → produto do estoque ----------
@@ -190,7 +238,7 @@ export default function SalesReportCard({ eventId, kind = 'vendas', onSynced }: 
     setImporting(true)
     setError(null)
     try {
-      const parsed = await parseSalesCsv(file)
+      const parsed = await parseSalesFile(file)
       // Data do upload automática: o relatório é sempre DESTE evento e a
       // regra do oficial resolve versões — escolher dia era um campo a mais
       // pra errar.
@@ -467,7 +515,7 @@ export default function SalesReportCard({ eventId, kind = 'vendas', onSynced }: 
 
       <div className="flex flex-wrap items-center gap-2">
         <input
-          ref={fileRef} type="file" accept=".csv,text/csv" className="hidden"
+          ref={fileRef} type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="hidden"
           onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
         />
         <button
