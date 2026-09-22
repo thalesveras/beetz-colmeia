@@ -132,6 +132,7 @@ const nomeDe = (id) => nomes.get(id) ?? '—'
 
 const ABAS = [
   { key: 'dashboard', label: '📊 Dashboard' },
+  { key: 'bi', label: '💰 BI' },
   { key: 'cadastros', label: '🧑 Cadastros' },
   { key: 'perfis', label: '✏️ Perfis' },
   { key: 'acessos', label: '🔑 Acessos' },
@@ -170,6 +171,12 @@ const vistoRel = (iso) => {
   if (min < 1440) return `há ${Math.round(min / 60)}h`
   return quando(iso)
 }
+// R$ sem centavos — o BI é panorama; o valor exato mora no /financeiro do app.
+const reais = (v) => 'R$ ' + Math.round(Number(v ?? 0)).toLocaleString('pt-BR')
+const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+const mesRot = (m) => { const [a, mm] = String(m ?? '').split('-'); return mm ? `${MESES[Number(mm) - 1]}/${a.slice(2)}` : '—' }
+// Data pura (sem hora): meio-dia evita o escorregão de fuso do new Date('YYYY-MM-DD').
+const dataBr = (iso) => iso ? new Date(iso + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—'
 
 function renderDashboard(ov, q) {
   const users = ov.usuarios ?? []
@@ -264,11 +271,104 @@ function renderDashboard(ov, q) {
   return { html, n: `${filtro.length} pessoa(s)` }
 }
 
+// ---- BI do ecossistema: o dinheiro da casa inteira numa aba só ----
+function renderBi(d, q) {
+  const t = d?.totais ?? {}
+  const fat = d?.faturamento_mensal ?? []
+  const rep = d?.repasses_mensal ?? []
+  const prod = d?.consumo_produtos ?? []
+  const doss = d?.dossies ?? []
+  const filtro = q ? doss.filter((e) =>
+    `${e.nome} ${e.status ?? ''} ${e.data ?? ''} ${mesRot((e.data ?? '').slice(0, 7))}`.toLowerCase().includes(q)
+  ) : doss
+
+  const corResultado = (v) => Number(v) >= 0 ? 'ok' : 'err'
+  const kpis = `
+    <div class="kpis">
+      <div class="kpi"><span>Recebido (caixas)</span><b>${reais(t.recebido)}</b></div>
+      <div class="kpi"><span>Vendas PDV (líquido)</span><b>${reais(t.pdv)}</b></div>
+      <div class="kpi"><span>Despesas</span><b>${reais(t.despesas)}</b></div>
+      <div class="kpi"><span>Repasses</span><b>${reais(t.repasses)}</b></div>
+      <div class="kpi"><span>Resultado</span><b style="color:${Number(t.resultado) >= 0 ? '#6ee7a0' : '#f39b9b'}">${reais(t.resultado)}</b></div>
+      <div class="kpi"><span>Eventos com movimento</span><b>${t.eventos ?? 0}</b></div>
+    </div>`
+
+  // ---- faturamento mensal: colunas + tabela de apoio ----
+  const maxFat = Math.max(1, ...fat.map((m) => Number(m.recebido ?? 0)))
+  const colsFat = fat.map((m) => `<div class="col ${Number(m.recebido) ? '' : 'apagada'}" style="height:${Math.max(2, Math.round(100 * Number(m.recebido ?? 0) / maxFat))}%" title="${mesRot(m.mes)}: ${reais(m.recebido)} recebidos · ${m.eventos} evento(s) · resultado ${reais(m.resultado)}"></div>`).join('')
+  const eixoFat = fat.map((m) => `<span>${mesRot(m.mes)}</span>`).join('')
+  const linhasFat = fat.map((m) => `<tr>
+    <td><strong>${mesRot(m.mes)}</strong></td><td>${m.eventos}</td>
+    <td>${reais(m.recebido)}</td><td>${Number(m.pdv) ? reais(m.pdv) : '<span class="muted">—</span>'}</td>
+    <td>${reais(m.despesas)}</td><td>${reais(m.repasses)}</td>
+    <td><span class="tag ${corResultado(m.resultado)}">${reais(m.resultado)}</span></td>
+  </tr>`).join('')
+
+  // ---- consumo de produtos: barras por quantidade vendida ----
+  const topQtd = Math.max(1, ...prod.map((p) => Number(p.qtd ?? 0)))
+  const barrasProd = prod.length ? prod.map((p) => `
+    <div class="brow">
+      <div class="nome" title="${esc(p.nome)}">${esc(p.nome)}</div>
+      <div class="trilho"><div class="fill" style="width:${Math.max(3, Math.round(100 * Number(p.qtd ?? 0) / topQtd))}%"></div></div>
+      <div class="val" style="width:150px">${Number(p.qtd ?? 0).toLocaleString('pt-BR')} un · ${reais(p.receita)}</div>
+    </div>`).join('') : '<p class="muted" style="padding:8px 2px">Nenhum relatório de PDV importado ainda — o consumo nasce dos uploads na aba Produtos do evento.</p>'
+
+  // ---- repasses por mês ----
+  const topRep = Math.max(1, ...rep.map((m) => Number(m.total ?? 0)))
+  const barrasRep = rep.length ? rep.map((m) => `
+    <div class="brow">
+      <div class="nome">${mesRot(m.mes)}</div>
+      <div class="trilho"><div class="fill" style="width:${Math.max(3, Math.round(100 * Number(m.total ?? 0) / topRep))}%"></div></div>
+      <div class="val" style="width:220px">${reais(m.total)} · 💵 ${reais(m.dinheiro)} · ${m.n} lanç.</div>
+    </div>`).join('') : '<p class="muted" style="padding:8px 2px">Nenhum repasse lançado ainda.</p>'
+
+  // ---- dossiês: um por evento com movimento financeiro ----
+  const linhasDoss = filtro.map((e) => `<tr>
+    <td>${dataBr(e.data)}</td>
+    <td><strong>${esc(e.nome)}</strong></td>
+    <td><span class="tag ${e.status === 'Concluído' ? 'ok' : e.status === 'Cancelado' ? 'err' : 'mel'}">${esc(e.status ?? '—')}</span></td>
+    <td>${Number(e.recebido) ? reais(e.recebido) : '<span class="muted">—</span>'}</td>
+    <td>${Number(e.pdv) ? reais(e.pdv) : '<span class="muted">—</span>'}</td>
+    <td>${Number(e.despesas) ? reais(e.despesas) : '<span class="muted">—</span>'}</td>
+    <td>${Number(e.repasses) ? `${reais(e.repasses)}${Number(e.dinheiro) ? ' <span class="tag mel" title="tem parte paga em dinheiro">💵</span>' : ''}` : '<span class="muted">—</span>'}</td>
+    <td><span class="tag ${corResultado(e.resultado)}">${reais(e.resultado)}</span></td>
+  </tr>`).join('')
+
+  const html = `
+    ${kpis}
+
+    <div class="secao">📈 Faturamento mensal <span class="muted" style="font-weight:400">recebido nos caixas, pelo mês do evento</span></div>
+    <div class="cols">${colsFat}</div><div class="eixo">${eixoFat}</div>
+    <div style="margin-top:10px"><table><thead><tr><th>Mês</th><th>Eventos</th><th>Recebido</th><th>PDV</th><th>Despesas</th><th>Repasses</th><th>Resultado</th></tr></thead>
+    <tbody>${linhasFat || '<tr><td colspan="7" class="muted">Sem meses com movimento.</td></tr>'}</tbody></table></div>
+
+    <div class="secao">🍺 Consumo de produtos <span class="muted" style="font-weight:400">top 20 dos relatórios oficiais de PDV · quantidade e venda líquida</span></div>
+    ${barrasProd}
+
+    <div class="secao">🤝 Repasses por mês <span class="muted" style="font-weight:400">pelo mês do pagamento · total · 💵 em dinheiro · lançamentos</span></div>
+    ${barrasRep}
+
+    <div class="secao">📁 Dossiês dos eventos <span class="muted" style="font-weight:400">a busca acima filtra esta lista</span></div>
+    <table><thead><tr><th>Data</th><th>Evento</th><th>Situação</th><th>Recebido</th><th>PDV</th><th>Despesas</th><th>Repasses</th><th>Resultado</th></tr></thead>
+    <tbody>${linhasDoss || '<tr><td colspan="8" class="muted">Nenhum evento bate com a busca.</td></tr>'}</tbody></table>
+    <p class="muted" style="margin-top:10px">Resultado = recebido nos caixas − despesas (fora as canceladas) − repasses. O PDV é a venda líquida dos relatórios importados — informativo, não soma no resultado. Valores sem centavos; o exato mora no Financeiro do app.</p>`
+
+  return { html, n: `${filtro.length} dossiê(s)` }
+}
+
 const CARREGADORES = {
   async dashboard() {
     const { data, error } = await supabase.rpc('get_usage_overview', { days_back: periodoDias })
     if (error) throw error
     return { custom: true, dados: data }
+  },
+  async bi() {
+    // O ecossistema inteiro numa aba: dossiês por evento, faturamento
+    // mensal, repasses e consumo de produtos — tudo numa RPC só
+    // (bi_overview), que o banco só entrega pra Diretoria.
+    const { data, error } = await supabase.rpc('bi_overview')
+    if (error) throw error
+    return { custom: true, render: renderBi, dados: data }
   },
   async cadastros() {
     // A trilha de entrada na Colmeia: quem criou perfil, quando, com que
@@ -403,7 +503,7 @@ const CARREGADORES = {
 
 let ultimoResultado = null
 async function carregarAba() {
-  $('conteudo').innerHTML = abaAtual === 'dashboard'
+  $('conteudo').innerHTML = abaAtual === 'dashboard' || abaAtual === 'bi'
     ? '<p class="muted" style="padding:12px 4px">Carregando o panorama... a primeira consulta do dia pode levar alguns segundos. ⏳</p>'
     : '<p class="muted" style="padding:12px 4px">Carregando...</p>'
   $('contagem').textContent = ''
@@ -419,8 +519,9 @@ function aplicarBusca() {
   if (!ultimoResultado) return
   const q = $('busca').value.trim().toLowerCase()
   if (ultimoResultado.custom) {
-    // Dashboard: renderiza inteiro; a busca filtra a tabela de pessoas.
-    const { html, n } = renderDashboard(ultimoResultado.dados, q)
+    // Abas-painel (dashboard, BI): renderizam inteiro; a busca filtra a
+    // tabela principal. Cada carregador diz qual render usa.
+    const { html, n } = (ultimoResultado.render ?? renderDashboard)(ultimoResultado.dados, q)
     $('contagem').textContent = n
     $('conteudo').innerHTML = html
     $('conteudo').querySelectorAll('.pill').forEach((el) =>
