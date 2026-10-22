@@ -247,9 +247,14 @@ export default function SalesReportCard({ eventId, kind = 'vendas', onSynced }: 
       // avisa que ele virou o oficial.
       const imps = await listEventSalesImports(eventId)
       const cobertos = imps.filter((i) => i.superseded_by === imp.id).length
-      setInfo(cobertos > 0
-        ? `Este upload é o oficial agora: cobre e substitui ${cobertos} anterior${cobertos > 1 ? 'es' : ''} — a conta usa só o mais completo.`
-        : null)
+      setInfo([
+        cobertos > 0
+          ? `Este upload é o oficial agora: cobre e substitui ${cobertos} anterior${cobertos > 1 ? 'es' : ''} — a conta usa só o mais completo.`
+          : null,
+        kind === 'vendas'
+          ? 'Os produtos vinculados tiveram baixa automática no estoque do evento (a baixa acompanha sempre o relatório oficial — nunca duplica).'
+          : null
+      ].filter(Boolean).join(' ') || null)
       await load()
       onSynced?.()
     } catch (e: any) {

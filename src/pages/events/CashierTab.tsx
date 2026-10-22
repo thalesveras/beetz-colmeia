@@ -439,6 +439,10 @@ export default function CashierTab({ eventId, canViewAll, isApprovedMember }: Pr
                 <p className="font-semibold text-sm">{profileName(s.profile_id)}</p>
                 <p className="text-xs text-beetz-dark/50">
                   {s.role_type} · 💵 {currency(s.cash_amount)} · 💳 {currency(s.debit_amount + s.credit_amount)} · Pix {currency(s.pix_amount)}
+                  {/* Horário de fechamento do caixa do funcionário (editável no lápis). */}
+                  {(s.closed_at ?? s.created_at) && (
+                    <> · 🕐 fechou {new Date(s.closed_at ?? s.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</>
+                  )}
                 </p>
               </div>
               <div className="text-right">

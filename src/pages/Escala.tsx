@@ -373,6 +373,13 @@ export default function Escala() {
                           {STATUS_LABELS[app.status]}
                         </span>
                       )}
+                      {/* Escala fechada: o card continua aqui SÓ pro confirmado
+                          (é dele que sai o QR de entrada na porta). */}
+                      {slot.closed && (
+                        <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-beetz-dark/10 text-beetz-dark/60">
+                          🔒 Escala fechada
+                        </span>
+                      )}
                     </div>
                     <Link to={`/eventos/${slot.event.id}`} className="block truncate text-sm text-beetz-dark/60 hover:text-beetz-dark font-medium">
                       {slot.event.name}

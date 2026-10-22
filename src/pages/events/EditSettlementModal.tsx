@@ -54,6 +54,15 @@ export default function EditSettlementModal({ settlement, profiles, canReview, c
   const [credit, setCredit] = useState(String(settlement.credit_amount))
   const [pix, setPix] = useState(String(settlement.pix_amount))
   const [notes, setNotes] = useState(settlement.notes ?? '')
+  // Horário em que o caixa FECHOU de fato — editável (o lançamento às vezes
+  // entra no sistema bem depois da maquininha fechar). Fuso local sempre.
+  const toLocalInput = (iso: string | null | undefined) => {
+    if (!iso) return ''
+    const d = new Date(iso)
+    const p = (x: number) => String(x).padStart(2, '0')
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
+  }
+  const [closedAt, setClosedAt] = useState(toLocalInput(settlement.closed_at ?? settlement.created_at))
   const [receipt, setReceipt] = useState<string | null>(settlement.receipt_data ?? null)
   const [zoomOpen, setZoomOpen] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -129,7 +138,8 @@ export default function EditSettlementModal({ settlement, profiles, canReview, c
         credit_amount: n(credit),
         pix_amount: n(pix),
         notes: notes.trim() || null,
-        receipt_data: receipt
+        receipt_data: receipt,
+        ...(closedAt ? { closed_at: new Date(closedAt).toISOString() } : {})
       })
       if (canReview && (intDirty || intStatus !== 'Em aberto' || intNotes.trim() || intReceipt)) {
         // Devendo além da comissão + opção ligada + ainda sem lançamento →
@@ -270,6 +280,20 @@ export default function EditSettlementModal({ settlement, profiles, canReview, c
 
           <Field label="Observações">
             <input className={inputClass} value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </Field>
+
+          {/* O horário que vale pro fechamento do funcionário — ajustável,
+              porque o lançamento muitas vezes entra depois do caixa fechar. */}
+          <Field label="Horário de fechamento do caixa">
+            <input
+              type="datetime-local"
+              className={inputClass}
+              value={closedAt}
+              onChange={(e) => setClosedAt(e.target.value)}
+            />
+            <p className="text-[11px] text-beetz-dark/45 mt-1">
+              Quando a maquininha/caixa fechou de verdade — não precisa bater com a hora do lançamento.
+            </p>
           </Field>
 
           {/* A foto que o garçom/caixa mandou no lançamento — quem revisa vê,

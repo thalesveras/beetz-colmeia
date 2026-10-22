@@ -1242,7 +1242,7 @@ export async function updateCashierSettlement(
   id: string,
   // event_id no Pick: mover o recebimento pra outro evento (lançado na festa
   // errada) — gateado pela flag can_move_settlement_event na UI.
-  patch: Partial<Pick<CashierSettlement, 'profile_id' | 'role_type' | 'cash_amount' | 'debit_amount' | 'credit_amount' | 'pix_amount' | 'notes' | 'receipt_data' | 'event_id'>>
+  patch: Partial<Pick<CashierSettlement, 'profile_id' | 'role_type' | 'cash_amount' | 'debit_amount' | 'credit_amount' | 'pix_amount' | 'notes' | 'receipt_data' | 'event_id' | 'closed_at'>>
 ): Promise<CashierSettlement> {
   if (isDemoMode) {
     const idx = demoState.cashierSettlements.findIndex((c) => c.id === id)
@@ -1276,7 +1276,7 @@ export async function deleteCashierSettlement(id: string): Promise<void> {
 // tabela mostra; o comprovante de um lançamento específico é buscado sob
 // demanda (getSettlementReceipt) na hora de editar.
 const SETTLEMENT_LEAN_COLS =
-  'id,event_id,profile_id,role_type,cash_amount,debit_amount,credit_amount,pix_amount,total,notes,created_by,created_at,status,commission_amount'
+  'id,event_id,profile_id,role_type,cash_amount,debit_amount,credit_amount,pix_amount,total,notes,created_by,created_at,status,commission_amount,closed_at'
 
 export async function listAllCashierSettlements(eventIds?: string[]): Promise<CashierSettlement[]> {
   if (isDemoMode) {
@@ -2463,6 +2463,15 @@ export async function createEventSalesImport(
   const byName = new Map(aliases.map((a) => [a.pos_name, a]))
   // Total do cabeçalho SEM a taxa de serviço quando o relatório traz a coluna.
   const total = lines.reduce((s, l) => s + (l.total_net ?? l.total_gross ?? 0), 0)
+  // Trava de duplicidade: o MESMO arquivo (mesmo nome e mesmo total, mesmo
+  // tipo) importado de novo não entra — evita clique duplo e re-upload sem
+  // querer. Versão mais completa do relatório muda o total e passa normal.
+  const anteriores = await listEventSalesImports(eventId)
+  const repetido = anteriores.find((i) => !i.superseded_by && (i.kind ?? 'vendas') === kind
+    && (i.file_name ?? '') === (meta.file_name ?? '') && Math.abs((i.total_gross ?? 0) - total) < 0.005)
+  if (repetido) {
+    throw new Error('Este arquivo já foi importado neste evento (mesmo nome e mesmo total) — importação duplicada bloqueada. Se for uma versão mais nova do relatório, o total muda e ela entra normalmente.')
+  }
   const { data: imp, error } = await supabase.from('event_sales_imports')
     .insert({ event_id: eventId, report_date: meta.report_date, file_name: meta.file_name, total_gross: total, imported_by: importedBy, kind })
     .select().single()
@@ -2486,6 +2495,8 @@ export async function createEventSalesImport(
   // Linhas que já chegaram mapeadas (alias) alimentam as somas na hora.
   await syncSoldQuantitiesFromPdv(eventId).catch(() => 0)
   await syncProductionConsumptionFromPdv(eventId).catch(() => 0)
+  // Vendas oficiais dão baixa automática no ESTOQUE DO EVENTO.
+  if (kind === 'vendas') await syncStockFromPdv(eventId, importedBy).catch(() => 0)
   return imp as EventSalesImport
 }
 
@@ -2542,7 +2553,55 @@ export async function deleteEventSalesImport(id: string): Promise<void> {
   if (eventId) {
     await syncSoldQuantitiesFromPdv(eventId).catch(() => 0)
     await syncProductionConsumptionFromPdv(eventId).catch(() => 0)
+    await syncStockFromPdv(eventId, null).catch(() => 0)
   }
+}
+
+// ---------- Baixa automática do PDV no estoque do evento ----------
+// Cada importação OFICIAL de vendas vira Saída dos produtos vinculados no
+// estoque do próprio evento. A conta é sempre refeita do zero: cancela as
+// baixas automáticas vigentes (ficam no histórico, como manda a regra da
+// casa) e relança pelo retrato oficial — re-upload, supersede e exclusão
+// nunca duplicam baixa nem deixam baixa órfã. Evento sem estoque próprio
+// não sofre nada. Devolve quantos produtos ficaram com baixa lançada.
+export const PDV_BAIXA_NOTA = 'Baixa automática do PDV (vendas oficiais)'
+export async function syncStockFromPdv(eventId: string, createdBy: string | null): Promise<number> {
+  if (isDemoMode) return 0
+  const { data: locData, error: locErr } = await supabase.from('stock_locations')
+    .select('id').eq('event_id', eventId).limit(1)
+  if (locErr) throw locErr
+  const loc = (locData ?? [])[0] as { id: string } | undefined
+  if (!loc) return 0
+
+  const [imports, lines] = await Promise.all([listEventSalesImports(eventId), listEventSalesLines(eventId)])
+  const oficiais = new Set(imports.filter((i) => !i.superseded_by && (i.kind ?? 'vendas') === 'vendas').map((i) => i.id))
+  const esperado = new Map<string, number>()
+  for (const l of lines) {
+    if (!l.import_id || !oficiais.has(l.import_id) || !l.product_id) continue
+    const qtd = (l.quantity ?? 0) * (l.units_per_sale ?? 1)
+    if (qtd > 0) esperado.set(l.product_id, (esperado.get(l.product_id) ?? 0) + qtd)
+  }
+
+  // Cancela as baixas automáticas vigentes (identificadas pela nota) e relança.
+  const { error: offErr } = await supabase.from('stock_movements')
+    .update({ status: 'Cancelado' })
+    .eq('stock_location_id', loc.id)
+    .eq('movement_type', 'Saída')
+    .eq('notes', PDV_BAIXA_NOTA)
+    .eq('status', 'Ativo')
+  if (offErr) throw offErr
+
+  const rows: NewStockMovementInput[] = Array.from(esperado.entries()).map(([product_id, quantity]) => ({
+    product_id,
+    stock_location_id: loc.id,
+    event_id: eventId,
+    movement_type: 'Saída',
+    quantity,
+    notes: PDV_BAIXA_NOTA,
+    created_by: createdBy
+  }))
+  if (rows.length) await createStockMovementsBulk(rows)
+  return rows.length
 }
 
 // O elo que dispensa digitação: soma TODAS as linhas mapeadas do PDV por
@@ -4125,12 +4184,28 @@ export async function listOpenStaffingSlots(profileId: string | null): Promise<O
   // meia-noite, com garçom ainda precisando entrar (e sem entrar na escala,
   // não lança recebimento). Fecha só por comando da Diretoria
   // (staffing_closed, botão em Evento → Equipe) ou evento Cancelado/Concluído.
-  const events = (await listEvents()).filter(
+  const todos = await listEvents()
+  const abertos = todos.filter(
     (e) => !e.staffing_closed && e.status !== 'Cancelado' && e.status !== 'Concluído'
       // Proposta de produtor NÃO abre vagas sozinha: só depois da Diretoria
       // aprovar (proposal_status 'Aprovada' ou null = evento interno).
       && e.proposal_status !== 'Pendente' && e.proposal_status !== 'Recusada'
   )
+  // O CONFIRMADO não pode perder o card quando a escala fecha ou o evento é
+  // concluído — é dali que sai o "Meu QR de entrada" na porta. Então os
+  // eventos onde a pessoa está confirmada entram de volta, marcados como
+  // fechados (sem aceitar candidatura nova). Era esse buraco que matava o
+  // credenciamento: a Diretoria fechava a escala e o QR sumia do bolso.
+  const abertosIds = new Set(abertos.map((e) => e.id))
+  let fechadosComVaga: typeof todos = []
+  if (profileId) {
+    const minhas = await listMyStaffingApplications(profileId)
+    const confirmadaEm = new Set(minhas.filter((a) => a.status === 'Confirmado').map((a) => a.event_id))
+    fechadosComVaga = todos.filter(
+      (e) => confirmadaEm.has(e.id) && !abertosIds.has(e.id) && e.status !== 'Cancelado'
+    )
+  }
+  const events = [...abertos, ...fechadosComVaga]
   if (!events.length) return []
   const eventIds = events.map((e) => e.id)
 
@@ -4158,12 +4233,15 @@ export async function listOpenStaffingSlots(profileId: string | null): Promise<O
       return {
         requirement,
         event,
+        closed: !abertosIds.has(event.id),
         confirmedCount: forSlot.filter((a) => a.status === 'Confirmado').length,
         myApplication: profileId
           ? forSlot.find((a) => a.profile_id === profileId && a.status !== 'Cancelado') ?? null
           : null
       }
     })
+    // Evento de escala fechada só aparece pra quem está CONFIRMADO nele.
+    .filter((slot) => !slot.closed || slot.myApplication?.status === 'Confirmado')
     .sort((a, b) => (a.event.event_date < b.event.event_date ? -1 : 1))
 }
 

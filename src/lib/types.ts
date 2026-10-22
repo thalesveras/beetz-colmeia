@@ -347,6 +347,10 @@ export interface OpenStaffingSlot {
   event: EventItem
   confirmedCount: number
   myApplication: EventStaffingApplication | null
+  // true = a escala desse evento já fechou (staffing_closed/Concluído): não
+  // aceita candidatura nova, mas o CONFIRMADO continua vendo o card — é dele
+  // que sai o "Meu QR de entrada" na porta do evento.
+  closed?: boolean
 }
 
 // ---------- Notificações ----------
@@ -759,6 +763,9 @@ export interface CashierSettlement {
   notes: string | null
   created_by: string | null
   created_at: string
+  // Horário em que o caixa do funcionário FECHOU de fato (editável por quem
+  // revisa) — o created_at é só quando a linha entrou no sistema.
+  closed_at?: string | null
 }
 
 export interface StockLocation {
