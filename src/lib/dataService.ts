@@ -1375,25 +1375,25 @@ export async function listProducts(): Promise<Product[]> {
 
 export async function createProduct(
   name: string, unit: string, category: string | null, lowStockThreshold: number | null = null,
-  barcode: string | null = null, unitsPerPack: number | null = null
+  barcode: string | null = null, unitsPerPack: number | null = null, referenceCost: number | null = null
 ): Promise<Product> {
   if (isDemoMode) {
     const product: Product = {
       id: uid('pr'), name, unit, category, low_stock_threshold: lowStockThreshold,
-      barcode, units_per_pack: unitsPerPack, created_at: new Date().toISOString()
+      barcode, units_per_pack: unitsPerPack, reference_cost: referenceCost, created_at: new Date().toISOString()
     }
     demoState.products.push(product)
     return product
   }
   const { data, error } = await supabase
     .from('products')
-    .insert({ name, unit, category, low_stock_threshold: lowStockThreshold, barcode, units_per_pack: unitsPerPack })
+    .insert({ name, unit, category, low_stock_threshold: lowStockThreshold, barcode, units_per_pack: unitsPerPack, reference_cost: referenceCost })
     .select().single()
   if (error) throw error
   return data as Product
 }
 
-export async function updateProduct(id: string, patch: Partial<Pick<Product, 'name' | 'unit' | 'category' | 'low_stock_threshold' | 'barcode' | 'units_per_pack'>>): Promise<Product> {
+export async function updateProduct(id: string, patch: Partial<Pick<Product, 'name' | 'unit' | 'category' | 'low_stock_threshold' | 'barcode' | 'units_per_pack' | 'reference_cost'>>): Promise<Product> {
   if (isDemoMode) {
     const idx = demoState.products.findIndex((p) => p.id === id)
     if (idx < 0) throw new Error('Produto não encontrado')

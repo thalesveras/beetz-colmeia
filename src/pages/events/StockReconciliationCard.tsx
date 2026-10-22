@@ -82,9 +82,19 @@ export default function StockReconciliationCard({ eventId }: { eventId: string }
       const c = costOf(r.productId)
       return c ? s + r.perda * c : s
     }, 0)
+    // A conferência em DINHEIRO, ponta a ponta: quanto entrou em R$, quanto
+    // voltou em R$ — é o controle de quanto dinheiro está dentro da festa.
+    const custoEnviado = rows.reduce((s, r) => {
+      const c = costOf(r.productId)
+      return c ? s + r.enviado * c : s
+    }, 0)
+    const custoSobra = rows.reduce((s, r) => {
+      const c = costOf(r.productId)
+      return c ? s + r.sobra * c : s
+    }, 0)
     const comCusto = rows.some((r) => costOf(r.productId) != null)
     return {
-      enviado, sobra, perda, custoConsumo, custoPerda, comCusto,
+      enviado, sobra, perda, custoConsumo, custoPerda, custoEnviado, custoSobra, comCusto,
       retorno: enviado > 0 ? Math.round((sobra / enviado) * 100) : null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -104,11 +114,15 @@ export default function StockReconciliationCard({ eventId }: { eventId: string }
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
         <div className="bg-beetz-gray/60 rounded-xl p-3">
           <p className="text-lg font-extrabold leading-none">{totals.enviado}</p>
-          <p className="text-[11px] text-beetz-dark/50 mt-1">Entrou no evento</p>
+          <p className="text-[11px] text-beetz-dark/50 mt-1">
+            Entrou no evento{totals.comCusto && totals.custoEnviado > 0 ? <> · <strong>{brl(totals.custoEnviado)}</strong></> : null}
+          </p>
         </div>
         <div className="bg-beetz-gray/60 rounded-xl p-3">
           <p className="text-lg font-extrabold leading-none">{totals.sobra}</p>
-          <p className="text-[11px] text-beetz-dark/50 mt-1">Voltou / sobrou</p>
+          <p className="text-[11px] text-beetz-dark/50 mt-1">
+            Voltou / sobrou{totals.comCusto && totals.custoSobra > 0 ? <> · <strong>{brl(totals.custoSobra)}</strong></> : null}
+          </p>
         </div>
         <div className={`rounded-xl p-3 ${totals.perda > 0 ? 'bg-red-50' : 'bg-beetz-gray/60'}`}>
           <p className={`text-lg font-extrabold leading-none ${totals.perda > 0 ? 'text-red-600' : ''}`}>{totals.perda}</p>
@@ -142,23 +156,32 @@ export default function StockReconciliationCard({ eventId }: { eventId: string }
               <th className="py-2 px-3 font-medium text-right">Voltou</th>
               <th className="py-2 px-3 font-medium text-right">Perdas</th>
               <th className="py-2 px-3 font-medium text-right">Vendido*</th>
+              {totals.comCusto && <th className="py-2 px-3 font-medium text-right">R$ vendido</th>}
               <th className="py-2 pl-3 font-medium text-right">Retorno</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
+            {rows.map((r) => {
+              const c = costOf(r.productId)
+              return (
               <tr key={r.productId} className="border-b border-beetz-dark/5 last:border-0">
                 <td className="py-2.5 pr-3 font-semibold">{productName(r.productId)}</td>
-                <td className="py-2.5 px-3 text-right">{r.enviado} {productUnit(r.productId)}</td>
-                <td className="py-2.5 px-3 text-right">{r.sobra}</td>
-                <td className={`py-2.5 px-3 text-right ${r.perda > 0 ? 'text-red-600 font-semibold' : 'text-beetz-dark/40'}`}>{r.perda}</td>
+                <td className="py-2.5 px-3 text-right" title={c ? `${brl(r.enviado * c)} em produto` : undefined}>{r.enviado} {productUnit(r.productId)}</td>
+                <td className="py-2.5 px-3 text-right" title={c ? `${brl(r.sobra * c)} de volta` : undefined}>{r.sobra}</td>
+                <td className={`py-2.5 px-3 text-right ${r.perda > 0 ? 'text-red-600 font-semibold' : 'text-beetz-dark/40'}`} title={c && r.perda > 0 ? `${brl(r.perda * c)} perdidos` : undefined}>{r.perda}</td>
                 <td className={`py-2.5 px-3 text-right font-bold ${r.consumo < 0 ? 'text-red-600' : ''}`}>
                   {r.consumo < 0 && <AlertTriangle size={12} className="inline mr-1 -mt-0.5" />}
                   {r.consumo}
                 </td>
+                {totals.comCusto && (
+                  <td className="py-2.5 px-3 text-right text-beetz-dark/60">
+                    {c ? brl(r.consumo * c) : <span className="text-amber-600" title="Produto sem custo — preencha o custo de referência no Estoque">sem custo</span>}
+                  </td>
+                )}
                 <td className="py-2.5 pl-3 text-right text-beetz-dark/60">{r.retorno !== null ? `${r.retorno}%` : '—'}</td>
               </tr>
-            ))}
+              )
+            })}
           </tbody>
         </table>
       </div>

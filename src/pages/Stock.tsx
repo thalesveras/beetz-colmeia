@@ -316,6 +316,49 @@ export default function Stock() {
   // Badge do botão de Transferências no Resumo: pendência é o que pede clique.
   const pendingTransfers = useMemo(() => transfers.filter((t) => t.status === 'Pendente').length, [transfers])
 
+  // ---- Dinheiro em CADA estoque: a pergunta da operação. ----
+  // Saldo físico × custo efetivo (média das Compras com preço, ou o custo de
+  // referência do produto). Central primeiro, depois quem tem mais dinheiro.
+  const valorPorLocal = useMemo(() => {
+    const porLocal = new Map<string, number>()
+    for (const b of balances) {
+      const cost = avgCostById.get(b.product_id)
+      if (!cost || b.balance <= 0) continue
+      porLocal.set(b.stock_location_id, (porLocal.get(b.stock_location_id) ?? 0) + b.balance * cost)
+    }
+    return locations
+      .map((loc) => ({ loc, valor: porLocal.get(loc.id) ?? 0 }))
+      .filter((x) => x.valor > 0.004)
+      .sort((a, b) => (Number(b.loc.is_central ?? false) - Number(a.loc.is_central ?? false)) || b.valor - a.valor)
+  }, [balances, avgCostById, locations])
+
+  // ---- O que evaporou em dinheiro NESTE mês: Perda, Quebra e Consumo
+  // Interno valorizados (custo gravado no lançamento; sem ele, o custo
+  // efetivo do produto). ----
+  const perdasMes = useMemo(() => {
+    const agora = new Date()
+    const tipos = new Map<string, number>()
+    let total = 0
+    for (const m of movements) {
+      if (m.status !== 'Ativo') continue
+      if (m.movement_type !== 'Perda' && m.movement_type !== 'Quebra' && m.movement_type !== 'Consumo Interno') continue
+      const d = new Date(m.created_at)
+      if (d.getFullYear() !== agora.getFullYear() || d.getMonth() !== agora.getMonth()) continue
+      const cost = (m.unit_cost ?? 0) > 0 ? (m.unit_cost as number) : (avgCostById.get(m.product_id) ?? 0)
+      if (!cost) continue
+      const v = m.quantity * cost
+      tipos.set(m.movement_type, (tipos.get(m.movement_type) ?? 0) + v)
+      total += v
+    }
+    return { total, tipos }
+  }, [movements, avgCostById])
+
+  // Produto sem custo = dinheiro invisível. O banner leva pro catálogo.
+  const produtosSemCusto = useMemo(
+    () => products.filter((p) => !(avgCostById.get(p.id) ?? 0)),
+    [products, avgCostById]
+  )
+
   // Eventos que têm sobra (saldo positivo no próprio almoxarifado) — são as
   // origens possíveis de uma virada.
   const eventLeftovers = useMemo(() => {
@@ -560,6 +603,66 @@ export default function Stock() {
                 ))}
               </div>
             </section>
+          )}
+
+          {/* 💰 Onde o dinheiro está: o valor em R$ DENTRO de cada estoque —
+              a pergunta que a operação faz da porta da festa. */}
+          {valorPorLocal.length > 0 && (
+            <section className="bg-white rounded-2xl p-5 shadow-soft border border-beetz-dark/5">
+              <h2 className="text-lg font-bold mb-1">💰 Dinheiro em cada estoque</h2>
+              <p className="text-xs text-beetz-dark/45 mb-3">
+                Saldo físico × custo do produto (média das compras, ou o custo de referência). Produto sem custo não soma.
+              </p>
+              <div className="space-y-1.5">
+                {valorPorLocal.map(({ loc, valor }) => (
+                  <div
+                    key={loc.id}
+                    className={`flex items-center justify-between gap-3 rounded-xl px-3.5 py-2.5 ${
+                      loc.is_central ? 'bg-beetz-dark text-white' : 'bg-beetz-gray/70'
+                    }`}
+                  >
+                    <span className="text-sm font-semibold truncate">
+                      {loc.is_central ? '🏠 ' : loc.event_id ? '🎪 ' : ''}{loc.name}
+                      {loc.is_central && <span className="text-[10px] font-bold text-beetz-yellow ml-1.5 uppercase tracking-wide">central</span>}
+                    </span>
+                    <span className="text-sm font-extrabold shrink-0">{brl(valor)}</span>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between gap-3 px-3.5 pt-2 border-t border-beetz-dark/10">
+                  <span className="text-xs font-bold text-beetz-dark/50 uppercase tracking-wide">Total em produto parado</span>
+                  <span className="text-base font-extrabold">{brl(valorPorLocal.reduce((s, x) => s + x.valor, 0))}</span>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* 📉 Quanto dinheiro evaporou este mês — perdas valorizadas. */}
+          {perdasMes.total > 0.004 && (
+            <section className="bg-white rounded-2xl p-5 shadow-soft border border-beetz-dark/5">
+              <h2 className="text-lg font-bold mb-1">📉 Perdas e consumo do mês</h2>
+              <p className="text-xs text-beetz-dark/45 mb-3">Perda, quebra e consumo interno valorizados — dinheiro que saiu sem virar venda.</p>
+              <div className="flex flex-wrap items-center gap-2">
+                {Array.from(perdasMes.tipos.entries()).map(([tipo, v]) => (
+                  <span key={tipo} className="text-xs font-semibold bg-beetz-gray px-3 py-1.5 rounded-full">
+                    {tipo === 'Perda' ? '🕳 Perda' : tipo === 'Quebra' ? '🥂 Quebra' : '🍽 Consumo interno'} · {brl(v)}
+                  </span>
+                ))}
+                <span className="text-sm font-extrabold bg-red-50 text-red-700 border border-red-100 px-3 py-1.5 rounded-full ml-auto">
+                  Total {brl(perdasMes.total)}
+                </span>
+              </div>
+            </section>
+          )}
+
+          {/* ⚠️ Dinheiro invisível: produto sem custo não entra em conta nenhuma. */}
+          {produtosSemCusto.length > 0 && (
+            <button
+              onClick={() => setTab('cadastros')}
+              className="w-full text-left bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 text-sm text-amber-800 hover:bg-amber-100 transition-colors"
+            >
+              ⚠️ <strong>{produtosSemCusto.length} produto{produtosSemCusto.length > 1 ? 's' : ''} sem custo</strong> — ficam de fora
+              do valor em R$ até alguém preencher o custo de referência. Toque pra completar em Produtos & estoques →
+            </button>
           )}
 
           {/* Botões grandes, nascidos pro celular: a operação mexe no estoque

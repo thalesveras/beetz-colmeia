@@ -46,6 +46,9 @@ export default function ProductCatalog({
   // quantas unidades vêm num pack — a entrada em fardos desmembra sozinha.
   const [barcode, setBarcode] = useState('')
   const [pack, setPack] = useState('')
+  // Custo de referência (R$/un): é o que faz o produto VALER dinheiro no
+  // estoque enquanto não existe Compra com preço.
+  const [cost, setCost] = useState('')
 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [eName, setEName] = useState('')
@@ -54,6 +57,7 @@ export default function ProductCatalog({
   const [eThreshold, setEThreshold] = useState('')
   const [eBarcode, setEBarcode] = useState('')
   const [ePack, setEPack] = useState('')
+  const [eCost, setECost] = useState('')
 
   // Sugestões = o que já existe no catálogo + os padrões, sem repetir.
   const categoryOptions = useMemo(() => {
@@ -102,9 +106,10 @@ export default function ProductCatalog({
         category.trim() || null,
         threshold.trim() ? Number(threshold) : null,
         barcode.trim(),
-        pack.trim() ? Math.max(1, Math.floor(Number(pack))) : null
+        pack.trim() ? Math.max(1, Math.floor(Number(pack))) : null,
+        cost.trim() ? Number(cost.replace(',', '.')) : null
       )
-      setName(''); setUnit('un'); setCustomUnit(''); setThreshold(''); setBarcode(''); setPack('')
+      setName(''); setUnit('un'); setCustomUnit(''); setThreshold(''); setBarcode(''); setPack(''); setCost('')
       // Categoria NÃO limpa: cadastrar 5 cervejas seguidas é o caso comum.
       onChanged()
     } catch (err) {
@@ -119,6 +124,7 @@ export default function ProductCatalog({
     setEThreshold(p.low_stock_threshold != null ? String(p.low_stock_threshold) : '')
     setEBarcode(p.barcode ?? '')
     setEPack(p.units_per_pack != null ? String(p.units_per_pack) : '')
+    setECost(p.reference_cost != null ? String(p.reference_cost) : '')
     setError(null)
   }
 
@@ -131,7 +137,8 @@ export default function ProductCatalog({
         category: eCategory.trim() || null,
         low_stock_threshold: eThreshold.trim() ? Number(eThreshold) : null,
         barcode: eBarcode.trim() || null,
-        units_per_pack: ePack.trim() ? Math.max(1, Math.floor(Number(ePack))) : null
+        units_per_pack: ePack.trim() ? Math.max(1, Math.floor(Number(ePack))) : null,
+        reference_cost: eCost.trim() ? Number(eCost.replace(',', '.')) : null
       })
       setEditingId(null)
       onChanged()
@@ -198,6 +205,12 @@ export default function ProductCatalog({
               title="Quantas unidades vêm num fardo — a entrada em fardos desmembra sozinha em unidades"
             />
           </div>
+          <input
+            type="text" inputMode="decimal" className={`${inputClass} w-full`}
+            placeholder="Custo de referência (R$/un) — faz o estoque valer dinheiro"
+            value={cost} onChange={(e) => setCost(e.target.value)}
+            title="Quanto custa 1 unidade — é o que valoriza o estoque em R$ enquanto não há Compra com preço"
+          />
           <button
             disabled={saving || !name.trim() || !barcode.trim()}
             className="w-full bg-beetz-dark text-white text-sm font-semibold py-2.5 rounded-xl disabled:opacity-50 hover:bg-black transition-colors"
@@ -275,6 +288,13 @@ export default function ProductCatalog({
                         <input type="number" min={1} className={`${inputClass} w-full min-w-0`} placeholder="Un. por fardo"
                           value={ePack} onChange={(e) => setEPack(e.target.value)} />
                       </div>
+                      <input
+                        type="text" inputMode="decimal"
+                        className={`${inputClass} w-full ${!eCost.trim() && costOf(p.id) == null ? 'border-red-400' : ''}`}
+                        placeholder="Custo de referência (R$/un)"
+                        value={eCost} onChange={(e) => setECost(e.target.value)}
+                        title="Sem custo o produto não entra no valor em R$ do estoque"
+                      />
                       <div className="flex justify-end gap-2">
                         <button onClick={() => setEditingId(null)}
                           className="text-beetz-dark/50 text-xs font-semibold px-3 py-1.5 rounded-xl hover:bg-white flex items-center gap-1"><X size={13} /> Cancelar</button>
@@ -299,9 +319,13 @@ export default function ProductCatalog({
                         <span className={`text-xs ml-2 font-semibold ${low ? 'text-red-600' : 'text-beetz-dark/45'}`}>
                           {total} em estoque
                         </span>
-                        {cost != null && (
+                        {cost != null ? (
                           <span className="text-xs text-beetz-dark/35 ml-2">
                             · {Number(cost).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/un
+                          </span>
+                        ) : (
+                          <span className="text-red-600 text-xs ml-2 font-semibold" title="Sem custo, não entra no valor em R$ do estoque — preencha no lápis">
+                            sem custo
                           </span>
                         )}
                       </button>

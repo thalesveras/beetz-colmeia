@@ -113,7 +113,9 @@ export default function StockMovementForm({ fixedEventId, onSaved }: Props) {
       : unitCost
   })
 
-  const itemAtualValido = !!productId && quantity > 0
+  // Compra sem preço não existe mais: sem preço o estoque não vale dinheiro.
+  // O campo chega pré-preenchido com o custo de referência do produto.
+  const itemAtualValido = !!productId && quantity > 0 && (movementType !== 'Compra' || parseCost(unitCost) > 0)
   // A sessão soma a cesta + o que está preenchido agora ("esqueci de apertar
   // adicionar" não pode engolir o último item na hora de registrar).
   const itensDaSessao = useMemo(() => {
@@ -167,6 +169,15 @@ export default function StockMovementForm({ fixedEventId, onSaved }: Props) {
     const itens = itensDaSessao
     if (!locationId || !userId || itens.length === 0) return
     if (isTransfer && (!toLocationId || toLocationId === locationId)) return
+    // Trava da Compra sem preço (vale pra cesta inteira, inclusive itens
+    // adicionados antes da regra existir na sessão).
+    if (movementType === 'Compra') {
+      const semPreco = itens.filter((i) => !(parseCost(i.unitCost) > 0))
+      if (semPreco.length > 0) {
+        alert(`Compra precisa de preço em todos os itens — sem preço o estoque não vale dinheiro. Falta preço em: ${semPreco.map((i) => nomeProduto(i.productId)).join(', ')}.`)
+        return
+      }
+    }
     setSaving(true)
 
     // Registra item a item e reporta o que falhou SEM desfazer o que entrou —
@@ -344,7 +355,15 @@ export default function StockMovementForm({ fixedEventId, onSaved }: Props) {
             onChange={(e) => setBusca(e.target.value)}
           />
         </div>
-        <select required={cesta.length === 0} className={inputClass + ' min-w-0'} value={productId} onChange={(e) => { setProductId(e.target.value); setEmFardos(false) }}>
+        <select required={cesta.length === 0} className={inputClass + ' min-w-0'} value={productId} onChange={(e) => {
+          setProductId(e.target.value); setEmFardos(false)
+          // Compra: pré-preenche o preço com o custo de referência do produto
+          // (ajustável) — a pessoa só digita quando o preço mudou de verdade.
+          if (movementType === 'Compra') {
+            const ref = products.find((p) => p.id === e.target.value)?.reference_cost
+            setUnitCost(ref != null && ref > 0 ? String(ref) : '')
+          }
+        }}>
           <option value="">{busca.trim() ? `Selecionar (${produtosFiltrados.length} na busca)...` : 'Selecionar produto...'}</option>
           {produtosFiltrados.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.unit})</option>)}
         </select>
@@ -394,14 +413,14 @@ export default function StockMovementForm({ fixedEventId, onSaved }: Props) {
           {movementType === 'Compra' && (
             <div>
               <label className="text-xs font-medium text-beetz-dark/60 block mb-1">{emFardos && upp > 1 ? 'Preço do fardo (R$)' : 'Preço unitário (R$)'}</label>
-              <input type="text" inputMode="decimal" placeholder="Ex: 4,50" className={inputClass + ' min-w-0'}
+              <input type="text" inputMode="decimal" placeholder="Ex: 4,50" required={cesta.length === 0} className={inputClass + ' min-w-0'}
                 value={unitCost} onChange={(e) => setUnitCost(e.target.value)} />
             </div>
           )}
         </div>
         {movementType === 'Compra' && (
           <p className="text-xs text-beetz-dark/40">
-            O preço alimenta o custo médio e o valor do estoque. Sem preço, a compra entra só em quantidade.
+            Preço obrigatório: é ele que faz o estoque valer dinheiro (custo médio + valor em R$). Vem pré-preenchido com o custo de referência — ajuste se o preço mudou.
           </p>
         )}
 

@@ -768,6 +768,8 @@ export interface CashierSettlement {
   closed_at?: string | null
 }
 
+// (Product ganhou reference_cost: custo de referência editável — a rede de
+// segurança do valor em R$ quando não há Compra com preço.)
 export interface StockLocation {
   id: string
   name: string
@@ -800,6 +802,10 @@ export interface Product {
   // Quantas UNIDADES tem um fardo. O estoque conta SEMPRE em unidades:
   // quem desmembra é a entrada (5 fardos × 12 = 60 un gravadas).
   units_per_pack?: number | null
+  // Custo de referência (R$/un): rede de segurança do valor em R$ do estoque.
+  // O custo vivo vem da média das Compras com preço; sem compra com preço,
+  // a view product_avg_costs cai neste campo.
+  reference_cost?: number | null
 }
 
 // 'Entrada'/'Saída' seguem válidos como legado (dados antigos e lançamentos
