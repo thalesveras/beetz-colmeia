@@ -62,8 +62,96 @@ const STATUS_LABELS: Record<StaffingApplicationStatus, string> = {
   Cancelado: 'Cancelado'
 }
 
+// ---- Certificado de participação ----
+// Só existe pra quem foi VALIDADO na porta (check-in por QR): abre uma folha
+// pronta pra imprimir/salvar em PDF, no padrão visual da casa — mesmo
+// mecanismo do dossiê de fechamento (janela + window.print, zero libs).
+function abrirCertificado(slot: OpenStaffingSlot, nome: string, staffCode: string | null) {
+  const app = slot.myApplication
+  if (!app?.checkin_at) return
+  const esc = (s: unknown) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const hora = (iso: string | null | undefined) =>
+    iso ? new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : null
+  const dataEvento = slot.event.event_date
+    ? new Date(slot.event.event_date + 'T12:00:00').toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' })
+    : '—'
+  const emitidoEm = new Date().toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' })
+  const entrada = hora(app.checkin_at)
+  const saida = hora(app.checkout_at)
+  const verificacao = `${(staffCode ?? '').toUpperCase() || '——————'} · ${app.id.slice(0, 8).toUpperCase()}`
+
+  const w = window.open('', '_blank')
+  if (!w) { alert('O navegador bloqueou a janela do certificado — libere pop-ups pra beta.beetz.bar e tente de novo.'); return }
+  w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+<title>Certificado — ${esc(nome)} · ${esc(slot.event.name)}</title>
+<style>
+  @page { size: A4 landscape; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: ui-sans-serif, -apple-system, 'Segoe UI', Roboto, sans-serif; background: #f3f3f3; }
+  .folha { width: 297mm; height: 209mm; margin: 0 auto; background: #fff; position: relative; overflow: hidden;
+           display: flex; flex-direction: column; }
+  .borda { position: absolute; inset: 9mm; border: 2px solid #FED417; border-radius: 6mm; pointer-events: none; }
+  .borda::after { content: ''; position: absolute; inset: 2mm; border: 1px solid rgba(5,5,5,.15); border-radius: 4.5mm; }
+  .topo { background: #0b0b0b; color: #fff; padding: 14mm 22mm 10mm; }
+  .topo .marca { color: #FED417; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; font-size: 11px; }
+  .topo h1 { font-size: 30px; font-weight: 800; margin-top: 3mm; letter-spacing: .02em; }
+  .meio { flex: 1; padding: 12mm 22mm; display: flex; flex-direction: column; justify-content: center; gap: 7mm; }
+  .texto { font-size: 15px; color: #333; line-height: 1.7; max-width: 220mm; }
+  .nome { font-size: 34px; font-weight: 800; color: #0b0b0b; border-bottom: 3px solid #FED417; display: inline-block; padding-bottom: 1mm; }
+  .evento { font-size: 20px; font-weight: 700; color: #0b0b0b; }
+  .detalhes { display: flex; gap: 10mm; flex-wrap: wrap; font-size: 12.5px; color: #555; }
+  .detalhes b { color: #0b0b0b; }
+  .rodape { padding: 0 22mm 13mm; display: flex; align-items: flex-end; justify-content: space-between; gap: 10mm; }
+  .assina { text-align: center; }
+  .assina .linha { width: 62mm; border-top: 1.5px solid #0b0b0b; margin-bottom: 2mm; }
+  .assina p { font-size: 11.5px; color: #555; }
+  .assina b { font-size: 13px; color: #0b0b0b; display: block; }
+  .verif { text-align: right; font-size: 10.5px; color: #888; }
+  .verif code { font-family: ui-monospace, monospace; font-weight: 700; color: #555; letter-spacing: .08em; }
+  .print-bar { text-align: center; padding: 12px; }
+  .print-bar button { background: #FED417; border: 0; font-weight: 800; padding: 12px 26px; border-radius: 12px; font-size: 14px; cursor: pointer; }
+  @media print { .print-bar { display: none; } body { background: #fff; } }
+</style></head><body>
+<div class="print-bar"><button onclick="window.print()">🖨 Imprimir / Salvar em PDF</button></div>
+<div class="folha">
+  <div class="borda"></div>
+  <div class="topo">
+    <p class="marca">🐝 Beetz Bar · Colmeia</p>
+    <h1>Certificado de Participação</h1>
+  </div>
+  <div class="meio">
+    <p class="texto">Certificamos que</p>
+    <p class="nome">${esc(nome)}</p>
+    <p class="texto">
+      participou do evento <span class="evento">${esc(slot.event.name)}</span>,
+      realizado em <b>${esc(dataEvento)}</b>${slot.event.location ? `, em ${esc(slot.event.location)}` : ''},
+      atuando na função de <b>${esc(slot.requirement.role_label)}</b>, com presença
+      validada pela equipe de gestão na entrada do evento.
+    </p>
+    <div class="detalhes">
+      ${entrada ? `<span>🟢 Entrada validada às <b>${esc(entrada)}</b></span>` : ''}
+      ${saida ? `<span>🔵 Saída validada às <b>${esc(saida)}</b></span>` : ''}
+      <span>📅 Emitido em <b>${esc(emitidoEm)}</b></span>
+    </div>
+  </div>
+  <div class="rodape">
+    <div class="assina">
+      <div class="linha"></div>
+      <b>Beetz Bar</b>
+      <p>Diretoria · beetz.bar</p>
+    </div>
+    <div class="verif">
+      <p>Código de verificação</p>
+      <code>${esc(verificacao)}</code>
+    </div>
+  </div>
+</div>
+</body></html>`)
+  w.document.close()
+}
+
 export default function Escala() {
-  const { userId } = useAuth()
+  const { userId, profile } = useAuth()
   const [slots, setSlots] = useState<OpenStaffingSlot[]>([])
   const [roles, setRoles] = useState<StaffingRole[]>([])
   const [loading, setLoading] = useState(true)
@@ -432,6 +520,16 @@ export default function Escala() {
                         className="w-full sm:w-auto flex items-center justify-center gap-1.5 honey-gradient text-beetz-dark font-bold px-5 py-2.5 sm:py-2 rounded-xl text-sm"
                       >
                         🎫 Meu QR de entrada
+                      </button>
+                    )}
+                    {/* Certificado: só nasce da validação na porta (check-in). */}
+                    {app.status === 'Confirmado' && app.checkin_at && (
+                      <button
+                        onClick={() => abrirCertificado(slot, profile ? `${profile.first_name} ${profile.last_name}` : 'Colaborador(a) Beetz', profile?.staff_code ?? null)}
+                        className="w-full sm:w-auto flex items-center justify-center gap-1.5 bg-beetz-dark text-white font-bold px-5 py-2.5 sm:py-2 rounded-xl text-sm"
+                        title="Participação validada na entrada — baixe seu certificado em PDF"
+                      >
+                        📜 Certificado de participação
                       </button>
                     )}
                     <button

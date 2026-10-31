@@ -81,6 +81,9 @@ export interface Profile {
   id: string
   first_name: string
   last_name: string
+  // Código ÚNICO e permanente do crachá digital (6 caracteres) — o QR do
+  // perfil carrega o id; este código curto é o fallback de digitar na mão.
+  staff_code?: string | null
   birth_date: string | null
   cpf: string | null
   phone: string | null

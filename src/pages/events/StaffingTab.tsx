@@ -333,6 +333,7 @@ export default function StaffingTab({ eventId, canManage, canFinance = false, on
           eventId={eventId}
           apps={applications}
           requirements={requirements}
+          profiles={profiles}
           personName={personName}
           userId={userId}
           onClose={() => setShowScanner(false)}

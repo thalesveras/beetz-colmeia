@@ -26,14 +26,12 @@ async function loadJsQR(): Promise<any> {
   return (window as any).jsQR
 }
 
-// O QR do colaborador é "beetz:app:<uuid>"; aceita também o uuid puro
-// (fallback manual). Qualquer outro conteúdo é tratado como código de
-// equipamento quando o scan está na fase do equipamento.
-function parseAppCode(raw: string): string | null {
-  const t = raw.trim()
-  const m = t.match(/^beetz:app:([0-9a-f-]{36})$/i) ?? t.match(/^([0-9a-f-]{36})$/i)
-  return m ? m[1].toLowerCase() : null
-}
+// Códigos aceitos na fase de pessoa (do mais novo pro legado):
+//   beetz:p:<uuid>   → crachá PESSOAL permanente (QR do topo do perfil)
+//   ABC123 (6 chars) → código curto do crachá, digitado na mão
+//   beetz:app:<uuid> → QR antigo da candidatura (ainda vale)
+//   uuid puro        → tenta candidatura e perfil
+// Na fase do equipamento, qualquer conteúdo é etiqueta de maquininha.
 
 const precisaEquipamento = (req: EventStaffingRequirement | undefined) =>
   !!req && /gar[çc]|caixa/i.test(req.role_label)
@@ -43,6 +41,8 @@ interface Props {
   apps: EventStaffingApplication[]
   requirements: EventStaffingRequirement[]
   personName: (profileId: string) => string
+  // Perfis (lite) pra resolver o código curto do crachá → pessoa.
+  profiles?: { id: string; staff_code?: string | null }[]
   userId: string | null
   onClose: () => void
   onChanged: () => void
@@ -50,7 +50,7 @@ interface Props {
 
 type Fase = 'scan-pessoa' | 'confirmar' | 'scan-equip'
 
-export default function CheckinScanner({ eventId, apps, requirements, personName, userId, onClose, onChanged }: Props) {
+export default function CheckinScanner({ eventId, apps, requirements, personName, profiles, userId, onClose, onChanged }: Props) {
   const [modo, setModo] = useState<'entrada' | 'saida'>('entrada')
   const [fase, setFase] = useState<Fase>('scan-pessoa')
   const [alvo, setAlvo] = useState<EventStaffingApplication | null>(null)
@@ -72,11 +72,35 @@ export default function CheckinScanner({ eventId, apps, requirements, personName
   const reqDe = (app: EventStaffingApplication) => requirements.find((r) => r.id === app.requirement_id)
 
   function encontrarPessoa(codigo: string) {
-    const appId = parseAppCode(codigo)
-    if (!appId) return
-    const app = apps.find((a) => a.id === appId && a.status === 'Confirmado')
+    const t = codigo.trim()
+    const confirmado = (teste: (a: EventStaffingApplication) => boolean) =>
+      apps.find((a) => a.status === 'Confirmado' && teste(a))
+
+    let app: EventStaffingApplication | undefined
+    const mPerfil = t.match(/^beetz:p:([0-9a-f-]{36})$/i)
+    const mApp = t.match(/^beetz:app:([0-9a-f-]{36})$/i)
+    const mUuid = t.match(/^([0-9a-f-]{36})$/i)
+    const ehCodigoCurto = /^[a-z0-9]{6}$/i.test(t)
+
+    if (mPerfil) {
+      // Crachá pessoal: acha a candidatura confirmada DESSA pessoa NESTE evento.
+      const pid = mPerfil[1].toLowerCase()
+      app = confirmado((a) => a.profile_id === pid)
+    } else if (mApp) {
+      const aid = mApp[1].toLowerCase()
+      app = confirmado((a) => a.id === aid)
+    } else if (mUuid) {
+      const u = mUuid[1].toLowerCase()
+      app = confirmado((a) => a.id === u || a.profile_id === u)
+    } else if (ehCodigoCurto && profiles?.length) {
+      const pessoa = profiles.find((p) => (p.staff_code ?? '').toUpperCase() === t.toUpperCase())
+      if (pessoa) app = confirmado((a) => a.profile_id === pessoa.id)
+    } else {
+      return
+    }
+
     if (!app) {
-      setErro('QR não confere com nenhum confirmado DESTE evento.')
+      setErro('Código não bate com nenhum CONFIRMADO deste evento — confira se a pessoa está na escala.')
       return
     }
     setErro(null)

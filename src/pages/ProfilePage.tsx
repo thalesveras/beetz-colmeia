@@ -10,6 +10,7 @@ import {
 import type { Department, EventItem, Profile, ProfileStats } from '../lib/types'
 import Avatar from '../components/ui/Avatar'
 import LevelPill from '../components/ui/LevelPill'
+import StaffBadge from '../components/ui/StaffBadge'
 import ProgressBar from '../components/ui/ProgressBar'
 import BadgeChip from '../components/ui/BadgeChip'
 import { getLevelProgress } from '../lib/levels'
@@ -186,7 +187,12 @@ export default function ProfilePage() {
               <p className="text-beetz-dark/60">{profile.role || 'Colaborador(a)'} {department ? `· ${department.name}` : ''}</p>
               <p className="text-sm text-beetz-dark/50 mt-1">📍 {profile.city || '—'} {profile.state ? `- ${profile.state}` : ''} {tenure !== null && `· ${tenure === 0 ? 'menos de 1 ano' : `${tenure} ano(s)`} de Beetz`}</p>
             </div>
-            <LevelPill eventsCount={stats.eventsCount} />
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Crachá digital BEM EM CIMA: código único da pessoa; o toque
+                  abre o QR gigante que valida a participação na porta. */}
+              {isOwnProfile && <StaffBadge profile={profile} />}
+              <LevelPill eventsCount={stats.eventsCount} />
+            </div>
           </div>
 
           {!isOwnProfile && userId && canRecognize && (
