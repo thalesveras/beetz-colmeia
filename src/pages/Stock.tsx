@@ -784,25 +784,51 @@ export default function Stock() {
           </section>
 
           <section>
-            <h2 className="text-lg font-bold mb-4">Saldo atual por estoque</h2>
+            <h2 className="text-lg font-bold mb-1">Saldo atual por estoque</h2>
+            {/* Só quem TEM saldo aparece (os dezenas de eventos zerados eram
+                puro ruído), com a central sempre primeiro. Saldo negativo
+                ganha tradução: saiu mais do que entrou no papel. */}
+            <p className="text-xs text-beetz-dark/45 mb-4">
+              Estoques zerados ficam escondidos. <span className="text-red-600 font-semibold">Vermelho negativo</span> =
+              saiu mais do que entrou no papel — falta registrar a compra/entrada ou fazer o inventário físico daquele local.
+            </p>
             <div className="grid md:grid-cols-3 gap-4">
-              {balancesByLocation.map(({ location, items }) => (
-                <div key={location.id} className="bg-white rounded-2xl p-5 shadow-soft border border-beetz-dark/5">
-                  <h3 className="font-bold mb-3">{location.name}</h3>
-                  {items.length === 0 ? (
-                    <p className="text-sm text-beetz-dark/40">Sem saldo registrado.</p>
-                  ) : (
-                    <ul className="space-y-2">
-                      {items.map((item) => (
-                        <li key={item.product_id} className="flex justify-between text-sm">
-                          <span className="text-beetz-dark/70">{item.product_name}</span>
-                          <span className={`font-semibold ${item.balance <= effectiveThreshold(item.product_id) ? 'text-red-600' : ''}`}>{item.balance} {item.product_unit}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              ))}
+              {balancesByLocation
+                .filter(({ items }) => items.length > 0)
+                .sort((a, b) =>
+                  (Number(b.location.is_central ?? false) - Number(a.location.is_central ?? false)) ||
+                  b.items.length - a.items.length)
+                .map(({ location, items }) => {
+                  const negativos = items.filter((i) => i.balance < 0).length
+                  return (
+                    <div key={location.id} className="bg-white rounded-2xl p-5 shadow-soft border border-beetz-dark/5">
+                      <h3 className="font-bold mb-1">
+                        {location.is_central ? '🏠 ' : location.event_id ? '🎪 ' : ''}{location.name}
+                        {location.is_central && <span className="text-[10px] font-bold text-beetz-dark/40 ml-1.5 uppercase tracking-wide">central</span>}
+                      </h3>
+                      {negativos > 0 && (
+                        <p className="text-[11px] text-red-600 bg-red-50 border border-red-100 rounded-lg px-2 py-1 mb-2">
+                          {negativos} produto{negativos > 1 ? 's' : ''} negativo{negativos > 1 ? 's' : ''}: o papel diz que saiu
+                          mais do que entrou — acerte com Compra/entrada ou pelo Inventário físico.
+                        </p>
+                      )}
+                      <ul className="space-y-2 mt-2">
+                        {items
+                          .slice()
+                          .sort((a, b) => a.product_name.localeCompare(b.product_name, 'pt-BR'))
+                          .map((item) => (
+                            <li key={item.product_id} className="flex justify-between text-sm">
+                              <span className="text-beetz-dark/70">{item.product_name}</span>
+                              <span className={`font-semibold ${item.balance < 0 || item.balance <= effectiveThreshold(item.product_id) ? 'text-red-600' : ''}`}>{item.balance} {item.product_unit}</span>
+                            </li>
+                          ))}
+                      </ul>
+                    </div>
+                  )
+                })}
+              {balancesByLocation.every(({ items }) => items.length === 0) && (
+                <p className="text-sm text-beetz-dark/40">Nenhum estoque com saldo no momento.</p>
+              )}
             </div>
           </section>
           </>)}
