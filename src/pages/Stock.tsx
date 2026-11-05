@@ -8,7 +8,7 @@ import {
 import StockChat from '../components/stock/StockChat'
 import {
   approveTransferRequest, createStockLocation, createStockMovement, createTransferRequest,
-  deleteStockLocation, ensureEventStockLocation, getStockBalances, listProductAvgCosts, listStockAvailability, isPositiveMovementType, listEvents, listProducts, listProfiles,
+  deleteStockLocation, ensureEventStockLocation, getStockBalances, listProductAvgCosts, listStockAvailability, isPositiveMovementType, listEvents, listProducts, listProfilesLite,
   listStockLocations, listStockMovements, listTransferRequests, registerTransferReturn,
   transferEventLeftover, transferStock, updateCompraMovement, updateStockLocation, updateStockMovement, updateTransferRequestStatus
 } from '../lib/dataService'
@@ -143,8 +143,11 @@ export default function Stock() {
 
   async function load() {
     setLoading(true)
+    // Perfis LITE (só nome/foto): a tela usa perfil apenas pra dizer QUEM
+    // lançou — baixar a ficha completa de 344 pessoas era o maior peso da
+    // abertura desta página.
     const [b, l, p, m, pr, ev, tr, costs, avail] = await Promise.all([
-      getStockBalances(), listStockLocations(), listProducts(), listStockMovements(), listProfiles(),
+      getStockBalances(), listStockLocations(), listProducts(), listStockMovements(), listProfilesLite(),
       listEvents(), listTransferRequests(), listProductAvgCosts(), listStockAvailability()
     ])
     setBalances(b)

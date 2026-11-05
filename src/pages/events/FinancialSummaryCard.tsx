@@ -341,7 +341,7 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
               // dos repasses já pagos. Falha neles não derruba o dossiê.
               const [d, acertos, perfisLite] = await Promise.all([
                 getClosingDossier(event.id),
-                listCashierSettlementsForEvent(event.id).catch(() => []),
+                listCashierSettlementsForEvent(event.id, { withReceipts: true }).catch(() => []),
                 listProfilesLite().catch(() => [])
               ])
               const nomeLite = new Map<string, string>(perfisLite.map((p) => [p.id, `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim()] as [string, string]))

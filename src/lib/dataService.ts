@@ -634,12 +634,46 @@ export async function deleteEvent(id: string): Promise<void> {
   if (error) throw error
 }
 
+// Flyer NUNCA mais mora dentro da tabela: imagem colada/enviada chega como
+// data: URL (base64) e era gravada inteira em events.flyer_url — 64 flyers
+// somavam 19 MB, baixados a CADA abertura de qualquer tela que lista eventos
+// (foi o que deixou o app lento em nov/2026). Aqui ela sobe pro Storage
+// (bucket público avatars, pasta do próprio usuário — mesma policy do flyer
+// do portal do produtor) e o campo guarda só a URL. Se o upload falhar, o
+// evento salva SEM trocar o flyer (melhor que entupir a tabela de novo).
+async function flyerParaStorage(flyer: string | null | undefined): Promise<string | null | undefined> {
+  if (!flyer || !flyer.startsWith('data:')) return flyer
+  try {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return undefined
+    const blob = await (await fetch(flyer)).blob()
+    const ext = (blob.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg').replace('svg+xml', 'svg')
+    const path = `${user.id}/flyer-${Date.now()}.${ext}`
+    const { error } = await supabase.storage.from('avatars').upload(path, blob, {
+      contentType: blob.type || 'image/jpeg', cacheControl: '31536000'
+    })
+    if (error) return undefined
+    return supabase.storage.from('avatars').getPublicUrl(path).data.publicUrl
+  } catch {
+    return undefined
+  }
+}
+
 export async function updateEvent(id: string, patch: Partial<Omit<EventItem, 'id' | 'created_at'>>): Promise<EventItem> {
   if (isDemoMode) {
     const idx = demoState.events.findIndex((e) => e.id === id)
     if (idx < 0) throw new Error('Evento não encontrado')
     demoState.events[idx] = { ...demoState.events[idx], ...patch }
     return demoState.events[idx]
+  }
+  if ('flyer_url' in patch) {
+    const fl = await flyerParaStorage(patch.flyer_url)
+    if (fl === undefined) {
+      const { flyer_url: _descarta, ...resto } = patch
+      patch = resto
+    } else {
+      patch = { ...patch, flyer_url: fl }
+    }
   }
   const { data, error } = await supabase.from('events').update(patch).eq('id', id).select().single()
   if (error) throw error
@@ -666,6 +700,10 @@ export async function createEvent(event: NewEventInput): Promise<EventItem> {
     const newEvent: EventItem = { ...eventResumoDefaults, ...event, id: uid('e'), created_at: new Date().toISOString() }
     demoState.events.push(newEvent)
     return newEvent
+  }
+  if (event.flyer_url && event.flyer_url.startsWith('data:')) {
+    const fl = await flyerParaStorage(event.flyer_url)
+    event = { ...event, flyer_url: fl ?? null }
   }
   const { data, error } = await supabase.from('events').insert(event).select().single()
   if (error) throw error
@@ -1203,11 +1241,19 @@ export async function deleteExpense(id: string): Promise<void> {
 // ---------- Recebimentos (caixas) ----------
 export type NewCashierSettlementInput = Omit<CashierSettlement, 'id' | 'created_at' | 'total' | 'commission_amount' | 'status'>
 
-export async function listCashierSettlementsForEvent(eventId: string): Promise<CashierSettlement[]> {
+// Lista LEVE por padrão: sem a foto do comprovante (307 MB na tabela, até
+// 1,3 MB por linha — abrir um evento baixava dezenas de MB à toa). A foto vem
+// sob demanda (getSettlementReceipt) quando alguém abre o lançamento; só o
+// dossiê de fechamento pede withReceipts, porque ele imprime as fotos.
+export async function listCashierSettlementsForEvent(
+  eventId: string, opts: { withReceipts?: boolean } = {}
+): Promise<CashierSettlement[]> {
   if (isDemoMode) return demoState.cashierSettlements.filter((c) => c.event_id === eventId)
-  const { data, error } = await supabase.from('cashier_settlements').select('*').eq('event_id', eventId).order('created_at', { ascending: false })
+  const { data, error } = await supabase.from('cashier_settlements')
+    .select(opts.withReceipts ? '*' : SETTLEMENT_LEAN_COLS)
+    .eq('event_id', eventId).order('created_at', { ascending: false })
   if (error) throw error
-  return data as CashierSettlement[]
+  return data as unknown as CashierSettlement[]
 }
 
 export async function createCashierSettlement(input: NewCashierSettlementInput): Promise<CashierSettlement> {
@@ -1427,6 +1473,11 @@ export async function listStockMovements(eventId?: string): Promise<StockMovemen
   }
   let query = supabase.from('stock_movements').select('*').order('created_at', { ascending: false })
   if (eventId) query = query.eq('event_id', eventId)
+  // Sem evento = a tela geral do Estoque: as 800 movimentações mais recentes
+  // bastam (meses de operação) — baixar a história inteira a cada abertura é
+  // o que deixa a página lenta conforme o uso cresce. O histórico profundo
+  // de UM produto continua completo na linha do tempo dele.
+  else query = query.limit(800)
   const { data, error } = await query
   if (error) throw error
   return data as StockMovement[]

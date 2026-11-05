@@ -2,7 +2,7 @@ import { eventLabel } from '../../lib/eventLabel'
 import { useEffect, useState } from 'react'
 import { Lock, Trash2, X } from 'lucide-react'
 import {
-  createExpense, deleteCashierSettlement, listEvents, listSettlementInternalsForEvent, updateCashierSettlement, upsertSettlementInternal
+  createExpense, deleteCashierSettlement, getSettlementReceipt, listEvents, listSettlementInternalsForEvent, updateCashierSettlement, upsertSettlementInternal
 } from '../../lib/dataService'
 import { useAuth } from '../../contexts/AuthContext'
 import FileField from '../../components/ui/FileField'
@@ -64,6 +64,18 @@ export default function EditSettlementModal({ settlement, profiles, canReview, c
   }
   const [closedAt, setClosedAt] = useState(toLocalInput(settlement.closed_at ?? settlement.created_at))
   const [receipt, setReceipt] = useState<string | null>(settlement.receipt_data ?? null)
+  // A lista agora vem LEVE (sem a foto): o comprovante é buscado aqui, na hora
+  // de abrir. Enquanto não chega, o salvar NÃO manda receipt_data — senão um
+  // save rápido apagaria a foto que ainda nem tinha baixado.
+  const [receiptLoaded, setReceiptLoaded] = useState(settlement.receipt_data !== undefined)
+  useEffect(() => {
+    if (settlement.receipt_data !== undefined) return
+    let alive = true
+    getSettlementReceipt(settlement.id)
+      .then((r) => { if (alive) { setReceipt(r); setReceiptLoaded(true) } })
+      .catch(() => { /* sem foto: segue sem mexer no comprovante */ })
+    return () => { alive = false }
+  }, [settlement.id, settlement.receipt_data])
   const [zoomOpen, setZoomOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [removing, setRemoving] = useState(false)
@@ -138,7 +150,7 @@ export default function EditSettlementModal({ settlement, profiles, canReview, c
         credit_amount: n(credit),
         pix_amount: n(pix),
         notes: notes.trim() || null,
-        receipt_data: receipt,
+        ...(receiptLoaded ? { receipt_data: receipt } : {}),
         ...(closedAt ? { closed_at: new Date(closedAt).toISOString() } : {})
       })
       if (canReview && (intDirty || intStatus !== 'Em aberto' || intNotes.trim() || intReceipt)) {
@@ -299,7 +311,12 @@ export default function EditSettlementModal({ settlement, profiles, canReview, c
           {/* A foto que o garçom/caixa mandou no lançamento — quem revisa vê,
               amplia, troca ou manda reler (a releitura só completa campo zerado). */}
           <Field label="Comprovante do fechamento">
-            <SmartReceiptField variant="pagamentos" value={receipt} onChange={setReceipt} onExtractedPayments={applyPayments} />
+            <SmartReceiptField
+              variant="pagamentos" value={receipt}
+              onChange={(v) => { setReceipt(v); setReceiptLoaded(true) }}
+              onExtractedPayments={applyPayments}
+            />
+            {!receiptLoaded && <p className="text-[11px] text-beetz-dark/45 mt-1">Carregando o comprovante...</p>}
             {receipt && (
               <button
                 type="button"
