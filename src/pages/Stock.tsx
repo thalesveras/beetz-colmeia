@@ -7,10 +7,10 @@ import {
 } from 'lucide-react'
 import StockChat from '../components/stock/StockChat'
 import {
-  approveTransferRequest, createStockLocation, createTransferRequest,
+  approveTransferRequest, createStockLocation, createStockMovement, createTransferRequest,
   deleteStockLocation, ensureEventStockLocation, getStockBalances, listProductAvgCosts, listStockAvailability, isPositiveMovementType, listEvents, listProducts, listProfiles,
   listStockLocations, listStockMovements, listTransferRequests, registerTransferReturn,
-  transferEventLeftover, updateCompraMovement, updateStockLocation, updateStockMovement, updateTransferRequestStatus
+  transferEventLeftover, transferStock, updateCompraMovement, updateStockLocation, updateStockMovement, updateTransferRequestStatus
 } from '../lib/dataService'
 import type { EventItem, Product, ProductAvgCost, Profile, StockAvailable, StockBalance, StockLocation, StockMovement, TransferRequest, TransferRequestStatus } from '../lib/types'
 import StockMovementForm from '../components/stock/StockMovementForm'
@@ -130,6 +130,10 @@ export default function Stock() {
   const [turnArmed, setTurnArmed] = useState(false)
   const [turnSaving, setTurnSaving] = useState(false)
   const [turnResult, setTurnResult] = useState<string | null>(null)
+  // Conferência da sobra: os números JÁ VÊM do saldo do evento (automático) —
+  // a pessoa só mexe no que a contagem física disser diferente. Chave
+  // "produto:local" → valor digitado; vazio = usa o saldo do sistema.
+  const [turnCounts, setTurnCounts] = useState<Record<string, string>>({})
 
   // Produto/estoque em edição inline (cadastro rápido)
   // Erros do cadastro de estoques (o de produtos vive no ProductCatalog).
@@ -371,19 +375,73 @@ export default function Stock() {
     return byEvent
   }, [locations, balances])
 
+  // Valor conferido de um item: o que a pessoa digitou, ou o saldo do sistema.
+  const turnKey = (b: StockBalance) => `${b.product_id}:${b.stock_location_id}`
+  const countedOf = (b: StockBalance) => {
+    const raw = (turnCounts[turnKey(b)] ?? '').trim()
+    if (raw === '') return b.balance
+    const n = Number(raw.replace(',', '.'))
+    return Number.isFinite(n) && n >= 0 ? n : b.balance
+  }
+
   async function handleTurnover() {
     if (!turnFromEventId || !turnDest) return
     if (!turnArmed) { setTurnArmed(true); return }
     setTurnSaving(true)
     setTurnResult(null)
     try {
-      const dest = turnDest.startsWith('event:')
-        ? { toEventId: turnDest.slice(6) }
-        : { toLocationId: turnDest.slice(4) }
-      const moved = await transferEventLeftover(turnFromEventId, dest, `Virada: ${eventName(turnFromEventId)}`)
-      const units = moved.reduce((s, r) => s + Number(r.quantity), 0)
-      setTurnResult(`Virada feita: ${moved.length} produto(s), ${units} un transferidas.`)
-      setTurnFromEventId(''); setTurnDest('')
+      const items = eventLeftovers.get(turnFromEventId) ?? []
+      const editados = items.filter((b) => countedOf(b) !== b.balance)
+
+      if (editados.length === 0) {
+        // Contagem bateu com o sistema: caminho rápido — a RPC atômica
+        // transfere a sobra inteira de uma vez (pares ligados).
+        const dest = turnDest.startsWith('event:')
+          ? { toEventId: turnDest.slice(6) }
+          : { toLocationId: turnDest.slice(4) }
+        const moved = await transferEventLeftover(turnFromEventId, dest, `Virada: ${eventName(turnFromEventId)}`)
+        const units = moved.reduce((s, r) => s + Number(r.quantity), 0)
+        setTurnResult(`Virada feita: ${moved.length} produto(s), ${units} un transferidas.`)
+      } else {
+        // Contagem física DIFERENTE do sistema: a diferença vira Ajuste no
+        // almoxarifado do evento (fica no histórico, com os dois números na
+        // nota) e o destino recebe EXATAMENTE o que foi contado.
+        const destLocId = turnDest.startsWith('event:')
+          ? await ensureEventStockLocation(turnDest.slice(6))
+          : turnDest.slice(4)
+        let transferidos = 0
+        let unidades = 0
+        let ajustes = 0
+        for (const b of items) {
+          const conferido = countedOf(b)
+          const diff = Math.round((b.balance - conferido) * 100) / 100
+          if (diff !== 0) {
+            await createStockMovement({
+              product_id: b.product_id,
+              stock_location_id: b.stock_location_id,
+              event_id: turnFromEventId,
+              movement_type: diff > 0 ? 'Ajuste (saída)' : 'Ajuste (entrada)',
+              quantity: Math.abs(diff),
+              notes: `Conferência da sobra na virada — sistema ${b.balance}, contado ${conferido}`,
+              created_by: userId
+            })
+            ajustes++
+          }
+          if (conferido > 0) {
+            await transferStock({
+              product_id: b.product_id,
+              from_location_id: b.stock_location_id,
+              to_location_id: destLocId,
+              quantity: conferido,
+              notes: `Virada: ${eventName(turnFromEventId)} (sobra conferida)`
+            })
+            transferidos++
+            unidades += conferido
+          }
+        }
+        setTurnResult(`Virada feita: ${transferidos} produto(s), ${unidades} un transferidas · ${ajustes} ajuste(s) de conferência registrados no histórico.`)
+      }
+      setTurnFromEventId(''); setTurnDest(''); setTurnCounts({})
       load()
     } catch (err) {
       setTurnResult(err instanceof Error ? err.message : 'Erro na virada.')
@@ -1116,16 +1174,25 @@ export default function Stock() {
                 amanhã tem outra" — toda a sobra vai junto, em pares ligados. */}
             {canManageCatalog && (eventLeftovers.size > 0 || turnResult) && (
               <div className="bg-beetz-dark text-white rounded-2xl p-4 mb-4">
-                <p className="text-xs font-bold uppercase tracking-wide text-beetz-yellow mb-1">Virada de evento</p>
+                <p className="text-xs font-bold uppercase tracking-wide text-beetz-yellow mb-1">Virada de evento · conferência da sobra</p>
                 <p className="text-xs text-white/50 mb-3">
-                  Transfere <span className="font-semibold text-white/80">toda a sobra</span> do almoxarifado de um evento
-                  pro destino — a festa seguinte ou de volta pro depósito. Cada produto vira um par ligado
-                  (saída + entrada), tudo de uma vez.
+                  Os números <span className="font-semibold text-white/80">já vêm prontos do sistema</span> (o que entrou
+                  − o que o PDV vendeu − perdas). Se a contagem física bateu, é só confirmar: tudo vai pro destino de uma
+                  vez. Se algum número veio diferente na contagem, corrija NO CAMPO do produto — a diferença vira um
+                  Ajuste no histórico e o destino recebe exatamente o que foi contado.
                 </p>
                 <div className="grid sm:grid-cols-2 gap-3">
                   <select
                     value={turnFromEventId}
-                    onChange={(e) => { setTurnFromEventId(e.target.value); setTurnArmed(false); setTurnResult(null) }}
+                    onChange={(e) => {
+                      setTurnFromEventId(e.target.value); setTurnArmed(false); setTurnResult(null); setTurnCounts({})
+                      // Destino sugerido: o estoque CENTRAL (Privilege) — o caso
+                      // de longe mais comum. Dá pra trocar no select do lado.
+                      if (e.target.value && !turnDest) {
+                        const central = locations.find((l) => l.is_central)
+                        if (central) setTurnDest(`loc:${central.id}`)
+                      }
+                    }}
                     className="rounded-xl border-0 bg-white text-beetz-dark text-sm px-3 py-2 w-full"
                   >
                     <option value="">Evento de origem...</option>
@@ -1154,14 +1221,57 @@ export default function Stock() {
                   </select>
                 </div>
                 {turnFromEventId && (
-                  <div className="flex flex-wrap gap-1.5 mt-3">
-                    {(eventLeftovers.get(turnFromEventId) ?? []).map((b) => (
-                      <span key={`${b.product_id}-${b.stock_location_id}`} className="text-[11px] font-medium bg-white/10 px-2.5 py-1 rounded-full">
-                        {b.product_name} · {b.balance}
-                      </span>
-                    ))}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 mt-3">
+                    {(eventLeftovers.get(turnFromEventId) ?? []).map((b) => {
+                      const k = `${b.product_id}:${b.stock_location_id}`
+                      const digitado = (turnCounts[k] ?? '').trim()
+                      const difere = digitado !== '' && Number(digitado.replace(',', '.')) !== b.balance
+                      return (
+                        <div
+                          key={k}
+                          className={`flex items-center justify-between gap-2 rounded-xl px-2.5 py-1.5 ${
+                            difere ? 'bg-amber-400/20 ring-1 ring-amber-400/60' : 'bg-white/10'
+                          }`}
+                        >
+                          <span className="text-[11px] font-medium truncate" title={b.product_name}>{b.product_name}</span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={digitado === '' ? String(b.balance) : digitado}
+                              onChange={(e) => {
+                                setTurnArmed(false)
+                                setTurnCounts((prev) => ({ ...prev, [k]: e.target.value }))
+                              }}
+                              className={`w-16 text-right text-xs font-bold rounded-lg px-1.5 py-1 border-0 ${
+                                difere ? 'bg-amber-100 text-amber-900' : 'bg-white text-beetz-dark'
+                              }`}
+                              title={`Sistema diz ${b.balance} — corrija se a contagem física deu outro número`}
+                            />
+                            {difere && (
+                              <span className="text-[10px] font-bold text-amber-300" title={`Sistema: ${b.balance}`}>
+                                ≠{b.balance}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
                 )}
+                {turnFromEventId && (() => {
+                  const itens = eventLeftovers.get(turnFromEventId) ?? []
+                  const totalConferido = itens.reduce((s, b) => s + countedOf(b), 0)
+                  const nAjustes = itens.filter((b) => countedOf(b) !== b.balance).length
+                  return (
+                    <p className="text-xs text-white/60 mt-2">
+                      Vai pro destino: <span className="font-bold text-white">{Math.round(totalConferido * 100) / 100} un</span>
+                      {nAjustes > 0 && (
+                        <span className="text-amber-300 font-semibold"> · {nAjustes} produto(s) com contagem diferente do sistema — a diferença entra como Ajuste</span>
+                      )}
+                    </p>
+                  )
+                })()}
                 <div className="flex flex-wrap items-center gap-3 mt-3">
                   <button
                     onClick={handleTurnover}
@@ -1173,8 +1283,8 @@ export default function Stock() {
                     {turnSaving
                       ? 'Transferindo...'
                       : turnArmed
-                        ? 'Confirmar: transferir tudo'
-                        : `Transferir tudo${turnFromEventId ? ` (${(eventLeftovers.get(turnFromEventId) ?? []).length} produtos)` : ''}`}
+                        ? 'Confirmar: transferir a sobra conferida'
+                        : `Transferir sobra conferida${turnFromEventId ? ` (${(eventLeftovers.get(turnFromEventId) ?? []).length} produtos)` : ''}`}
                   </button>
                   {turnArmed && !turnSaving && (
                     <button onClick={() => setTurnArmed(false)} className="text-xs font-semibold text-white/50 hover:text-white">
