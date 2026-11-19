@@ -15,6 +15,8 @@ interface Props {
 }
 
 const COMMON_UNITS = ['un', 'kg', 'g', 'L', 'ml', 'caixa', 'pacote', 'saco', 'garrafa', 'fardo', 'dúzia']
+// Vazio ou só número não é unidade (é contagem digitada no campo errado).
+const isNumericUnit = (u: string | null | undefined) => !u || !u.trim() || /^[\d.,\s]+$/.test(u)
 
 // Sugestões iniciais pra não começar do zero. Não é lista fechada: o campo
 // aceita qualquer texto e as categorias já usadas entram nas sugestões
@@ -102,7 +104,7 @@ export default function ProductCatalog({
     try {
       await createProduct(
         name.trim(),
-        unit === 'outro' ? (customUnit.trim() || 'un') : unit,
+        unit === 'outro' ? (isNumericUnit(customUnit) ? 'un' : customUnit.trim()) : unit,
         category.trim() || null,
         threshold.trim() ? Number(threshold) : null,
         barcode.trim(),
@@ -119,7 +121,7 @@ export default function ProductCatalog({
   }
 
   function startEdit(p: Product) {
-    setEditingId(p.id); setEName(p.name); setEUnit(p.unit)
+    setEditingId(p.id); setEName(p.name); setEUnit(isNumericUnit(p.unit) ? 'un' : p.unit)
     setECategory(p.category ?? '')
     setEThreshold(p.low_stock_threshold != null ? String(p.low_stock_threshold) : '')
     setEBarcode(p.barcode ?? '')
@@ -270,8 +272,18 @@ export default function ProductCatalog({
                     <div key={p.id} className="bg-beetz-gray/60 rounded-xl p-2 space-y-2">
                       <div className="grid grid-cols-[minmax(0,1fr)_5rem] gap-2">
                         <input className={`${inputClass} w-full min-w-0`} value={eName} onChange={(e) => setEName(e.target.value)} />
-                        <input className={`${inputClass} w-full`} value={eUnit} onChange={(e) => setEUnit(e.target.value)} />
+                        {/* Lista fechada, com rótulo: a caixinha de texto livre
+                            que ficava aqui era lida como "quantidade" e a
+                            contagem ia parar no campo da unidade. */}
+                        <select className={`${inputClass} w-full`} aria-label="Unidade de medida" title="Unidade de medida (não é a quantidade)"
+                          value={eUnit} onChange={(e) => setEUnit(e.target.value)}>
+                          {!COMMON_UNITS.includes(eUnit) && <option value={eUnit}>{eUnit}</option>}
+                          {COMMON_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+                        </select>
                       </div>
+                      <p className="text-[10px] text-beetz-dark/45 -mt-1">
+                        Ao lado do nome fica a <b>unidade de medida</b> (un, kg, caixa…). Quantidade em estoque se acerta em Nova movimentação ou no Inventário.
+                      </p>
                       <div className="grid grid-cols-2 gap-2">
                         <input className={`${inputClass} w-full min-w-0`} list="categorias-produto" placeholder="Categoria"
                           value={eCategory} onChange={(e) => setECategory(e.target.value)} />

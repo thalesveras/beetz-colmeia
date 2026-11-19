@@ -24,6 +24,9 @@ import { canEditOwnStock, canEditStock, canManageStockCatalog, canManageUsers, c
 
 const inputClass = 'flex-1 border border-beetz-dark/15 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow'
 const LOW_STOCK_THRESHOLD = 5
+// Unidade que é só número (alguém digitou a contagem no campo errado) não é
+// unidade: mostrar "626 2526" fazia o saldo parecer dois números.
+const unitLabel = (u: string | null | undefined) => (u && !/^[\d.,\s]+$/.test(u) ? u : 'un')
 const MOVEMENTS_PAGE_SIZE = 20
 
 // Mesma lógica de paginação "inteligente" usada na Turma — primeira, última
@@ -320,6 +323,13 @@ function StockContent() {
   const eventLocationIds = useMemo(
     () => new Set(locations.filter((l) => l.event_id).map((l) => l.id)),
     [locations]
+  )
+  // Negativos fora dos estoques de evento: o card do topo dizia "0 produtos
+  // com saldo baixo" com 39 negativos logo abaixo — negativo é o caso mais
+  // grave de saldo baixo e precisa entrar na conta.
+  const negativeItemsCount = useMemo(
+    () => balances.filter((b) => !eventLocationIds.has(b.stock_location_id) && b.balance < 0).length,
+    [balances, eventLocationIds]
   )
   const lowStockItems = useMemo(
     () => balances.filter((b) =>
@@ -657,11 +667,11 @@ function StockContent() {
                 <p className="text-xs text-beetz-dark/50 mt-1">Estoques/almoxarifados →</p>
               </div>
             </button>
-            <button onClick={() => setTab('cadastros')} className={`rounded-2xl p-4 shadow-soft border flex items-center gap-3 text-left hover:shadow-glow active:scale-[0.98] transition ${lowStockItems.length > 0 ? 'bg-red-50 border-red-100' : 'bg-white border-beetz-dark/5'}`}>
-              <div className={`rounded-xl p-2.5 ${lowStockItems.length > 0 ? 'bg-red-100 text-red-600' : 'bg-beetz-yellow/20 text-beetz-dark'}`}><AlertTriangle size={20} /></div>
+            <button onClick={() => setTab('cadastros')} className={`rounded-2xl p-4 shadow-soft border flex items-center gap-3 text-left hover:shadow-glow active:scale-[0.98] transition ${lowStockItems.length + negativeItemsCount > 0 ? 'bg-red-50 border-red-100' : 'bg-white border-beetz-dark/5'}`}>
+              <div className={`rounded-xl p-2.5 ${lowStockItems.length + negativeItemsCount > 0 ? 'bg-red-100 text-red-600' : 'bg-beetz-yellow/20 text-beetz-dark'}`}><AlertTriangle size={20} /></div>
               <div>
-                <p className={`text-xl font-extrabold leading-none ${lowStockItems.length > 0 ? 'text-red-600' : ''}`}>{lowStockItems.length}</p>
-                <p className="text-xs text-beetz-dark/50 mt-1">Produtos com saldo baixo →</p>
+                <p className={`text-xl font-extrabold leading-none ${lowStockItems.length + negativeItemsCount > 0 ? 'text-red-600' : ''}`}>{lowStockItems.length + negativeItemsCount}</p>
+                <p className="text-xs text-beetz-dark/50 mt-1">Negativos ou com saldo baixo →</p>
               </div>
             </button>
           </section>
@@ -808,37 +818,62 @@ function StockContent() {
               Estoques zerados ficam escondidos. <span className="text-red-600 font-semibold">Vermelho negativo</span> =
               saiu mais do que entrou no papel — falta registrar a compra/entrada ou fazer o inventário físico daquele local.
             </p>
-            <div className="grid md:grid-cols-3 gap-4">
+            {/* A central (e os estoques fixos) ficam ABERTOS, em largura cheia.
+                Estoque de evento fica RECOLHIDO: com 8 festas antigas abertas
+                a página virava 250 linhas e ninguém achava a central. O
+                resumo de cada um já diz quantos produtos sobraram lá. */}
+            <div className="grid md:grid-cols-3 gap-4 items-start">
               {balancesByLocation
                 .filter(({ items }) => items.length > 0)
                 .sort((a, b) =>
                   (Number(b.location.is_central ?? false) - Number(a.location.is_central ?? false)) ||
+                  (Number(!!a.location.event_id) - Number(!!b.location.event_id)) ||
                   b.items.length - a.items.length)
                 .map(({ location, items }) => {
                   const negativos = items.filter((i) => i.balance < 0).length
-                  return (
-                    <div key={location.id} className="bg-white rounded-2xl p-5 shadow-soft border border-beetz-dark/5">
-                      <h3 className="font-bold mb-1">
-                        {location.is_central ? '🏠 ' : location.event_id ? '🎪 ' : ''}{location.name}
-                        {location.is_central && <span className="text-[10px] font-bold text-beetz-dark/40 ml-1.5 uppercase tracking-wide">central</span>}
-                      </h3>
+                  const deEvento = !!location.event_id
+                  const lista = (
+                    <>
                       {negativos > 0 && (
                         <p className="text-[11px] text-red-600 bg-red-50 border border-red-100 rounded-lg px-2 py-1 mb-2">
                           {negativos} produto{negativos > 1 ? 's' : ''} negativo{negativos > 1 ? 's' : ''}: o papel diz que saiu
                           mais do que entrou — acerte com Compra/entrada ou pelo Inventário físico.
                         </p>
                       )}
-                      <ul className="space-y-2 mt-2">
+                      <ul className={`mt-2 ${deEvento ? 'space-y-2' : 'md:columns-3 gap-x-8 [&>li]:mb-2 [&>li]:break-inside-avoid'}`}>
                         {items
                           .slice()
                           .sort((a, b) => a.product_name.localeCompare(b.product_name, 'pt-BR'))
                           .map((item) => (
-                            <li key={item.product_id} className="flex justify-between text-sm">
+                            <li key={item.product_id} className="flex justify-between gap-3 text-sm">
                               <span className="text-beetz-dark/70">{item.product_name}</span>
-                              <span className={`font-semibold ${item.balance < 0 || item.balance <= effectiveThreshold(item.product_id) ? 'text-red-600' : ''}`}>{item.balance} {item.product_unit}</span>
+                              <span className={`font-semibold whitespace-nowrap ${item.balance < 0 || item.balance <= effectiveThreshold(item.product_id) ? 'text-red-600' : ''}`}>{item.balance} {unitLabel(item.product_unit)}</span>
                             </li>
                           ))}
                       </ul>
+                    </>
+                  )
+                  if (deEvento) {
+                    return (
+                      <details key={location.id} className="bg-white rounded-2xl p-5 shadow-soft border border-beetz-dark/5">
+                        <summary className="cursor-pointer select-none">
+                          <span className="font-bold">🎪 {location.name}</span>
+                          <span className="block text-[11px] text-beetz-dark/50 mt-0.5">
+                            {items.length} produto{items.length > 1 ? 's' : ''} ainda neste evento — se a festa já acabou, falta fazer a Virada.
+                            {negativos > 0 && <span className="text-red-600 font-semibold"> {negativos} negativo{negativos > 1 ? 's' : ''}.</span>}
+                          </span>
+                        </summary>
+                        <div className="mt-3">{lista}</div>
+                      </details>
+                    )
+                  }
+                  return (
+                    <div key={location.id} className="md:col-span-3 bg-white rounded-2xl p-5 shadow-soft border border-beetz-dark/5">
+                      <h3 className="font-bold mb-1">
+                        {location.is_central ? '🏠 ' : ''}{location.name}
+                        {location.is_central && <span className="text-[10px] font-bold text-beetz-dark/40 ml-1.5 uppercase tracking-wide">central</span>}
+                      </h3>
+                      {lista}
                     </div>
                   )
                 })}
