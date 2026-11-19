@@ -183,6 +183,7 @@ export default function StockMovementForm({ fixedEventId, onSaved }: Props) {
     // Registra item a item e reporta o que falhou SEM desfazer o que entrou —
     // meio caminho andado é melhor que recomeçar a lista dos 15 produtos.
     const falhas: string[] = []
+    const itensComFalha: typeof itens = []
     let sucessos = 0
     for (const item of itens) {
       try {
@@ -233,12 +234,21 @@ export default function StockMovementForm({ fixedEventId, onSaved }: Props) {
         sucessos++
       } catch (err) {
         falhas.push(`${nomeProduto(item.productId)}${err instanceof Error ? ` — ${err.message}` : ''}`)
+        itensComFalha.push(item)
       }
     }
 
     setSaving(false)
     if (falhas.length > 0) {
       alert(`${sucessos > 0 ? `${sucessos} de ${itens.length} itens entraram. ` : ''}Não consegui registrar: ${falhas.join('; ')}.`)
+    }
+    if (itensComFalha.length > 0) {
+      // Deixa na cesta SÓ o que não entrou (o que entrou não pode ir de novo)
+      // e mantém estoque/observações: é só corrigir e registrar outra vez.
+      // Antes a cesta inteira era limpa e os itens que falharam sumiam.
+      setCesta(itensComFalha)
+      setProductId(''); setBusca(''); setQuantity(1); setUnitCost(''); setEmFardos(false)
+      return
     }
     if (sucessos > 0) {
       setCesta([]); setProductId(''); setBusca(''); setLocationId(''); setToLocationId(''); setQuantity(1); setUnitCost(''); setNotes('')

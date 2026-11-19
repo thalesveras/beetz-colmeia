@@ -1705,6 +1705,30 @@ export async function updateStockReservationStatus(id: string, status: Reservati
   if (error) throw error
 }
 
+// Atender reserva: marca Atendida SÓ se ainda estiver Reservado (trava contra
+// clique duplo / duas telas) e então registra o 'Envio para Evento'. Se o
+// envio falhar, a reserva volta pra Reservado.
+export async function fulfillStockReservation(r: StockReservation, userId: string | null): Promise<void> {
+  if (isDemoMode) return
+  const { data: claimed, error: claimErr } = await supabase
+    .from('stock_reservations').update({ status: 'Atendida' })
+    .eq('id', r.id).eq('status', 'Reservado').select('id')
+  if (claimErr) throw claimErr
+  if (!claimed || claimed.length === 0) {
+    throw new Error('Esta reserva já foi atendida ou cancelada — atualize a tela.')
+  }
+  try {
+    await createStockMovement({
+      product_id: r.product_id, stock_location_id: r.stock_location_id, event_id: r.event_id,
+      movement_type: 'Envio para Evento', quantity: r.quantity,
+      notes: 'Atendimento de reserva', created_by: userId
+    })
+  } catch (err) {
+    await supabase.from('stock_reservations').update({ status: 'Reservado' }).eq('id', r.id).eq('status', 'Atendida')
+    throw err
+  }
+}
+
 // ---------- Configurações: Perfis de acesso ----------
 export async function listRolePermissions(): Promise<RolePermissions[]> {
   if (isDemoMode) return demoState.rolePermissions
@@ -3119,22 +3143,38 @@ export async function approveTransferRequest(request: TransferRequest, approvedB
     return
   }
 
-  if (entreEstoques) {
-    const { error } = await supabase.rpc('transfer_stock', {
-      p_product: request.product_id, p_from: request.from_location_id,
-      p_to: request.to_location_id, p_qty: request.quantity, p_notes: tag
-    })
-    if (error) throw error
-  } else {
-    const { error } = await supabase.from('stock_movements').insert({
-      product_id: request.product_id, stock_location_id: request.from_location_id,
-      event_id: request.event_id, movement_type: 'Envio para Evento' as MovementType,
-      quantity: request.quantity, unit_cost: null, notes: tag, created_by: approvedBy, status: 'Ativo'
-    })
-    if (error) throw error
+  // Reserva o pedido ANTES de mexer no saldo: só passa quem o encontra ainda
+  // Pendente. Dois cliques (ou duas telas abertas) aprovavam o mesmo pedido
+  // duas vezes e o produto saía em dobro.
+  const { data: claimed, error: claimErr } = await supabase
+    .from('transfer_requests').update({ status: 'Aprovado' })
+    .eq('id', request.id).eq('status', 'Pendente').select('id')
+  if (claimErr) throw claimErr
+  if (!claimed || claimed.length === 0) {
+    throw new Error('Este pedido já foi aprovado ou negado — atualize a tela.')
   }
-  const { error: statusErr } = await supabase.from('transfer_requests').update({ status: 'Aprovado' }).eq('id', request.id)
-  if (statusErr) throw statusErr
+
+  try {
+    if (entreEstoques) {
+      const { error } = await supabase.rpc('transfer_stock', {
+        p_product: request.product_id, p_from: request.from_location_id,
+        p_to: request.to_location_id, p_qty: request.quantity, p_notes: tag
+      })
+      if (error) throw error
+    } else {
+      const { error } = await supabase.from('stock_movements').insert({
+        product_id: request.product_id, stock_location_id: request.from_location_id,
+        event_id: request.event_id, movement_type: 'Envio para Evento' as MovementType,
+        quantity: request.quantity, unit_cost: null, notes: tag, created_by: approvedBy, status: 'Ativo'
+      })
+      if (error) throw error
+    }
+  } catch (err) {
+    // A movimentação não entrou: devolve o pedido pra Pendente pra poder
+    // tentar de novo.
+    await supabase.from('transfer_requests').update({ status: 'Pendente' }).eq('id', request.id).eq('status', 'Aprovado')
+    throw err
+  }
 }
 
 // Registra o quanto voltou pro estoque central depois do evento (sobra física)

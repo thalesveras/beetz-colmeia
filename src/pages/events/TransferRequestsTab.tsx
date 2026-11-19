@@ -67,10 +67,15 @@ export default function TransferRequestsTab({ eventId, canApprove }: { eventId: 
   // Aprovar gera a movimentação real de saída do estoque central (ver
   // approveTransferRequest) — negar só muda o status, sem mexer no saldo.
   async function handleStatusChange(t: TransferRequest, status: TransferRequestStatus) {
-    if (status === 'Aprovado') {
-      await approveTransferRequest(t, userId)
-    } else {
-      await updateTransferRequestStatus(t.id, status)
+    try {
+      if (status === 'Aprovado') {
+        await approveTransferRequest(t, userId)
+      } else {
+        await updateTransferRequestStatus(t.id, status)
+      }
+    } catch (err) {
+      // Sem isso o erro (inclusive "já foi aprovado") sumia em silêncio.
+      alert(err instanceof Error ? err.message : 'Não foi possível atualizar o pedido.')
     }
     load()
   }

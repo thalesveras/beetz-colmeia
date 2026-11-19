@@ -2,7 +2,7 @@ import { eventLabel } from '../../lib/eventLabel'
 import { useEffect, useState } from 'react'
 import { CalendarCheck, Check, Plus, X } from 'lucide-react'
 import {
-  createStockMovement, createStockReservation, listStockReservations, updateStockReservationStatus
+  createStockReservation, fulfillStockReservation, listStockReservations, updateStockReservationStatus
 } from '../../lib/dataService'
 import type { EventItem, Product, StockAvailable, StockLocation, StockReservation } from '../../lib/types'
 
@@ -54,19 +54,13 @@ export default function ReservationsSection({ products, locations, events, avail
     } finally { setSaving(false) }
   }
 
-  // Atender = a separação virou envio de verdade: registra o 'Envio para
-  // Evento' e marca a reserva como Atendida. Duas escritas — se a segunda
-  // falhar, a reserva continua Reservado e dá pra atender de novo sem duplicar
-  // porque o erro aparece na tela.
+  // Atender = a separação virou envio de verdade. A ordem (marcar Atendida
+  // primeiro, só se ainda Reservado; depois o envio) fica no dataService —
+  // antes, se a segunda escrita falhasse, atender de novo duplicava o envio.
   async function handleFulfill(r: StockReservation) {
     setSaving(true); setError(null)
     try {
-      await createStockMovement({
-        product_id: r.product_id, stock_location_id: r.stock_location_id, event_id: r.event_id,
-        movement_type: 'Envio para Evento', quantity: r.quantity,
-        notes: 'Atendimento de reserva', created_by: userId
-      })
-      await updateStockReservationStatus(r.id, 'Atendida')
+      await fulfillStockReservation(r, userId)
       await refresh(); onChanged()
     } catch (e: any) {
       setError(e?.message ?? 'Não foi possível atender a reserva.')
