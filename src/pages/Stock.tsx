@@ -64,7 +64,27 @@ const transferStatusColors: Record<TransferRequestStatus, string> = {
   Negado: 'bg-red-100 text-red-700'
 }
 
+// A trava de acesso fica num componente PRÓPRIO, por fora. Antes ela era um
+// `return` no meio do StockContent, com hooks declarados depois dele: quando o
+// perfil chegava (ou mudava) com a tela já aberta, o React via um número
+// diferente de hooks entre um render e outro e a página caía em tela branca.
+// Aqui fora, mudar o perfil só monta ou desmonta o conteúdo — e quem não tem
+// permissão nem chega a baixar os dados do estoque.
 export default function Stock() {
+  const { accessRole } = useAuth()
+  if (!canViewStockTab(accessRole)) {
+    return (
+      <div className="bg-white rounded-2xl p-8 shadow-soft border border-beetz-dark/5 text-center">
+        <p className="text-4xl mb-3">🔒</p>
+        <h1 className="text-xl font-bold mb-1">Acesso restrito</h1>
+        <p className="text-sm text-beetz-dark/60">Seu perfil de acesso não tem permissão pra ver o Estoque.</p>
+      </div>
+    )
+  }
+  return <StockContent />
+}
+
+function StockContent() {
   const { userId, accessRole } = useAuth()
   const [balances, setBalances] = useState<StockBalance[]>([])
   const [avgCosts, setAvgCosts] = useState<ProductAvgCost[]>([])
@@ -179,19 +199,7 @@ export default function Stock() {
 
   useEffect(() => { load() }, [])
 
-  // Antes só o link do menu era escondido: quem digitasse /estoque na barra de
-  // endereço entrava e via produtos, saldos e todo o histórico. Todas as outras
-  // páginas sensíveis têm essa trava; essa faltava. (O RLS já barrava a
-  // escrita — o vazamento era de leitura.)
-  if (!canViewStockTab(accessRole)) {
-    return (
-      <div className="bg-white rounded-2xl p-8 shadow-soft border border-beetz-dark/5 text-center">
-        <p className="text-4xl mb-3">🔒</p>
-        <h1 className="text-xl font-bold mb-1">Acesso restrito</h1>
-        <p className="text-sm text-beetz-dark/60">Seu perfil de acesso não tem permissão pra ver o Estoque.</p>
-      </div>
-    )
-  }
+  // (A trava de quem pode ver esta página está no componente Stock, acima.)
 
   const productName = (id: string) => products.find((p) => p.id === id)?.name ?? '—'
   const locationName = (id: string) => locations.find((l) => l.id === id)?.name ?? '—'

@@ -1399,17 +1399,31 @@ export async function updateStockLocation(id: string, patch: Partial<Pick<StockL
 
 // Só deixa excluir um estoque/almoxarifado se não houver nenhuma movimentação
 // (ativa ou cancelada) vinculada a ele — evita órfãos no histórico.
+// Existe ALGUMA movimentação com esse produto/estoque? Pergunta direto ao banco
+// (1 linha). A guarda antiga olhava listStockMovements(), que só traz as 800
+// mais recentes — produto cujo histórico era mais antigo passava pela guarda
+// e a exclusão levava o histórico junto.
+async function hasStockMovement(column: 'product_id' | 'stock_location_id', id: string): Promise<boolean> {
+  if (isDemoMode) return demoState.stockMovements.some((m) => m[column] === id)
+  const { data, error } = await supabase.from('stock_movements').select('id').eq(column, id).limit(1)
+  if (error) throw error
+  return (data ?? []).length > 0
+}
+
+// 23503 = o banco recusou porque ainda há registros apontando pra este item.
+function isForeignKeyError(error: unknown): boolean {
+  return (error as { code?: string } | null)?.code === '23503'
+}
+
 export async function deleteStockLocation(id: string): Promise<void> {
-  const movements = await listStockMovements()
-  if (movements.some((m) => m.stock_location_id === id)) {
-    throw new Error('Não é possível excluir: este estoque já tem movimentações registradas.')
-  }
+  const msg = 'Não é possível excluir: este estoque já tem movimentações registradas.'
+  if (await hasStockMovement('stock_location_id', id)) throw new Error(msg)
   if (isDemoMode) {
     demoState.stockLocations = demoState.stockLocations.filter((l) => l.id !== id)
     return
   }
   const { error } = await supabase.from('stock_locations').delete().eq('id', id)
-  if (error) throw error
+  if (error) throw isForeignKeyError(error) ? new Error(msg) : error
 }
 
 export async function listProducts(): Promise<Product[]> {
@@ -1454,16 +1468,14 @@ export async function updateProduct(id: string, patch: Partial<Pick<Product, 'na
 // Mesma lógica de guarda do estoque: produto com histórico de movimentação não
 // pode ser excluído (edite o cadastro em vez disso).
 export async function deleteProduct(id: string): Promise<void> {
-  const movements = await listStockMovements()
-  if (movements.some((m) => m.product_id === id)) {
-    throw new Error('Não é possível excluir: este produto já tem movimentações registradas.')
-  }
+  const msg = 'Não é possível excluir: este produto já tem movimentações, pedidos ou consumo registrados.'
+  if (await hasStockMovement('product_id', id)) throw new Error(msg)
   if (isDemoMode) {
     demoState.products = demoState.products.filter((p) => p.id !== id)
     return
   }
   const { error } = await supabase.from('products').delete().eq('id', id)
-  if (error) throw error
+  if (error) throw isForeignKeyError(error) ? new Error(msg) : error
 }
 
 export async function listStockMovements(eventId?: string): Promise<StockMovement[]> {
@@ -2881,6 +2893,26 @@ export interface EventStockLine {
 // Movimentos "do evento" no sentido amplo: endereçados a ele (event_id) OU
 // dentro do almoxarifado próprio dele. É a mesma visão da ponte de saldo,
 // mas crua — a Reconciliação decompõe por tipo.
+// Envio/Devolução lançado FORA do almoxarifado do evento ganha do banco uma
+// perna-espelho DENTRO dele (mirror_of). As duas pernas são o MESMO produto
+// andando uma vez só — somar as duas contava a devolução (ou o envio) em
+// dobro na conta do evento. Aqui o original sai e fica só o espelho, que é o
+// que de fato mexe no saldo do almoxarifado do evento. Transferência comum
+// (Saída/Entrada) não é tocada: o espelho dela fica fora do evento.
+export function dropMirroredEventOrigins<T extends {
+  id: string; mirror_of?: string | null; status?: string; movement_type: string
+}>(rows: T[], inEventLocation: (m: T) => boolean): T[] {
+  const espelhados = new Set<string>()
+  for (const m of rows) {
+    if (m.mirror_of && m.status !== 'Cancelado' && inEventLocation(m)) espelhados.add(m.mirror_of)
+  }
+  if (espelhados.size === 0) return rows
+  return rows.filter((m) => !(
+    espelhados.has(m.id) && !inEventLocation(m)
+    && (m.movement_type === 'Envio para Evento' || m.movement_type === 'Devolução do Evento')
+  ))
+}
+
 export async function listEventStockMovementsWide(eventId: string): Promise<(StockMovement & { in_event_location: boolean })[]> {
   if (isDemoMode) return []
   const { data: locs } = await supabase.from('stock_locations').select('id').eq('event_id', eventId)
@@ -2911,14 +2943,17 @@ export async function getEventStockByProduct(eventId: string): Promise<EventStoc
     : `event_id.eq.${eventId}`
   const { data, error } = await supabase
     .from('stock_movements')
-    .select('product_id, movement_type, quantity, status, stock_location_id, event_id')
+    .select('id, mirror_of, product_id, movement_type, quantity, status, stock_location_id, event_id')
     .eq('status', 'Ativo')
     .or(orFilter)
   if (error) throw error
 
+  type Row = { id: string; mirror_of: string | null; product_id: string; movement_type: string; quantity: number; status: string; stock_location_id: string; event_id: string | null }
+  const linhas = dropMirroredEventOrigins((data ?? []) as Row[], (m) => locIds.has(m.stock_location_id))
+
   const IN_TYPES = new Set(['Entrada', 'Compra', 'Ajuste (entrada)', 'Devolução do Evento'])
   const map = new Map<string, EventStockLine>()
-  for (const m of (data ?? []) as { product_id: string; movement_type: string; quantity: number; stock_location_id: string; event_id: string | null }[]) {
+  for (const m of linhas) {
     const line = map.get(m.product_id) ?? { product_id: m.product_id, sent: 0, returned: 0, net: 0 }
     if (locIds.has(m.stock_location_id)) {
       // Dentro do almoxarifado do evento: contabilidade normal de entradas/saídas.

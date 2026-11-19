@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, ClipboardList } from 'lucide-react'
-import { listEventStockMovementsWide, listProductAvgCosts, listProducts } from '../../lib/dataService'
+import { dropMirroredEventOrigins, listEventStockMovementsWide, listProductAvgCosts, listProducts } from '../../lib/dataService'
 import type { Product, ProductAvgCost, StockMovement } from '../../lib/types'
 
 type WideMovement = StockMovement & { in_event_location: boolean }
@@ -40,7 +40,7 @@ export default function StockReconciliationCard({ eventId }: { eventId: string }
   const rows = useMemo(() => {
     const byProduct = new Map<string, { enviado: number; sobra: number; perda: number }>()
     const IN_TYPES = ['Entrada', 'Compra', 'Ajuste (entrada)']
-    for (const m of movements) {
+    for (const m of dropMirroredEventOrigins(movements, (x) => x.in_event_location)) {
       if (m.status === 'Cancelado') continue
       const entry = byProduct.get(m.product_id) ?? { enviado: 0, sobra: 0, perda: 0 }
       // "Entrou no evento": envio formal de outro almoxarifado OU entrada

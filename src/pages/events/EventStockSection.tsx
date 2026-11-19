@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, ArrowLeftRight, ClipboardList, Clock3 } from 'lucide-react'
-import { listEventProducts, listEventStockMovementsWide, listProductionConsumption, listProducts } from '../../lib/dataService'
+import { dropMirroredEventOrigins, listEventProducts, listEventStockMovementsWide, listProductionConsumption, listProducts } from '../../lib/dataService'
 import type { EventProduct, Product, ProductionConsumption, StockMovement } from '../../lib/types'
 import StockTab from './StockTab'
 import TransferRequestsTab from './TransferRequestsTab'
@@ -92,7 +92,7 @@ function EventStockAccountCard({ eventId }: { eventId: string }) {
       map.set(id, e)
       return e
     }
-    for (const m of movements) {
+    for (const m of dropMirroredEventOrigins(movements, (x) => x.in_event_location)) {
       if (m.status === 'Cancelado') continue
       // Entrou: envio formal OU entrada direta no almoxarifado do evento.
       if (m.movement_type === 'Envio para Evento') get(m.product_id).entrou += m.quantity
