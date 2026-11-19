@@ -2,7 +2,7 @@ import { eventLabel } from '../lib/eventLabel'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Plus, Pencil, Ban, RotateCcw, Check, X, Trash2, ChevronDown, ChevronUp, Package, Warehouse, AlertTriangle,
+  Plus, Pencil, Ban, RotateCcw, Check, X, Trash2, ChevronDown, ChevronUp, Package,
   Clock3, ArrowLeftRight, ChevronLeft, ChevronRight, Filter, Wallet, CalendarDays, ListChecks
 } from 'lucide-react'
 import {
@@ -156,6 +156,7 @@ function StockContent() {
   // Conferência da sobra: os números JÁ VÊM do saldo do evento (automático) —
   // a pessoa só mexe no que a contagem física disser diferente. Chave
   // "produto:local" → valor digitado; vazio = usa o saldo do sistema.
+  const [resumoBusca, setResumoBusca] = useState('')
   const [turnCounts, setTurnCounts] = useState<Record<string, string>>({})
 
   // Produto/estoque em edição inline (cadastro rápido)
@@ -189,14 +190,6 @@ function StockContent() {
   // Produto sem compra com preço não entra na soma (não tem como valer algo
   // que nunca teve preço) — por isso o rótulo diz "produtos com custo".
   const avgCostById = useMemo(() => new Map(avgCosts.map((c) => [c.product_id, c.avg_cost])), [avgCosts])
-  const stockValue = useMemo(() => availability.reduce((sum, a) => {
-    const cost = avgCostById.get(a.product_id)
-    return cost && a.balance > 0 ? sum + a.balance * cost : sum
-  }, 0), [availability, avgCostById])
-  const reservedValue = useMemo(() => availability.reduce((sum, a) => {
-    const cost = avgCostById.get(a.product_id)
-    return cost && a.reserved > 0 ? sum + a.reserved * cost : sum
-  }, 0), [availability, avgCostById])
   const reservedUnits = useMemo(() => availability.reduce((s, a) => s + a.reserved, 0), [availability])
   const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
@@ -300,18 +293,6 @@ function StockContent() {
     }
   }
 
-  // KPIs do Resumo são portas, não pôsteres: cada cartão leva pra tela onde
-  // aquele número se edita (Diretoria) ou se investiga. "Movimentações hoje"
-  // já chega com o filtro do dia aplicado.
-  function openTodayMovements() {
-    const d = new Date()
-    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-    setMovementFilterFrom(iso)
-    setMovementFilterTo(iso)
-    setShowMovementFilters(true)
-    setTab('movimentacoes')
-  }
-
   const balancesByLocation = locations.map((loc) => ({
     location: loc,
     items: balances.filter((b) => b.stock_location_id === loc.id && b.balance !== 0)
@@ -337,11 +318,6 @@ function StockContent() {
       b.balance > 0 && b.balance <= effectiveThreshold(b.product_id)),
     [balances, products, eventLocationIds]
   )
-
-  const movementsToday = useMemo(() => {
-    const today = new Date().toDateString()
-    return movements.filter((m) => m.status === 'Ativo' && new Date(m.created_at).toDateString() === today)
-  }, [movements])
 
   // Badge do botão de Transferências no Resumo: pendência é o que pede clique.
   const pendingTransfers = useMemo(() => transfers.filter((t) => t.status === 'Pendente').length, [transfers])
@@ -383,11 +359,38 @@ function StockContent() {
     return { total, tipos }
   }, [movements, avgCostById])
 
+  // ---- Números do topo do Resumo: dinheiro na central × parado em evento.
+  const resumoNumeros = useMemo(() => {
+    let centralValor = 0; let eventosValor = 0
+    for (const { loc, valor } of valorPorLocal) { if (loc.event_id) eventosValor += valor; else centralValor += valor }
+    const centralItens = new Set(balances.filter((b) => !eventLocationIds.has(b.stock_location_id) && b.balance > 0).map((b) => b.product_id)).size
+    const eventosComSaldo = new Set(balances.filter((b) => eventLocationIds.has(b.stock_location_id) && b.balance > 0).map((b) => b.stock_location_id)).size
+    return { centralValor, eventosValor, centralItens, eventosComSaldo }
+  }, [valorPorLocal, balances, eventLocationIds])
+
   // Produto sem custo = dinheiro invisível. O banner leva pro catálogo.
   const produtosSemCusto = useMemo(
     () => products.filter((p) => !(avgCostById.get(p.id) ?? 0)),
     [products, avgCostById]
   )
+
+  // ---- "Precisa de atenção": só o que pede ação, do mais grave pro menos.
+  const resumoPendencias = useMemo(() => {
+    const lista: { n: number; texto: string; comoResolver: string; aba: StockTabKey; grave: boolean }[] = []
+    if (negativeItemsCount > 0) lista.push({ n: negativeItemsCount, grave: true, aba: 'movimentacoes',
+      texto: `produto${negativeItemsCount > 1 ? 's' : ''} com saldo negativo`, comoResolver: 'Saiu mais do que entrou: lance a compra ou faça a contagem.' })
+    if (pendingTransfers > 0) lista.push({ n: pendingTransfers, grave: false, aba: 'transferencias',
+      texto: `pedido${pendingTransfers > 1 ? 's' : ''} de envio esperando aprovação`, comoResolver: 'Aprovar ou negar em Envios e virada.' })
+    if (resumoNumeros.eventosComSaldo > 0) lista.push({ n: resumoNumeros.eventosComSaldo, grave: false, aba: 'transferencias',
+      texto: `evento${resumoNumeros.eventosComSaldo > 1 ? 's' : ''} com produto ainda lá`, comoResolver: 'Se a festa já acabou, faça a virada pra sobra voltar pra central.' })
+    if (lowStockItems.length > 0) lista.push({ n: lowStockItems.length, grave: false, aba: 'cadastros',
+      texto: `produto${lowStockItems.length > 1 ? 's' : ''} acabando na central`, comoResolver: 'Abaixo do alerta definido no produto.' })
+    if (reservedUnits > 0) lista.push({ n: reservedUnits, grave: false, aba: 'reservas',
+      texto: 'unidades reservadas pra eventos futuros', comoResolver: 'Ainda estão no estoque, mas já têm destino.' })
+    if (produtosSemCusto.length > 0) lista.push({ n: produtosSemCusto.length, grave: false, aba: 'cadastros',
+      texto: `produto${produtosSemCusto.length > 1 ? 's' : ''} sem custo cadastrado`, comoResolver: 'Ficam fora do valor em R$ até alguém preencher o custo.' })
+    return lista
+  }, [negativeItemsCount, pendingTransfers, resumoNumeros, lowStockItems, reservedUnits, produtosSemCusto])
 
   // Eventos que têm sobra (saldo positivo no próprio almoxarifado) — são as
   // origens possíveis de uma virada.
@@ -632,134 +635,60 @@ function StockContent() {
       ) : (
         <>
           {tab === 'resumo' && (<>
-          {/* Os dois primeiros KPIs são a Fase 1 da inteligência: R$ em vez de
-              contagem. Só somam produtos com custo médio (Compra com preço) —
-              melhor um número menor e verdadeiro que um total inventado. */}
-          {/* Cada KPI é um botão: leva pra aba onde o número nasce e (pra quem
-              pode) se edita — valor/produtos/estoques → Produtos & Estoques;
-              reservado → Reservas; hoje → Movimentações já filtradas no dia. */}
-          <section className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            <button onClick={() => setTab('cadastros')} className="bg-beetz-dark text-white rounded-2xl p-4 shadow-soft flex items-center gap-3 text-left hover:shadow-glow active:scale-[0.98] transition">
-              <div className="bg-beetz-yellow/20 text-beetz-yellow rounded-xl p-2.5"><Wallet size={20} /></div>
-              <div className="min-w-0">
-                <p className="text-xl font-extrabold leading-none truncate">{brl(stockValue)}</p>
-                <p className="text-xs text-white/50 mt-1">Valor do estoque (produtos com custo) →</p>
-              </div>
-            </button>
-            <button onClick={() => setTab('reservas')} className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5 flex items-center gap-3 text-left hover:shadow-glow active:scale-[0.98] transition">
-              <div className="bg-beetz-yellow/20 text-beetz-dark rounded-xl p-2.5"><CalendarDays size={20} /></div>
-              <div className="min-w-0">
-                <p className="text-xl font-extrabold leading-none truncate">
-                  {reservedValue > 0 ? brl(reservedValue) : `${reservedUnits} un`}
+          {/* RESUMO em três perguntas, nesta ordem: quanto dinheiro tem e onde
+              está → o que precisa de mim agora → o que tem na central. Tudo
+              que era contagem solta (nº de produtos, nº de locais, movimentos
+              do dia) saiu: não ajudava a decidir nada. */}
+          <section className="bg-beetz-dark text-white rounded-2xl p-5 shadow-soft">
+            <p className="text-xs font-bold uppercase tracking-wide text-white/50">Na central agora</p>
+            <p className="text-3xl md:text-4xl font-extrabold mt-1">{brl(resumoNumeros.centralValor)}</p>
+            <p className="text-sm text-white/60 mt-1">
+              {resumoNumeros.centralItens} produto{resumoNumeros.centralItens === 1 ? '' : 's'} com saldo
+              {produtosSemCusto.length > 0 && ' · só entra no valor o que tem custo cadastrado'}
+            </p>
+            <div className="grid grid-cols-2 gap-3 mt-4">
+              <button onClick={() => setTab('transferencias')} className="bg-white/10 rounded-xl px-3.5 py-3 text-left active:scale-[0.98] transition">
+                <p className="text-lg font-extrabold leading-none">{brl(resumoNumeros.eventosValor)}</p>
+                <p className="text-xs text-white/60 mt-1.5">
+                  {resumoNumeros.eventosComSaldo === 0 ? 'Nada parado em evento' : `Em ${resumoNumeros.eventosComSaldo} evento${resumoNumeros.eventosComSaldo > 1 ? 's' : ''} →`}
                 </p>
-                <p className="text-xs text-beetz-dark/50 mt-1">Reservado pra eventos →</p>
-              </div>
-            </button>
-            <button onClick={openTodayMovements} className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5 flex items-center gap-3 text-left hover:shadow-glow active:scale-[0.98] transition">
-              <div className="bg-beetz-yellow/20 text-beetz-dark rounded-xl p-2.5"><Clock3 size={20} /></div>
-              <div>
-                <p className="text-xl font-extrabold leading-none">{movementsToday.length}</p>
-                <p className="text-xs text-beetz-dark/50 mt-1">Movimentações hoje →</p>
-              </div>
-            </button>
+              </button>
+              <button onClick={() => setTab('movimentacoes')} className="bg-white/10 rounded-xl px-3.5 py-3 text-left active:scale-[0.98] transition">
+                <p className="text-lg font-extrabold leading-none">{brl(perdasMes.total)}</p>
+                <p className="text-xs text-white/60 mt-1.5">Perdas e consumo do mês →</p>
+              </button>
+            </div>
           </section>
 
-          <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <button onClick={() => setTab('cadastros')} className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5 flex items-center gap-3 text-left hover:shadow-glow active:scale-[0.98] transition">
-              <div className="bg-beetz-yellow/20 text-beetz-dark rounded-xl p-2.5"><Package size={20} /></div>
-              <div>
-                <p className="text-xl font-extrabold leading-none">{products.length}</p>
-                <p className="text-xs text-beetz-dark/50 mt-1">Produtos cadastrados →</p>
-              </div>
-            </button>
-            <button onClick={() => setTab('cadastros')} className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5 flex items-center gap-3 text-left hover:shadow-glow active:scale-[0.98] transition">
-              <div className="bg-beetz-yellow/20 text-beetz-dark rounded-xl p-2.5"><Warehouse size={20} /></div>
-              <div>
-                <p className="text-xl font-extrabold leading-none">{locations.length}</p>
-                <p className="text-xs text-beetz-dark/50 mt-1">Estoques/almoxarifados →</p>
-              </div>
-            </button>
-            <button onClick={() => setTab('cadastros')} className={`rounded-2xl p-4 shadow-soft border flex items-center gap-3 text-left hover:shadow-glow active:scale-[0.98] transition ${lowStockItems.length + negativeItemsCount > 0 ? 'bg-red-50 border-red-100' : 'bg-white border-beetz-dark/5'}`}>
-              <div className={`rounded-xl p-2.5 ${lowStockItems.length + negativeItemsCount > 0 ? 'bg-red-100 text-red-600' : 'bg-beetz-yellow/20 text-beetz-dark'}`}><AlertTriangle size={20} /></div>
-              <div>
-                <p className={`text-xl font-extrabold leading-none ${lowStockItems.length + negativeItemsCount > 0 ? 'text-red-600' : ''}`}>{lowStockItems.length + negativeItemsCount}</p>
-                <p className="text-xs text-beetz-dark/50 mt-1">Negativos ou com saldo baixo →</p>
-              </div>
-            </button>
-          </section>
-
-          {lowStockItems.length > 0 && (
-            <section className="bg-red-50 border border-red-100 rounded-2xl p-4">
-              <h3 className="text-sm font-bold text-red-700 mb-2 flex items-center gap-1.5"><AlertTriangle size={15} /> Saldo baixo</h3>
-              <div className="flex flex-wrap gap-2">
-                {lowStockItems.map((item) => (
-                  <span key={`${item.product_id}-${item.stock_location_id}`} className="text-xs font-semibold bg-white text-red-700 border border-red-200 px-3 py-1.5 rounded-full">
-                    {item.product_name} · {item.stock_location_name} · {item.balance} {item.product_unit}
-                  </span>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* 💰 Onde o dinheiro está: o valor em R$ DENTRO de cada estoque —
-              a pergunta que a operação faz da porta da festa. */}
-          {valorPorLocal.length > 0 && (
-            <section className="bg-white rounded-2xl p-5 shadow-soft border border-beetz-dark/5">
-              <h2 className="text-lg font-bold mb-1">💰 Dinheiro em cada estoque</h2>
-              <p className="text-xs text-beetz-dark/45 mb-3">
-                Saldo físico × custo do produto (média das compras, ou o custo de referência). Produto sem custo não soma.
+          {/* O que pede ação. Cada linha leva pra onde se resolve; sem
+              pendência, uma linha só dizendo que está tudo certo. */}
+          <section>
+            <h2 className="text-lg font-bold mb-3">Precisa de atenção</h2>
+            {resumoPendencias.length === 0 ? (
+              <p className="bg-green-50 border border-green-100 text-green-800 text-sm font-semibold rounded-2xl px-4 py-3.5">
+                ✅ Tudo em ordem: nada negativo, nada parado em evento e nenhum pedido esperando.
               </p>
-              <div className="space-y-1.5">
-                {valorPorLocal.map(({ loc, valor }) => (
-                  <div
-                    key={loc.id}
-                    className={`flex items-center justify-between gap-3 rounded-xl px-3.5 py-2.5 ${
-                      loc.is_central ? 'bg-beetz-dark text-white' : 'bg-beetz-gray/70'
+            ) : (
+              <div className="space-y-2">
+                {resumoPendencias.map((p) => (
+                  <button
+                    key={p.texto}
+                    onClick={() => setTab(p.aba)}
+                    className={`w-full flex items-center gap-3 text-left rounded-2xl px-4 py-3.5 border active:scale-[0.99] transition ${
+                      p.grave ? 'bg-red-50 border-red-100 text-red-800' : 'bg-amber-50 border-amber-200 text-amber-900'
                     }`}
                   >
-                    <span className="text-sm font-semibold truncate">
-                      {loc.is_central ? '🏠 ' : loc.event_id ? '🎪 ' : ''}{loc.name}
-                      {loc.is_central && <span className="text-[10px] font-bold text-beetz-yellow ml-1.5 uppercase tracking-wide">central</span>}
+                    <span className="text-xl font-extrabold min-w-[2ch] text-center">{p.n}</span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-sm font-bold leading-tight">{p.texto}</span>
+                      <span className="block text-xs opacity-75 mt-0.5">{p.comoResolver}</span>
                     </span>
-                    <span className="text-sm font-extrabold shrink-0">{brl(valor)}</span>
-                  </div>
+                    <ChevronRight size={18} className="shrink-0 opacity-60" />
+                  </button>
                 ))}
-                <div className="flex items-center justify-between gap-3 px-3.5 pt-2 border-t border-beetz-dark/10">
-                  <span className="text-xs font-bold text-beetz-dark/50 uppercase tracking-wide">Total em produto parado</span>
-                  <span className="text-base font-extrabold">{brl(valorPorLocal.reduce((s, x) => s + x.valor, 0))}</span>
-                </div>
               </div>
-            </section>
-          )}
-
-          {/* 📉 Quanto dinheiro evaporou este mês — perdas valorizadas. */}
-          {perdasMes.total > 0.004 && (
-            <section className="bg-white rounded-2xl p-5 shadow-soft border border-beetz-dark/5">
-              <h2 className="text-lg font-bold mb-1">📉 Perdas e consumo do mês</h2>
-              <p className="text-xs text-beetz-dark/45 mb-3">Perda, quebra e consumo interno valorizados — dinheiro que saiu sem virar venda.</p>
-              <div className="flex flex-wrap items-center gap-2">
-                {Array.from(perdasMes.tipos.entries()).map(([tipo, v]) => (
-                  <span key={tipo} className="text-xs font-semibold bg-beetz-gray px-3 py-1.5 rounded-full">
-                    {tipo === 'Perda' ? '🕳 Perda' : tipo === 'Quebra' ? '🥂 Quebra' : '🍽 Consumo interno'} · {brl(v)}
-                  </span>
-                ))}
-                <span className="text-sm font-extrabold bg-red-50 text-red-700 border border-red-100 px-3 py-1.5 rounded-full ml-auto">
-                  Total {brl(perdasMes.total)}
-                </span>
-              </div>
-            </section>
-          )}
-
-          {/* ⚠️ Dinheiro invisível: produto sem custo não entra em conta nenhuma. */}
-          {produtosSemCusto.length > 0 && (
-            <button
-              onClick={() => setTab('cadastros')}
-              className="w-full text-left bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 text-sm text-amber-800 hover:bg-amber-100 transition-colors"
-            >
-              ⚠️ <strong>{produtosSemCusto.length} produto{produtosSemCusto.length > 1 ? 's' : ''} sem custo</strong> — ficam de fora
-              do valor em R$ até alguém preencher o custo de referência. Toque pra completar em Produtos & estoques →
-            </button>
-          )}
+            )}
+          </section>
 
           {/* Só no celular: botões grandes pro polegar, na ordem da operação.
               No computador as abas do topo já fazem esse papel. */}
@@ -791,21 +720,23 @@ function StockContent() {
             </div>
           </section>
 
+          {/* O que tem em cada lugar. Central (e estoques fixos) abertos, com
+              busca; estoque de evento recolhido numa linha. */}
           <section>
-            <h2 className="text-lg font-bold mb-1">Saldo atual por estoque</h2>
-            {/* Só quem TEM saldo aparece (os dezenas de eventos zerados eram
-                puro ruído), com a central sempre primeiro. Saldo negativo
-                ganha tradução: saiu mais do que entrou no papel. */}
-            <p className="text-xs text-beetz-dark/45 mb-4">
-              Estoques zerados ficam escondidos. <span className="text-red-600 font-semibold">Vermelho negativo</span> =
-              saiu mais do que entrou no papel — falta registrar a compra/entrada ou fazer o inventário físico daquele local.
-            </p>
-            {/* A central (e os estoques fixos) ficam ABERTOS, em largura cheia.
-                Estoque de evento fica RECOLHIDO: com 8 festas antigas abertas
-                a página virava 250 linhas e ninguém achava a central. O
-                resumo de cada um já diz quantos produtos sobraram lá. */}
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+              <h2 className="text-lg font-bold">O que tem em cada estoque</h2>
+              <input
+                type="search" inputMode="search" placeholder="Buscar produto…"
+                value={resumoBusca} onChange={(e) => setResumoBusca(e.target.value)}
+                className="w-full sm:w-64 border border-beetz-dark/15 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-beetz-yellow"
+              />
+            </div>
             <div className="grid md:grid-cols-3 gap-4 items-start">
               {balancesByLocation
+                .map(({ location, items }) => ({
+                  location,
+                  items: items.filter((i) => !resumoBusca.trim() || i.product_name.toLowerCase().includes(resumoBusca.trim().toLowerCase()))
+                }))
                 .filter(({ items }) => items.length > 0)
                 .sort((a, b) =>
                   (Number(b.location.is_central ?? false) - Number(a.location.is_central ?? false)) ||
@@ -814,47 +745,46 @@ function StockContent() {
                 .map(({ location, items }) => {
                   const negativos = items.filter((i) => i.balance < 0).length
                   const deEvento = !!location.event_id
+                  const valor = valorPorLocal.find((v) => v.loc.id === location.id)?.valor ?? 0
                   const lista = (
-                    <>
-                      {negativos > 0 && (
-                        <p className="text-[11px] text-red-600 bg-red-50 border border-red-100 rounded-lg px-2 py-1 mb-2">
-                          {negativos} produto{negativos > 1 ? 's' : ''} negativo{negativos > 1 ? 's' : ''}: o papel diz que saiu
-                          mais do que entrou — acerte com Compra/entrada ou pelo Inventário físico.
-                        </p>
-                      )}
-                      <ul className={`mt-2 ${deEvento ? 'space-y-2' : 'md:columns-3 gap-x-8 [&>li]:mb-2 [&>li]:break-inside-avoid'}`}>
-                        {items
-                          .slice()
-                          .sort((a, b) => a.product_name.localeCompare(b.product_name, 'pt-BR'))
-                          .map((item) => (
-                            <li key={item.product_id} className="flex justify-between gap-3 text-sm">
-                              <span className="text-beetz-dark/70">{item.product_name}</span>
-                              <span className={`font-semibold whitespace-nowrap ${item.balance < 0 || item.balance <= effectiveThreshold(item.product_id) ? 'text-red-600' : ''}`}>{item.balance} {unitLabel(item.product_unit)}</span>
-                            </li>
-                          ))}
-                      </ul>
-                    </>
+                    <ul className={`mt-3 ${deEvento ? 'space-y-2' : 'md:columns-3 gap-x-8 [&>li]:mb-2 [&>li]:break-inside-avoid'}`}>
+                      {items
+                        .slice()
+                        .sort((a, b) => a.product_name.localeCompare(b.product_name, 'pt-BR'))
+                        .map((item) => (
+                          <li key={item.product_id} className="flex justify-between gap-3 text-sm">
+                            <span className="text-beetz-dark/70">{item.product_name}</span>
+                            <span className={`font-semibold whitespace-nowrap ${item.balance < 0 || item.balance <= effectiveThreshold(item.product_id) ? 'text-red-600' : ''}`}>{item.balance} {unitLabel(item.product_unit)}</span>
+                          </li>
+                        ))}
+                    </ul>
                   )
                   if (deEvento) {
                     return (
-                      <details key={location.id} className="bg-white rounded-2xl p-5 shadow-soft border border-beetz-dark/5">
-                        <summary className="cursor-pointer select-none">
-                          <span className="font-bold">🎪 {location.name}</span>
-                          <span className="block text-[11px] text-beetz-dark/50 mt-0.5">
-                            {items.length} produto{items.length > 1 ? 's' : ''} ainda neste evento — se a festa já acabou, falta fazer a Virada.
-                            {negativos > 0 && <span className="text-red-600 font-semibold"> {negativos} negativo{negativos > 1 ? 's' : ''}.</span>}
+                      <details key={location.id} open={!!resumoBusca.trim()} className="bg-white rounded-2xl p-4 shadow-soft border border-beetz-dark/5">
+                        <summary className="cursor-pointer select-none flex items-center justify-between gap-3">
+                          <span className="min-w-0">
+                            <span className="block font-bold truncate">🎪 {location.name}</span>
+                            <span className="block text-[11px] text-beetz-dark/50 mt-0.5">
+                              {items.length} produto{items.length > 1 ? 's' : ''}
+                              {negativos > 0 && <span className="text-red-600 font-semibold"> · {negativos} negativo{negativos > 1 ? 's' : ''}</span>}
+                            </span>
                           </span>
+                          <span className="text-sm font-extrabold shrink-0">{brl(valor)}</span>
                         </summary>
-                        <div className="mt-3">{lista}</div>
+                        {lista}
                       </details>
                     )
                   }
                   return (
                     <div key={location.id} className="md:col-span-3 bg-white rounded-2xl p-5 shadow-soft border border-beetz-dark/5">
-                      <h3 className="font-bold mb-1">
-                        {location.is_central ? '🏠 ' : ''}{location.name}
-                        {location.is_central && <span className="text-[10px] font-bold text-beetz-dark/40 ml-1.5 uppercase tracking-wide">central</span>}
-                      </h3>
+                      <div className="flex items-center justify-between gap-3">
+                        <h3 className="font-bold">
+                          {location.is_central ? '🏠 ' : ''}{location.name}
+                          {location.is_central && <span className="text-[10px] font-bold text-beetz-dark/40 ml-1.5 uppercase tracking-wide">central</span>}
+                        </h3>
+                        <span className="text-sm font-extrabold shrink-0">{brl(valor)}</span>
+                      </div>
                       {lista}
                     </div>
                   )
@@ -863,6 +793,9 @@ function StockContent() {
                 <p className="text-sm text-beetz-dark/40">Nenhum estoque com saldo no momento.</p>
               )}
             </div>
+            <p className="text-xs text-beetz-dark/45 mt-3">
+              Estoque zerado não aparece. <span className="text-red-600 font-semibold">Vermelho</span> = negativo ou abaixo do alerta do produto.
+            </p>
           </section>
           </>)}
 
