@@ -1,6 +1,6 @@
 import {
   ArrowLeftRight, BarChart3, Bell, Boxes, Building2, Cake, CalendarDays, ClipboardList, Clock3, HandCoins,
-  Heart, Hexagon, Home, Info, ListChecks, MessageCircle, Package, Receipt, ShieldCheck, Settings, Trophy, Truck,
+  Heart, Hexagon, Home, Info, ListChecks, Package, Receipt, ShieldCheck, Settings, Trophy, Truck,
   UserCircle, Users, Wallet
 } from 'lucide-react'
 import {
@@ -75,12 +75,11 @@ export function navGroupsFor(role: AccessRole): NavGroup[] {
           icon: Package,
           items: [
             { to: '/estoque', label: 'Resumo', icon: Package },
-            { to: '/estoque?aba=conversar', label: 'Conversar', icon: MessageCircle },
-            { to: '/estoque?aba=movimentacoes', label: 'Movimentações', icon: Clock3 },
-            { to: '/estoque?aba=transferencias', label: 'Transferências', icon: ArrowLeftRight },
+            { to: '/estoque?aba=transferencias', label: 'Envios e virada', icon: ArrowLeftRight },
+            { to: '/estoque?aba=movimentacoes', label: 'Histórico', icon: Clock3 },
             { to: '/estoque?aba=reservas', label: 'Reservas', icon: CalendarDays },
-            { to: '/estoque?aba=inventario', label: 'Inventário', icon: ListChecks },
-            { to: '/estoque?aba=cadastros', label: 'Produtos & Estoques', icon: Boxes }
+            { to: '/estoque?aba=inventario', label: 'Contagem', icon: ListChecks },
+            { to: '/estoque?aba=cadastros', label: 'Produtos e locais', icon: Boxes }
           ]
         }]
       : []),

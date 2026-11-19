@@ -3,9 +3,8 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
 import {
   Plus, Pencil, Ban, RotateCcw, Check, X, Trash2, ChevronDown, ChevronUp, Package, Warehouse, AlertTriangle,
-  Clock3, ArrowLeftRight, ChevronLeft, ChevronRight, Filter, Wallet, CalendarDays, ListChecks, MessageCircle
+  Clock3, ArrowLeftRight, ChevronLeft, ChevronRight, Filter, Wallet, CalendarDays, ListChecks
 } from 'lucide-react'
-import StockChat from '../components/stock/StockChat'
 import {
   approveTransferRequest, createStockLocation, createStockMovement, createTransferRequest,
   deleteStockLocation, ensureEventStockLocation, PDV_BAIXA_NOTA, VENDIDO_BAIXA_NOTA, getStockBalances, listProductAvgCosts, listStockAvailability, isPositiveMovementType, listEvents, listProducts, listProfilesLite,
@@ -47,17 +46,18 @@ function getPageNumbers(current: number, total: number): (number | 'ellipsis')[]
 // A tela única anterior empilhava 8 seções — no celular era um pergaminho.
 // "Resumo" é a porta de entrada: números + botões grandes que levam pra aba
 // certa, pensados pro dedo (a operação usa o estoque do celular, no evento).
-type StockTabKey = 'resumo' | 'conversar' | 'movimentacoes' | 'transferencias' | 'reservas' | 'inventario' | 'cadastros'
+type StockTabKey = 'resumo' | 'movimentacoes' | 'transferencias' | 'reservas' | 'inventario' | 'cadastros'
 
-const STOCK_TABS: { key: StockTabKey; label: string; icon: typeof Wallet; managerOnly?: boolean }[] = [
-  { key: 'resumo', label: 'Resumo', icon: Wallet },
-  // A porta fácil: perguntar e lançar em linguagem natural, sem caçar telas.
-  { key: 'conversar', label: '💬 Conversar', icon: MessageCircle },
-  { key: 'movimentacoes', label: 'Movimentações', icon: Clock3 },
-  { key: 'transferencias', label: 'Transferências', icon: ArrowLeftRight },
-  { key: 'reservas', label: 'Reservas', icon: CalendarDays },
-  { key: 'inventario', label: 'Inventário', icon: ListChecks, managerOnly: true },
-  { key: 'cadastros', label: 'Produtos & Estoques', icon: Package }
+const STOCK_TABS: { key: StockTabKey; label: string; icon: typeof Wallet; managerOnly?: boolean; hint: string }[] = [
+  // Na ordem em que a operação acontece: ver o que tem → mandar pro evento e
+  // trazer a sobra → conferir o histórico → contar → cadastro por último.
+  // `hint` é a frase que aparece embaixo das abas explicando a aba aberta.
+  { key: 'resumo', label: 'Resumo', icon: Wallet, hint: 'Quanto tem, onde está e quanto vale.' },
+  { key: 'transferencias', label: 'Envios e virada', icon: ArrowLeftRight, hint: 'Mandar produto da central pro evento e trazer a sobra de volta depois da festa (virada).' },
+  { key: 'movimentacoes', label: 'Histórico', icon: Clock3, hint: 'Tudo que entrou e saiu, linha por linha. É aqui que se lança compra, perda ou ajuste e se corrige um lançamento.' },
+  { key: 'reservas', label: 'Reservas', icon: CalendarDays, hint: 'Separar produto pra um evento futuro sem tirar do estoque ainda.' },
+  { key: 'inventario', label: 'Contagem', icon: ListChecks, managerOnly: true, hint: 'Contar o que existe de verdade e acertar o sistema pela contagem.' },
+  { key: 'cadastros', label: 'Produtos e locais', icon: Package, hint: 'Lista de produtos, custos e os locais de estoque.' }
 ]
 
 const transferStatuses: TransferRequestStatus[] = ['Pendente', 'Aprovado', 'Negado']
@@ -103,7 +103,7 @@ function StockContent() {
   const [searchParams] = useSearchParams()
   useEffect(() => {
     const aba = searchParams.get('aba')
-    const validas: StockTabKey[] = ['resumo', 'conversar', 'movimentacoes', 'transferencias', 'reservas', 'inventario', 'cadastros']
+    const validas: StockTabKey[] = ['resumo', 'movimentacoes', 'transferencias', 'reservas', 'inventario', 'cadastros']
     if (aba && (validas as string[]).includes(aba)) setTab(aba as StockTabKey)
     else if (!aba) setTab('resumo')
   }, [searchParams])
@@ -589,7 +589,7 @@ function StockContent() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl md:text-3xl font-extrabold">Estoque da colmeia</h1>
-          <p className="text-beetz-dark/60 mt-1">Controle multi-almoxarifado de entradas e saídas.</p>
+          <p className="text-beetz-dark/60 mt-1">Sai da central pro evento, e a sobra volta pra central.</p>
         </div>
         <button
           onClick={() => { setTab('movimentacoes'); setShowMovementForm(true) }}
@@ -599,19 +599,26 @@ function StockContent() {
         </button>
       </div>
 
-      <div className="flex flex-wrap gap-2 border-b border-beetz-dark/10 pb-3">
+      {/* No celular as abas viram UMA faixa que desliza de lado (seis botões
+          quebrando em três linhas empurravam o conteúdo pra fora da tela);
+          do tablet pra cima quebram linha normalmente. */}
+      <div className="flex gap-2 border-b border-beetz-dark/10 pb-3 overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0 md:flex-wrap md:overflow-visible">
         {STOCK_TABS.filter((t) => !t.managerOnly || canManageCatalog).map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             onClick={() => setTab(key)}
-            className={`flex items-center gap-1.5 text-sm font-semibold px-3.5 py-2 rounded-xl transition-colors ${
+            className={`shrink-0 whitespace-nowrap flex items-center gap-1.5 text-sm font-semibold px-3.5 py-2.5 md:py-2 rounded-xl transition-colors ${
               tab === key ? 'bg-beetz-dark text-white' : 'bg-beetz-gray text-beetz-dark/70 hover:bg-beetz-dark/10'
             }`}
           >
             <Icon size={15} /> {label}
+            {key === 'transferencias' && pendingTransfers > 0 && (
+              <span className="bg-red-500 text-white text-[10px] font-bold min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center">{pendingTransfers}</span>
+            )}
           </button>
         ))}
       </div>
+      <p className="text-sm text-beetz-dark/55 -mt-4">{STOCK_TABS.find((t) => t.key === tab)?.hint}</p>
 
       {timelineProduct && (
         <ProductTimeline
@@ -754,63 +761,33 @@ function StockContent() {
             </button>
           )}
 
-          {/* Botões grandes, nascidos pro celular: a operação mexe no estoque
-              do meio da festa, com o polegar. Cada botão leva direto pra aba
-              da tarefa — ninguém precisa decorar onde mora cada coisa. */}
-          <section>
+          {/* Só no celular: botões grandes pro polegar, na ordem da operação.
+              No computador as abas do topo já fazem esse papel. */}
+          <section className="md:hidden">
             <h2 className="text-lg font-bold mb-3">O que você quer fazer?</h2>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={() => { setTab('movimentacoes'); setShowMovementForm(true) }}
-                className="honey-gradient text-beetz-dark rounded-2xl p-4 shadow-soft flex flex-col items-start gap-2.5 min-h-[104px] active:scale-[0.98] transition"
+                className="honey-gradient text-beetz-dark rounded-2xl p-4 shadow-soft flex flex-col items-start gap-2.5 min-h-[96px] active:scale-[0.98] transition"
               >
                 <span className="bg-beetz-dark/10 rounded-xl p-2"><Plus size={20} /></span>
-                <span className="font-bold text-sm text-left leading-tight">Nova movimentação</span>
+                <span className="font-bold text-sm text-left leading-tight">Lançar entrada ou saída</span>
               </button>
-              <button
-                onClick={() => setTab('transferencias')}
-                className="bg-white border border-beetz-dark/5 rounded-2xl p-4 shadow-soft flex flex-col items-start gap-2.5 min-h-[104px] hover:shadow-glow active:scale-[0.98] transition"
-              >
-                <span className="relative bg-beetz-yellow/25 rounded-xl p-2">
-                  <ArrowLeftRight size={20} />
-                  {pendingTransfers > 0 && (
-                    <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center">
-                      {pendingTransfers}
-                    </span>
-                  )}
-                </span>
-                <span className="font-bold text-sm text-left leading-tight">Transferências{pendingTransfers > 0 ? ` (${pendingTransfers} pendente${pendingTransfers > 1 ? 's' : ''})` : ''}</span>
-              </button>
-              <button
-                onClick={() => setTab('reservas')}
-                className="bg-white border border-beetz-dark/5 rounded-2xl p-4 shadow-soft flex flex-col items-start gap-2.5 min-h-[104px] hover:shadow-glow active:scale-[0.98] transition"
-              >
-                <span className="bg-beetz-yellow/25 rounded-xl p-2"><CalendarDays size={20} /></span>
-                <span className="font-bold text-sm text-left leading-tight">Reservas pra eventos</span>
-              </button>
-              <button
-                onClick={() => setTab('movimentacoes')}
-                className="bg-white border border-beetz-dark/5 rounded-2xl p-4 shadow-soft flex flex-col items-start gap-2.5 min-h-[104px] hover:shadow-glow active:scale-[0.98] transition"
-              >
-                <span className="bg-beetz-yellow/25 rounded-xl p-2"><Clock3 size={20} /></span>
-                <span className="font-bold text-sm text-left leading-tight">Histórico de movimentações</span>
-              </button>
-              {canManageCatalog && (
+              {STOCK_TABS.filter((t) => t.key !== 'resumo' && (!t.managerOnly || canManageCatalog)).map(({ key, label, icon: Icon }) => (
                 <button
-                  onClick={() => setTab('inventario')}
-                  className="bg-white border border-beetz-dark/5 rounded-2xl p-4 shadow-soft flex flex-col items-start gap-2.5 min-h-[104px] hover:shadow-glow active:scale-[0.98] transition"
+                  key={key}
+                  onClick={() => { setTab(key); window.scrollTo({ top: 0 }) }}
+                  className="bg-white border border-beetz-dark/5 rounded-2xl p-4 shadow-soft flex flex-col items-start gap-2.5 min-h-[96px] active:scale-[0.98] transition"
                 >
-                  <span className="bg-beetz-yellow/25 rounded-xl p-2"><ListChecks size={20} /></span>
-                  <span className="font-bold text-sm text-left leading-tight">Inventário físico</span>
+                  <span className="relative bg-beetz-yellow/25 rounded-xl p-2">
+                    <Icon size={20} />
+                    {key === 'transferencias' && pendingTransfers > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center">{pendingTransfers}</span>
+                    )}
+                  </span>
+                  <span className="font-bold text-sm text-left leading-tight">{label}</span>
                 </button>
-              )}
-              <button
-                onClick={() => setTab('cadastros')}
-                className="bg-white border border-beetz-dark/5 rounded-2xl p-4 shadow-soft flex flex-col items-start gap-2.5 min-h-[104px] hover:shadow-glow active:scale-[0.98] transition"
-              >
-                <span className="bg-beetz-yellow/25 rounded-xl p-2"><Package size={20} /></span>
-                <span className="font-bold text-sm text-left leading-tight">Produtos & estoques</span>
-              </button>
+              ))}
             </div>
           </section>
 
@@ -888,8 +865,6 @@ function StockContent() {
             </div>
           </section>
           </>)}
-
-          {tab === 'conversar' && <StockChat />}
 
           {tab === 'reservas' && (
             <ReservationsSection
