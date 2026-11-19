@@ -8,7 +8,7 @@ import {
 import StockChat from '../components/stock/StockChat'
 import {
   approveTransferRequest, createStockLocation, createStockMovement, createTransferRequest,
-  deleteStockLocation, ensureEventStockLocation, getStockBalances, listProductAvgCosts, listStockAvailability, isPositiveMovementType, listEvents, listProducts, listProfilesLite,
+  deleteStockLocation, ensureEventStockLocation, PDV_BAIXA_NOTA, VENDIDO_BAIXA_NOTA, getStockBalances, listProductAvgCosts, listStockAvailability, isPositiveMovementType, listEvents, listProducts, listProfilesLite,
   listStockLocations, listStockMovements, listTransferRequests, registerTransferReturn,
   transferEventLeftover, transferStock, updateCompraMovement, updateStockLocation, updateStockMovement, updateTransferRequestStatus
 } from '../lib/dataService'
@@ -402,6 +402,11 @@ function StockContent() {
   }, [locations, balances])
 
   // Valor conferido de um item: o que a pessoa digitou, ou o saldo do sistema.
+  // A venda já foi baixada do estoque deste evento? (PDV ou vendido informado)
+  // Sem isso, a "sobra" da virada ainda inclui o que foi vendido.
+  const eventHasSalesBaixa = (eventId: string) => movements.some((m) =>
+    m.event_id === eventId && m.status === 'Ativo' && m.movement_type === 'Saída'
+    && (m.notes === PDV_BAIXA_NOTA || m.notes === VENDIDO_BAIXA_NOTA))
   const turnKey = (b: StockBalance) => `${b.product_id}:${b.stock_location_id}`
   const countedOf = (b: StockBalance) => {
     const raw = (turnCounts[turnKey(b)] ?? '').trim()
@@ -1297,6 +1302,13 @@ function StockContent() {
                     </optgroup>
                   </select>
                 </div>
+                {turnFromEventId && !eventHasSalesBaixa(turnFromEventId) && (
+                  <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mt-3">
+                    ⚠️ Não encontrei baixa de venda neste evento. Os números abaixo ainda <b>incluem o que foi vendido</b>.
+                    Antes de virar, informe o Vendido na aba Produtos do evento (ou suba o relatório do PDV) — ou digite
+                    aqui a contagem física de cada produto.
+                  </p>
+                )}
                 {turnFromEventId && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 mt-3">
                     {(eventLeftovers.get(turnFromEventId) ?? []).map((b) => {

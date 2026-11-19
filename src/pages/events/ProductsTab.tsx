@@ -3,7 +3,7 @@ import { Plus, Trash2, X } from 'lucide-react'
 import {
   createEventProduct, deleteEventProduct, getEventStockByProduct, getProductAvgCosts,
   listEventProducts, listEventSalesImports, listEventSalesLines, listProducts,
-  propagateEventProductCostToMovements, updateEventProduct
+  propagateEventProductCostToMovements, syncStockFromPdv, updateEventProduct
 } from '../../lib/dataService'
 import type { EventStockLine } from '../../lib/dataService'
 import type { EventProduct, EventSalesImport, EventSalesLine, Product } from '../../lib/types'
@@ -616,6 +616,11 @@ function EditEventProductModal({ item, name, defaultProducerPercent, stockNet, p
           }
         } catch { /* sync é cortesia — o produto já foi salvo */ }
       }
+      // Vendido informado baixa o estoque do evento (quando não há relatório
+      // do PDV) — é o que faz a sobra da virada ser a sobra de verdade.
+      if (sold !== (item.sold_quantity ?? null)) {
+        await syncStockFromPdv(item.event_id, null).catch(() => 0)
+      }
       onSaved()
     } catch (e: any) {
       setError(e?.message ?? 'Não foi possível salvar.')
@@ -627,6 +632,7 @@ function EditEventProductModal({ item, name, defaultProducerPercent, stockNet, p
     setSaving(true); setError(null)
     try {
       await deleteEventProduct(item.id)
+      if ((item.sold_quantity ?? 0) > 0) await syncStockFromPdv(item.event_id, null).catch(() => 0)
       onSaved()
     } catch (e: any) {
       setError(e?.message ?? 'Não foi possível excluir.')

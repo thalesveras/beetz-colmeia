@@ -2652,6 +2652,7 @@ export async function deleteEventSalesImport(id: string): Promise<void> {
 // nunca duplicam baixa nem deixam baixa órfã. Evento sem estoque próprio
 // não sofre nada. Devolve quantos produtos ficaram com baixa lançada.
 export const PDV_BAIXA_NOTA = 'Baixa automática do PDV (vendas oficiais)'
+export const VENDIDO_BAIXA_NOTA = 'Baixa automática do vendido informado (aba Produtos)'
 export async function syncStockFromPdv(eventId: string, createdBy: string | null): Promise<number> {
   if (isDemoMode) return 0
   const { data: locData, error: locErr } = await supabase.from('stock_locations')
@@ -2669,12 +2670,47 @@ export async function syncStockFromPdv(eventId: string, createdBy: string | null
     if (qtd > 0) esperado.set(l.product_id, (esperado.get(l.product_id) ?? 0) + qtd)
   }
 
+  // Sem relatório oficial do PDV, vale o "Vendido" INFORMADO na aba Produtos.
+  // Antes esse número não mexia no estoque: o evento ficava com o vendido
+  // contando como sobra e a virada devolvia produto vendido pra central.
+  // Quando o relatório do PDV chegar, ele assume e esta baixa é cancelada.
+  const temPdv = oficiais.size > 0
+  const nota = temPdv ? PDV_BAIXA_NOTA : VENDIDO_BAIXA_NOTA
+  if (!temPdv) {
+    // Só baixa o que EXISTE no estoque do evento. Item de cardápio (combo,
+    // dose, drink, caipirinha) é vendido mas não é guardado: baixá-lo deixaria
+    // "CAIPIRINHA −225" no estoque. O insumo dele (a cerveja do combo, a
+    // garrafa da dose) só baixa quando houver ficha técnica.
+    const { data: entradas, error: entErr } = await supabase.from('stock_movements')
+      .select('product_id')
+      .eq('stock_location_id', loc.id).eq('status', 'Ativo')
+      .in('movement_type', ['Entrada', 'Compra', 'Ajuste (entrada)', 'Devolução do Evento'])
+    if (entErr) throw entErr
+    const noEstoque = new Set(((entradas ?? []) as { product_id: string }[]).map((m) => m.product_id))
+    for (const ep of await listEventProducts(eventId)) {
+      const qtd = ep.sold_quantity ?? 0
+      if (qtd > 0 && noEstoque.has(ep.product_id)) esperado.set(ep.product_id, (esperado.get(ep.product_id) ?? 0) + qtd)
+    }
+  }
+
+  // Se as baixas vigentes já são exatamente estas, não mexe — salvar um
+  // produto sem mudar o vendido não pode encher o histórico de cancelamentos.
+  const { data: vigentes, error: vigErr } = await supabase.from('stock_movements')
+    .select('product_id, quantity, notes')
+    .eq('stock_location_id', loc.id).eq('movement_type', 'Saída').eq('status', 'Ativo')
+    .in('notes', [PDV_BAIXA_NOTA, VENDIDO_BAIXA_NOTA])
+  if (vigErr) throw vigErr
+  const atuais = (vigentes ?? []) as { product_id: string; quantity: number; notes: string }[]
+  const iguais = atuais.length === esperado.size
+    && atuais.every((m) => m.notes === nota && Number(m.quantity) === esperado.get(m.product_id))
+  if (iguais) return esperado.size
+
   // Cancela as baixas automáticas vigentes (identificadas pela nota) e relança.
   const { error: offErr } = await supabase.from('stock_movements')
     .update({ status: 'Cancelado' })
     .eq('stock_location_id', loc.id)
     .eq('movement_type', 'Saída')
-    .eq('notes', PDV_BAIXA_NOTA)
+    .in('notes', [PDV_BAIXA_NOTA, VENDIDO_BAIXA_NOTA])
     .eq('status', 'Ativo')
   if (offErr) throw offErr
 
@@ -2684,7 +2720,7 @@ export async function syncStockFromPdv(eventId: string, createdBy: string | null
     event_id: eventId,
     movement_type: 'Saída',
     quantity,
-    notes: PDV_BAIXA_NOTA,
+    notes: nota,
     created_by: createdBy
   }))
   if (rows.length) await createStockMovementsBulk(rows)
