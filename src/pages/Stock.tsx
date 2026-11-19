@@ -9,7 +9,7 @@ import {
   approveTransferRequest, createStockLocation, createStockMovement, createTransferRequest,
   deleteStockLocation, ensureEventStockLocation, PDV_BAIXA_NOTA, VENDIDO_BAIXA_NOTA, getStockBalances, listProductAvgCosts, listStockAvailability, isPositiveMovementType, listEvents, listProducts, listProfilesLite,
   listStockLocations, listStockMovements, listTransferRequests, registerTransferReturn,
-  transferEventLeftover, transferStock, updateCompraMovement, updateStockLocation, updateStockMovement, updateTransferRequestStatus
+  transferEventLeftover, updateCompraMovement, updateStockLocation, updateStockMovement, updateTransferRequestStatus
 } from '../lib/dataService'
 import type { EventItem, Product, ProductAvgCost, Profile, StockAvailable, StockBalance, StockLocation, StockMovement, TransferRequest, TransferRequestStatus } from '../lib/types'
 import StockMovementForm from '../components/stock/StockMovementForm'
@@ -437,48 +437,43 @@ function StockContent() {
         const units = moved.reduce((s, r) => s + Number(r.quantity), 0)
         setTurnResult(`Virada feita: ${moved.length} produto(s), ${units} un transferidas.`)
       } else {
-        // Contagem física DIFERENTE do sistema: a diferença vira Ajuste no
-        // almoxarifado do evento (fica no histórico, com os dois números na
-        // nota) e o destino recebe EXATAMENTE o que foi contado.
-        const destLocId = turnDest.startsWith('event:')
-          ? await ensureEventStockLocation(turnDest.slice(6))
-          : turnDest.slice(4)
-        let transferidos = 0
-        let unidades = 0
+        // Contagem física DIFERENTE do sistema, em dois tempos:
+        //  1) a diferença vira Ajuste no almoxarifado do evento (com os dois
+        //     números na nota) — SEM event_id: o banco recusa ajuste ligado a
+        //     evento, e era isso que fazia a virada conferida falhar sempre;
+        //  2) com o saldo já igual ao contado, a MESMA RPC atômica do caminho
+        //     rápido leva a sobra inteira de uma vez.
+        // Se um ajuste falhar, nada foi transferido ainda — é só tentar de novo.
         let ajustes = 0
         for (const b of items) {
           const conferido = countedOf(b)
           const diff = Math.round((b.balance - conferido) * 100) / 100
-          if (diff !== 0) {
-            await createStockMovement({
-              product_id: b.product_id,
-              stock_location_id: b.stock_location_id,
-              event_id: turnFromEventId,
-              movement_type: diff > 0 ? 'Ajuste (saída)' : 'Ajuste (entrada)',
-              quantity: Math.abs(diff),
-              notes: `Conferência da sobra na virada — sistema ${b.balance}, contado ${conferido}`,
-              created_by: userId
-            })
-            ajustes++
-          }
-          if (conferido > 0) {
-            await transferStock({
-              product_id: b.product_id,
-              from_location_id: b.stock_location_id,
-              to_location_id: destLocId,
-              quantity: conferido,
-              notes: `Virada: ${eventName(turnFromEventId)} (sobra conferida)`
-            })
-            transferidos++
-            unidades += conferido
-          }
+          if (diff === 0) continue
+          await createStockMovement({
+            product_id: b.product_id,
+            stock_location_id: b.stock_location_id,
+            event_id: null,
+            movement_type: diff > 0 ? 'Ajuste (saída)' : 'Ajuste (entrada)',
+            quantity: Math.abs(diff),
+            notes: `Conferência da sobra na virada (${eventName(turnFromEventId)}) — sistema ${b.balance}, contado ${conferido}`,
+            created_by: userId
+          })
+          ajustes++
         }
-        setTurnResult(`Virada feita: ${transferidos} produto(s), ${unidades} un transferidas · ${ajustes} ajuste(s) de conferência registrados no histórico.`)
+        const dest = turnDest.startsWith('event:')
+          ? { toEventId: turnDest.slice(6) }
+          : { toLocationId: turnDest.slice(4) }
+        const moved = await transferEventLeftover(turnFromEventId, dest, `Virada: ${eventName(turnFromEventId)} (sobra conferida)`)
+        const unidades = moved.reduce((s, r) => s + Number(r.quantity), 0)
+        setTurnResult(`Virada feita: ${moved.length} produto(s), ${unidades} un transferidas · ${ajustes} ajuste(s) de conferência registrados no histórico.`)
       }
       setTurnFromEventId(''); setTurnDest(''); setTurnCounts({})
       load()
     } catch (err) {
       setTurnResult(err instanceof Error ? err.message : 'Erro na virada.')
+      // Recarrega mesmo no erro: se algum ajuste entrou, a tela precisa
+      // mostrar o saldo de agora pra próxima tentativa partir do número certo.
+      load()
     } finally {
       setTurnSaving(false)
       setTurnArmed(false)
