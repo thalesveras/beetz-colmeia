@@ -60,6 +60,9 @@ export default function EventStockSection({ eventId, canApprove }: { eventId: st
 
 type WideMovement = StockMovement & { in_event_location: boolean }
 
+// Número de gente: no máximo 2 casas e sem 4999.969999999999.
+const fmt = (n: number) => (Math.round(n * 100) / 100).toLocaleString('pt-BR')
+
 function EventStockAccountCard({ eventId }: { eventId: string }) {
   const [movements, setMovements] = useState<WideMovement[]>([])
   const [consumption, setConsumption] = useState<ProductionConsumption[]>([])
@@ -143,7 +146,7 @@ function EventStockAccountCard({ eventId }: { eventId: string }) {
     <div className="bg-white rounded-2xl p-6 shadow-soft border border-beetz-dark/5">
       <h2 className="font-bold text-lg flex items-center gap-2 mb-1"><ClipboardList size={18} /> A conta do estoque</h2>
       <p className="text-sm text-beetz-dark/50 mb-4">
-        Sobra = Entrou no evento − Consumo da produção − Vendido (aba Produtos).
+        Sobra = Entrou no evento − Devolvido à central − Consumo da produção − Vendido (aba Produtos).
       </p>
 
       {rows.length === 0 ? (
@@ -152,28 +155,28 @@ function EventStockAccountCard({ eventId }: { eventId: string }) {
         <>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
             <div className="bg-beetz-gray/60 rounded-xl p-3">
-              <p className="text-lg font-extrabold leading-none">{totals.entrou}</p>
+              <p className="text-lg font-extrabold leading-none">{fmt(totals.entrou)}</p>
               <p className="text-[11px] text-beetz-dark/50 mt-1">Entrou no evento</p>
             </div>
             <div className="bg-beetz-gray/60 rounded-xl p-3">
-              <p className="text-lg font-extrabold leading-none">{totals.consumo}</p>
+              <p className="text-lg font-extrabold leading-none">{fmt(totals.consumo)}</p>
               <p className="text-[11px] text-beetz-dark/50 mt-1">Consumo da produção</p>
             </div>
             <div className="bg-beetz-gray/60 rounded-xl p-3">
-              <p className="text-lg font-extrabold leading-none">{totals.vendido}</p>
+              <p className="text-lg font-extrabold leading-none">{fmt(totals.vendido)}</p>
               <p className="text-[11px] text-beetz-dark/50 mt-1">Vendido (aba Produtos)</p>
             </div>
             <div className="bg-beetz-dark text-white rounded-xl p-3">
-              <p className={`text-lg font-extrabold leading-none ${totals.sobra < 0 ? 'text-red-400' : ''}`}>{totals.sobra}</p>
+              <p className={`text-lg font-extrabold leading-none ${totals.sobra < 0 ? 'text-red-400' : ''}`}>{fmt(totals.sobra)}</p>
               <p className="text-[11px] text-white/50 mt-1">Sobra</p>
             </div>
           </div>
 
           {(totals.voltou > 0 || totals.perdas > 0) && (
             <p className="text-xs text-beetz-dark/50 bg-beetz-gray/50 rounded-lg px-3 py-2 mb-4">
-              A sobra já desconta{totals.voltou > 0 ? ` ${totals.voltou} un devolvidas ao depósito` : ''}
+              A sobra já desconta{totals.voltou > 0 ? ` ${fmt(totals.voltou)} un devolvidas à central` : ''}
               {totals.voltou > 0 && totals.perdas > 0 ? ' e' : ''}
-              {totals.perdas > 0 ? ` ${totals.perdas} un de perdas/quebras` : ''}.
+              {totals.perdas > 0 ? ` ${fmt(totals.perdas)} un de perdas/quebras` : ''}.
             </p>
           )}
 
@@ -183,6 +186,7 @@ function EventStockAccountCard({ eventId }: { eventId: string }) {
                 <tr className="border-b border-beetz-dark/10 text-left text-beetz-dark/50">
                   <th className="py-2 pr-3 font-medium">Produto</th>
                   <th className="py-2 px-3 font-medium text-right">Entrou</th>
+                  {totals.voltou > 0 && <th className="py-2 px-3 font-medium text-right">Devolvido</th>}
                   <th className="py-2 px-3 font-medium text-right">Consumo</th>
                   <th className="py-2 px-3 font-medium text-right">Vendido</th>
                   <th className="py-2 pl-3 font-medium text-right">Sobra</th>
@@ -192,12 +196,13 @@ function EventStockAccountCard({ eventId }: { eventId: string }) {
                 {rows.map((r) => (
                   <tr key={r.productId} className="border-b border-beetz-dark/5 last:border-0">
                     <td className="py-2.5 pr-3 font-semibold">{productName(r.productId)}</td>
-                    <td className="py-2.5 px-3 text-right">{r.entrou}</td>
-                    <td className={`py-2.5 px-3 text-right ${r.consumo > 0 ? '' : 'text-beetz-dark/30'}`}>{r.consumo}</td>
-                    <td className={`py-2.5 px-3 text-right ${r.vendido > 0 ? '' : 'text-beetz-dark/30'}`}>{r.vendido}</td>
+                    <td className="py-2.5 px-3 text-right">{fmt(r.entrou)}</td>
+                    {totals.voltou > 0 && <td className={`py-2.5 px-3 text-right ${r.voltou > 0 ? '' : 'text-beetz-dark/30'}`}>{fmt(r.voltou)}</td>}
+                    <td className={`py-2.5 px-3 text-right ${r.consumo > 0 ? '' : 'text-beetz-dark/30'}`}>{fmt(r.consumo)}</td>
+                    <td className={`py-2.5 px-3 text-right ${r.vendido > 0 ? '' : 'text-beetz-dark/30'}`}>{fmt(r.vendido)}</td>
                     <td className={`py-2.5 pl-3 text-right font-bold ${r.sobra < 0 ? 'text-red-600' : ''}`}>
                       {r.sobra < 0 && <AlertTriangle size={12} className="inline mr-1 -mt-0.5" />}
-                      {r.sobra}
+                      {fmt(r.sobra)}
                     </td>
                   </tr>
                 ))}

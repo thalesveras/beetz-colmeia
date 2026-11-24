@@ -45,6 +45,13 @@ export default function StockTab({ eventId }: { eventId: string }) {
     return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
   }
 
+  // "Transferência: A → B · obs" vira frase de gente: de onde veio / pra onde foi.
+  function transferLabel(m: StockMovement): string | null {
+    const match = (m.notes ?? '').match(/^Transferência: (.+?) → (.+?)(?: · .*)?$/)
+    if (!match) return null
+    return isPositiveMovementType(m.movement_type) ? `Veio de ${match[1]}` : `Foi para ${match[2]}`
+  }
+
   function canEditMovement(m: StockMovement) {
     return canEditStock(accessRole) || (canEditOwnStock(accessRole) && m.created_by === userId)
   }
@@ -67,14 +74,31 @@ export default function StockTab({ eventId }: { eventId: string }) {
         alert('A despesa vinculada a esta compra já saiu de Pendente — ajuste o valor no Financeiro manualmente.')
       }
     } else {
-      await updateStockMovement(m.id, { quantity: editQuantity })
+      try {
+        // Perna de transferência: quem manda é a linha ORIGINAL — o banco
+        // leva a outra ponta junto. Editar só o espelho era recusado.
+        await updateStockMovement(m.mirror_of ?? m.id, { quantity: editQuantity })
+      } catch (err) {
+        alert(err instanceof Error ? err.message : 'Não foi possível salvar.')
+      }
     }
     setEditingId(null)
     load()
   }
 
+  // Cancelar uma transferência desfaz as DUAS pontas (o produto deixa de ter
+  // saído de um lugar e entrado no outro). Antes, cancelar a linha do evento
+  // cancelava só metade — e o jeito de "corrigir" virava mandar de volta e
+  // mandar de novo, inflando o "Entrou" de A conta.
   async function toggleStatus(m: StockMovement) {
-    await updateStockMovement(m.id, { status: m.status === 'Cancelado' ? 'Ativo' : 'Cancelado' })
+    const ehTransferencia = !!m.mirror_of || (m.notes ?? '').startsWith('Transferência:')
+    if (m.status !== 'Cancelado' && ehTransferencia
+      && !window.confirm(`Cancelar esta transferência de ${m.quantity} un?\n\nIsso desfaz as duas pontas: o produto volta a constar no estoque de onde saiu.`)) return
+    try {
+      await updateStockMovement(m.mirror_of ?? m.id, { status: m.status === 'Cancelado' ? 'Ativo' : 'Cancelado' })
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Não foi possível cancelar.')
+    }
     load()
   }
 
@@ -178,7 +202,7 @@ export default function StockTab({ eventId }: { eventId: string }) {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold">{productName(m.product_id)}</p>
                   <p className="text-xs text-beetz-dark/50">
-                    {locationName(m.stock_location_id)} {m.status === 'Cancelado' ? '· Cancelado' : ''}
+                    {transferLabel(m) ?? locationName(m.stock_location_id)} {m.status === 'Cancelado' ? '· Cancelado' : ''}
                   </p>
                 </div>
                 {editingId === m.id ? (
