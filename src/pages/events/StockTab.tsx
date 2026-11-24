@@ -24,7 +24,7 @@ export default function StockTab({ eventId }: { eventId: string }) {
     // do evento. Compra/Ajuste não podem carregar o vínculo (regra do banco),
     // então a query estreita por event_id os deixava invisíveis — 6 mil BAGs
     // no saldo e "nada" na lista.
-    const [m, p, l, pr] = await Promise.all([listEventStockMovementsWide(eventId), listProducts(), listStockLocations(), listProfilesLite()])
+    const [m, p, l, pr] = await Promise.all([listEventStockMovementsWide(eventId, { includeCancelled: true }), listProducts(), listStockLocations(), listProfilesLite()])
     setMovements(m)
     setProducts(p)
     setLocations(l)

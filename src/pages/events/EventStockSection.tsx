@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, ArrowLeftRight, ClipboardList, Clock3 } from 'lucide-react'
-import { dropMirroredEventOrigins, listEventProducts, listEventStockMovementsWide, listProductionConsumption, listProducts } from '../../lib/dataService'
+import { PDV_BAIXA_NOTA, VENDIDO_BAIXA_NOTA, dropMirroredEventOrigins, listEventProducts, listEventStockMovementsWide, listProductionConsumption, listProducts } from '../../lib/dataService'
 import type { EventProduct, Product, ProductionConsumption, StockMovement } from '../../lib/types'
 import StockTab from './StockTab'
 import TransferRequestsTab from './TransferRequestsTab'
@@ -94,6 +94,15 @@ function EventStockAccountCard({ eventId }: { eventId: string }) {
     }
     for (const m of dropMirroredEventOrigins(movements, (x) => x.in_event_location)) {
       if (m.status === 'Cancelado') continue
+      // A baixa automática da venda é uma Saída dentro do estoque do evento.
+      // O Vendido já entra na conta pela aba Produtos (logo abaixo) — contar a
+      // baixa como "voltou" descontava a mesma venda duas vezes.
+      if (m.movement_type === 'Saída' && (m.notes === PDV_BAIXA_NOTA || m.notes === VENDIDO_BAIXA_NOTA)) continue
+      // Cerveja que saiu dentro de combo: é venda do insumo, soma no Vendido.
+      if (m.movement_type === 'Saída' && (m.notes ?? '').startsWith('Baixa do insumo dos combos')) {
+        get(m.product_id).vendido += m.quantity
+        continue
+      }
       // Entrou: envio formal OU entrada direta no almoxarifado do evento.
       if (m.movement_type === 'Envio para Evento') get(m.product_id).entrou += m.quantity
       else if (m.in_event_location && ['Entrada', 'Compra', 'Ajuste (entrada)'].includes(m.movement_type)) get(m.product_id).entrou += m.quantity

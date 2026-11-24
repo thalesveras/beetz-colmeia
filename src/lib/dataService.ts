@@ -2693,38 +2693,44 @@ export async function syncStockFromPdv(eventId: string, createdBy: string | null
     }
   }
 
-  // Se as baixas vigentes já são exatamente estas, não mexe — salvar um
-  // produto sem mudar o vendido não pode encher o histórico de cancelamentos.
+  // Acerta SÓ a diferença. Antes, qualquer mudança cancelava as baixas de
+  // TODOS os produtos e relançava todas: num evento com 30 produtos, cada
+  // "salvar" gerava 30 cancelamentos — o Clássicos do Forró juntou 1.591
+  // linhas canceladas em uma tarde e as telas do evento (que leem até 1.000
+  // linhas) pararam de enxergar as entradas. Agora: baixa que já está certa
+  // fica como está; só a que mudou é cancelada e relançada.
   const { data: vigentes, error: vigErr } = await supabase.from('stock_movements')
-    .select('product_id, quantity, notes')
+    .select('id, product_id, quantity, notes')
     .eq('stock_location_id', loc.id).eq('movement_type', 'Saída').eq('status', 'Ativo')
     .in('notes', [PDV_BAIXA_NOTA, VENDIDO_BAIXA_NOTA])
   if (vigErr) throw vigErr
-  const atuais = (vigentes ?? []) as { product_id: string; quantity: number; notes: string }[]
-  const iguais = atuais.length === esperado.size
-    && atuais.every((m) => m.notes === nota && Number(m.quantity) === esperado.get(m.product_id))
-  if (iguais) return esperado.size
+  const atuais = (vigentes ?? []) as { id: string; product_id: string; quantity: number; notes: string }[]
+  const jaCerto = new Set<string>()
+  const cancelar: string[] = []
+  for (const m of atuais) {
+    const certo = m.notes === nota && Number(m.quantity) === esperado.get(m.product_id) && !jaCerto.has(m.product_id)
+    if (certo) jaCerto.add(m.product_id)
+    else cancelar.push(m.id)
+  }
+  if (cancelar.length) {
+    const { error: offErr } = await supabase.from('stock_movements')
+      .update({ status: 'Cancelado' }).in('id', cancelar)
+    if (offErr) throw offErr
+  }
 
-  // Cancela as baixas automáticas vigentes (identificadas pela nota) e relança.
-  const { error: offErr } = await supabase.from('stock_movements')
-    .update({ status: 'Cancelado' })
-    .eq('stock_location_id', loc.id)
-    .eq('movement_type', 'Saída')
-    .in('notes', [PDV_BAIXA_NOTA, VENDIDO_BAIXA_NOTA])
-    .eq('status', 'Ativo')
-  if (offErr) throw offErr
-
-  const rows: NewStockMovementInput[] = Array.from(esperado.entries()).map(([product_id, quantity]) => ({
-    product_id,
-    stock_location_id: loc.id,
-    event_id: eventId,
-    movement_type: 'Saída',
-    quantity,
-    notes: nota,
-    created_by: createdBy
-  }))
+  const rows: NewStockMovementInput[] = Array.from(esperado.entries())
+    .filter(([product_id]) => !jaCerto.has(product_id))
+    .map(([product_id, quantity]) => ({
+      product_id,
+      stock_location_id: loc.id,
+      event_id: eventId,
+      movement_type: 'Saída',
+      quantity,
+      notes: nota,
+      created_by: createdBy
+    }))
   if (rows.length) await createStockMovementsBulk(rows)
-  return rows.length
+  return esperado.size
 }
 
 // O elo que dispensa digitação: soma TODAS as linhas mapeadas do PDV por
@@ -2973,16 +2979,29 @@ export function dropMirroredEventOrigins<T extends {
   ))
 }
 
-export async function listEventStockMovementsWide(eventId: string): Promise<(StockMovement & { in_event_location: boolean })[]> {
+export async function listEventStockMovementsWide(
+  eventId: string, opts: { includeCancelled?: boolean } = {}
+): Promise<(StockMovement & { in_event_location: boolean })[]> {
   if (isDemoMode) return []
   const { data: locs } = await supabase.from('stock_locations').select('id').eq('event_id', eventId)
   const locIds = new Set(((locs ?? []) as { id: string }[]).map((l) => l.id))
   const orFilter = locIds.size > 0
     ? `event_id.eq.${eventId},stock_location_id.in.(${Array.from(locIds).join(',')})`
     : `event_id.eq.${eventId}`
-  const { data, error } = await supabase.from('stock_movements').select('*').or(orFilter).order('created_at', { ascending: false })
-  if (error) throw error
-  return ((data ?? []) as StockMovement[]).map((m) => ({ ...m, in_event_location: locIds.has(m.stock_location_id) }))
+  // Lê em páginas: o servidor devolve no máximo 1.000 linhas por consulta, e
+  // um evento movimentado passa disso — as mais antigas (as ENTRADAS) eram
+  // cortadas e "A conta" mostrava um produto só. Por padrão vêm só as linhas
+  // ativas (é o que as contas usam); o histórico pede as canceladas também.
+  const all: StockMovement[] = []
+  for (let from = 0; ; from += 1000) {
+    let q = supabase.from('stock_movements').select('*').or(orFilter)
+    if (!opts.includeCancelled) q = q.neq('status', 'Cancelado')
+    const { data, error } = await q.order('created_at', { ascending: false }).order('id').range(from, from + 999)
+    if (error) throw error
+    all.push(...((data ?? []) as StockMovement[]))
+    if (!data || data.length < 1000) break
+  }
+  return all.map((m) => ({ ...m, in_event_location: locIds.has(m.stock_location_id) }))
 }
 
 export async function getEventStockByProduct(eventId: string): Promise<EventStockLine[]> {
