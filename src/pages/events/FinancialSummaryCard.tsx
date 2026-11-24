@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Building2, Copy, Printer, Save, ShieldCheck, UserRound } from 'lucide-react'
-import { getClosingDossier, getEventFinancialSummary, listCashierSettlementsForEvent, listEventRepasses, listProfilesLite, updateEvent } from '../../lib/dataService'
+import { Building2, Copy, Package, Printer, Save, ShieldCheck, UserRound } from 'lucide-react'
+import {
+  getClosingDossier, getEventFinancialSummary, listCashierSettlementsForEvent, listEventProducts, listEventRepasses,
+  listEventStockMovementsWide, listProductionConsumption, listProducts, listProfilesLite, updateEvent
+} from '../../lib/dataService'
 import type { EventFinancialSummary, EventItem, EventRepasse } from '../../lib/types'
 import { useAuth } from '../../contexts/AuthContext'
 import { canExportClosingPdf } from '../../lib/permissions'
@@ -22,6 +25,10 @@ function dateBR(iso: string) {
   return new Date(iso + (iso.length === 10 ? 'T12:00:00' : '')).toLocaleDateString('pt-BR')
 }
 
+// Linha da tabela de estoque do fechamento do produtor.
+interface StockLine { name: string; entrou: number; vendido: number; consumo: number; sobra: number | null }
+const qty = (n: number) => (Math.round(n * 100) / 100).toLocaleString('pt-BR')
+
 interface Props {
   event: EventItem
   onEventUpdated: (updated: EventItem) => void
@@ -36,6 +43,60 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
   const [copied, setCopied] = useState(false)
   const [dossieBusy, setDossieBusy] = useState(false)
   const [view, setView] = useState<'empresa' | 'produtor'>('empresa')
+  // Estoque no fechamento do produtor: opção por evento, DESLIGADA por padrão
+  // (estoque é informação interna até alguém decidir mostrar).
+  const [showStock, setShowStock] = useState(!!event.show_stock_in_closing)
+  const [stockLines, setStockLines] = useState<StockLine[] | null>(null)
+
+  useEffect(() => { setShowStock(!!event.show_stock_in_closing) }, [event.id, event.show_stock_in_closing])
+
+  // Só busca os dados de estoque quando a opção está ligada.
+  useEffect(() => {
+    if (!showStock) return
+    let vivo = true
+    Promise.all([
+      listEventStockMovementsWide(event.id), listEventProducts(event.id),
+      listProductionConsumption(event.id).catch(() => []), listProducts()
+    ]).then(([movs, eps, cons, prods]) => {
+      if (!vivo) return
+      const map = new Map<string, { entrou: number; vendido: number; consumo: number }>()
+      const get = (id: string) => {
+        const e = map.get(id) ?? { entrou: 0, vendido: 0, consumo: 0 }
+        map.set(id, e)
+        return e
+      }
+      // Entrou = o que chegou no estoque do evento, já descontado o que foi
+      // devolvido (transferência de volta) — é o número que o produtor entende.
+      for (const m of movs) {
+        if (!m.in_event_location) continue
+        const transferencia = (m.notes ?? '').startsWith('Transferência:')
+        if (['Entrada', 'Compra', 'Ajuste (entrada)'].includes(m.movement_type)) get(m.product_id).entrou += m.quantity
+        else if (m.movement_type === 'Saída' && transferencia) get(m.product_id).entrou -= m.quantity
+      }
+      for (const ep of eps) get(ep.product_id).vendido += ep.sold_quantity ?? 0
+      for (const c of cons) get(c.product_id).consumo += c.quantity
+      const nome = (id: string) => prods.find((p) => p.id === id)?.name ?? '—'
+      setStockLines(Array.from(map.entries())
+        .filter(([, v]) => v.entrou > 0 || v.vendido > 0 || v.consumo > 0)
+        .map(([id, v]) => ({
+          name: nome(id), ...v,
+          // Item de cardápio (drink): vendido sem entrada própria — sem sobra.
+          sobra: v.entrou > 0 ? v.entrou - v.vendido - v.consumo : null
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')))
+    }).catch(() => { if (vivo) setStockLines([]) })
+    return () => { vivo = false }
+  }, [showStock, event.id])
+
+  async function toggleShowStock(v: boolean) {
+    setShowStock(v)
+    try {
+      onEventUpdated(await updateEvent(event.id, { show_stock_in_closing: v }))
+    } catch {
+      setShowStock(!v)
+      alert('Não consegui salvar essa opção. Tente de novo.')
+    }
+  }
 
   const [salesAmount, setSalesAmount] = useState(event.sales_amount)
   const [percentage, setPercentage] = useState(event.commission_percentage)
@@ -263,6 +324,11 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
               ? `<h2>Repasses já recebidos da Beetz</h2><table>${repasses.map((r) =>
                   `<tr><td class="k">${esc(dateBR(r.paid_at))}${r.notes ? ` · ${esc(r.notes)}` : ''}</td><td class="v">${esc(currency(r.amount))}</td></tr>`).join('')}</table>`
               : ''
+            const estoqueHtml = showStock && stockLines && stockLines.length
+              ? `<h2>Estoque do evento</h2><table class="est"><tr><th>Produto</th><th>Entrou</th><th>Vendido</th><th>Consumo</th><th>Sobra</th></tr>${stockLines.map((l) =>
+                  `<tr><td>${esc(l.name)}</td><td>${l.entrou > 0 ? qty(l.entrou) : '—'}</td><td>${qty(l.vendido)}</td><td>${l.consumo > 0 ? qty(l.consumo) : '—'}</td><td>${l.sobra == null ? '—' : qty(l.sobra)}</td></tr>`).join('')}</table>
+                  <p class="foot" style="margin-top:8px">Sobra = Entrou − Vendido − Consumo da produção. Drinks preparados no bar aparecem só em Vendido.</p>`
+              : ''
             w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(`Fechamento - ${event.name}`)}</title><style>
               body { font-family: -apple-system, 'Segoe UI', Arial, sans-serif; color: #221f1a; margin: 40px auto; max-width: 640px; padding: 0 16px; }
               .head { display: flex; gap: 16px; align-items: flex-start; border-bottom: 2px solid #221f1a; padding-bottom: 16px; }
@@ -275,6 +341,9 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
               .k { color: #666; } .v { font-weight: 600; text-align: right; white-space: nowrap; } .neg { color: #b91c1c; }
               .saldo { display: flex; justify-content: space-between; align-items: baseline; border-top: 2px solid #221f1a; margin-top: 4px; padding-top: 12px; }
               .saldo span { font-weight: 700; } .saldo strong { font-size: 22px; color: ${saldoAReceber >= 0 ? '#15803d' : '#b91c1c'}; }
+              .est th { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: #777; text-align: right; padding: 6px 4px; border-bottom: 1.5px solid #221f1a; }
+              .est th:first-child, .est td:first-child { text-align: left; }
+              .est td { font-size: 11.5px; padding: 5px 4px; text-align: right; } .est tr { break-inside: avoid; }
               .foot { font-size: 10px; color: #aaa; margin-top: 32px; }
               @media print { body { margin: 0 auto; } }
             </style></head><body>
@@ -290,6 +359,7 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
               <table>${rowsHtml}</table>
               <div class="saldo"><span>Saldo a receber</span><strong>${esc(currency(saldoAReceber))}</strong></div>
               ${repassesHtml}
+              ${estoqueHtml}
               <p class="foot">Gerado pela Colmeia Beetz em ${new Date().toLocaleDateString('pt-BR')}, a partir dos lançamentos deste evento.</p>
             </body></html>`)
             w.document.close()
@@ -561,6 +631,11 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
               <Copy size={14} /> {copied ? 'Copiado ✓' : 'Copiar pro WhatsApp'}
             </button>
           </div>
+          <label className="flex items-center gap-2.5 text-sm text-white/80 mb-3 cursor-pointer select-none w-fit">
+            <input type="checkbox" checked={showStock} onChange={(e) => toggleShowStock(e.target.checked)} className="w-4 h-4 accent-beetz-yellow" />
+            <Package size={14} /> Mostrar o estoque no fechamento do produtor
+            <span className="text-white/40 text-xs">{showStock ? '· aparece na folha e no PDF' : '· desligado: fica só interno'}</span>
+          </label>
           {/* Documento branco de propósito: é a folha que se mostra pra
               produtora, destacada do painel interno escuro. */}
           <div className="bg-white text-beetz-dark rounded-2xl p-5 md:p-6">
@@ -616,6 +691,45 @@ export default function FinancialSummaryCard({ event, onEventUpdated }: Props) {
                 </div>
               )}
             </div>
+
+            {showStock && (
+              <div className="mt-5 pt-4 border-t border-beetz-dark/10">
+                <p className="text-sm font-bold mb-2">Estoque do evento</p>
+                {stockLines == null ? (
+                  <p className="text-xs text-beetz-dark/45">Carregando o estoque...</p>
+                ) : stockLines.length === 0 ? (
+                  <p className="text-xs text-beetz-dark/45">Nenhum produto lançado no estoque deste evento.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-beetz-dark/20 text-beetz-dark/50">
+                          <th className="py-1.5 pr-2 text-left font-medium">Produto</th>
+                          <th className="py-1.5 px-2 text-right font-medium">Entrou</th>
+                          <th className="py-1.5 px-2 text-right font-medium">Vendido</th>
+                          <th className="py-1.5 px-2 text-right font-medium">Consumo</th>
+                          <th className="py-1.5 pl-2 text-right font-medium">Sobra</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {stockLines.map((l) => (
+                          <tr key={l.name} className="border-b border-beetz-dark/5 last:border-0">
+                            <td className="py-1.5 pr-2 font-semibold">{l.name}</td>
+                            <td className="py-1.5 px-2 text-right">{l.entrou > 0 ? qty(l.entrou) : '—'}</td>
+                            <td className="py-1.5 px-2 text-right">{qty(l.vendido)}</td>
+                            <td className="py-1.5 px-2 text-right">{l.consumo > 0 ? qty(l.consumo) : '—'}</td>
+                            <td className={`py-1.5 pl-2 text-right font-bold ${l.sobra != null && l.sobra < 0 ? 'text-red-600' : ''}`}>{l.sobra == null ? '—' : qty(l.sobra)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <p className="text-[11px] text-beetz-dark/40 mt-2">
+                  Sobra = Entrou − Vendido − Consumo da produção. Drinks preparados no bar aparecem só em Vendido.
+                </p>
+              </div>
+            )}
 
             <p className="text-[11px] text-beetz-dark/35 mt-5">
               Gerado automaticamente a partir dos lançamentos deste evento na Colmeia Beetz.

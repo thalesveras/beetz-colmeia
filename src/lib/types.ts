@@ -171,6 +171,8 @@ export interface EventItem {
   credits_bonus: number
   // Alíquota de imposto DESTE evento; null usa o padrão de Configurações.
   tax_percentage: number | null
+  // Fechamento do produtor mostra a tabela de estoque? Padrão: não (interno).
+  show_stock_in_closing?: boolean
   repasses: number
   // Portal do produtor / contrato via ZapSign
   producer_id: string | null
